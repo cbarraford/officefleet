@@ -1,0 +1,77 @@
+database:
+  dsn: ${env:FLEET_DATABASE_DSN}
+
+backends:
+  - name: claude-default
+    kind: claude
+    auth:
+      mode: subscription
+    default_effort: high
+
+agents:
+  - name: dev-1
+    role: developer
+    enabled: true
+    default_backend:
+      name: claude-default
+    system_prompt: |
+      You are dev-1, a senior software engineer and code reviewer with deep expertise in
+      Go, distributed systems, and security best practices.
+
+      When reviewing merge requests you will:
+      - Identify correctness bugs, race conditions, and error-handling gaps
+      - Flag security vulnerabilities and unsafe patterns
+      - Suggest simplifications that reduce cognitive load without sacrificing clarity
+      - Keep all review comments terse and actionable — one concern per comment
+      - Prioritise concurrency issues and proper resource cleanup above style nits
+
+      You communicate in plain English. Avoid filler phrases such as "Great work!" or
+      "Looks good to me." Get straight to the point.
+
+duties:
+  - name: mr-reviewer
+    role: developer
+    description: Review an open merge request and post structured feedback as a comment.
+    trigger_kinds:
+      - manual
+      - cron
+    required_tools:
+      - glab
+    prompt: |
+      Review merge request !{{.Event.mr_iid}} in project {{.Assignment.project}}.
+
+      You are acting as {{.Agent.name}}. Use the `glab` CLI to fetch the diff and any
+      existing comments, then produce a concise review covering:
+
+      1. Correctness — are there logic errors, unhandled errors, or data races?
+      2. Security — injection risks, credential leakage, unsafe deserialization?
+      3. Clarity — confusing variable names, missing context, over-engineering?
+
+      Output your review as Markdown suitable for a GitLab MR comment.
+    output_actions:
+      - plugin: gitlab
+        action: post_mr_comment
+        params_template: |
+          {"project": "{{.Assignment.project}}", "mr_iid": "{{.Event.mr_iid}}", "body": "{{.Event.llm_summary}}"}
+
+assignments:
+  - agent: dev-1
+    duty: mr-reviewer
+    enabled: true
+    trigger:
+      kind: manual
+    config:
+      project: "myorg/myrepo"
+    extra_instructions: "Focus on concurrency and error handling. Keep comments terse."
+    outputs:
+      - plugin: gitlab
+        action: post_mr_comment
+        params:
+          project: "{{.Assignment.project}}"
+          mr_iid: "{{.Event.mr_iid}}"
+          body: "{{.Event.llm_summary}}"
+
+plugins:
+  - name: gitlab
+    config:
+      base_url: "https://gitlab.com"
