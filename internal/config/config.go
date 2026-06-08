@@ -122,6 +122,9 @@ func Validate(cfg *Config) []error {
 		default:
 			errs = append(errs, fmt.Errorf("backend %q: unknown auth mode %q", b.Name, b.Auth.Mode))
 		}
+		if b.Auth.Mode == "api_key" && strings.TrimSpace(b.Auth.APIKey) == "" {
+			errs = append(errs, fmt.Errorf("backend %s: auth mode api_key requires api_key to be set", b.Name))
+		}
 	}
 
 	agentNames := map[string]bool{}

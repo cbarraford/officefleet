@@ -27,9 +27,8 @@ type Agent struct {
 
 // OutputActionType declares an output action a Duty can emit.
 type OutputActionType struct {
-	Plugin         string `json:"plugin"`
-	Action         string `json:"action"`
-	ParamsTemplate string `json:"params_template"`
+	Plugin string `json:"plugin"`
+	Action string `json:"action"`
 }
 
 // Duty is a reusable definition of work.

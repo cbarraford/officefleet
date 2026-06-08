@@ -10,12 +10,12 @@ import (
 type MemStore struct {
 	mu        sync.Mutex
 	kv        map[string][]byte
-	notes     []json.RawMessage
+	notes     map[string][]json.RawMessage
 	processed map[string]bool
 }
 
 func NewMemStore() *MemStore {
-	return &MemStore{kv: map[string][]byte{}, processed: map[string]bool{}}
+	return &MemStore{kv: map[string][]byte{}, notes: map[string][]json.RawMessage{}, processed: map[string]bool{}}
 }
 
 func (m *MemStore) Get(_ context.Context, assignmentID, key string) ([]byte, bool, error) {
@@ -34,10 +34,10 @@ func (m *MemStore) Delete(_ context.Context, assignmentID, key string) error {
 	delete(m.kv, assignmentID+":"+key); return nil
 }
 
-func (m *MemStore) AppendNote(_ context.Context, _ string, note any) error {
+func (m *MemStore) AppendNote(_ context.Context, assignmentID string, note any) error {
 	b, _ := json.Marshal(note)
 	m.mu.Lock(); defer m.mu.Unlock()
-	m.notes = append(m.notes, b); return nil
+	m.notes[assignmentID] = append(m.notes[assignmentID], b); return nil
 }
 
 func (m *MemStore) HasProcessed(_ context.Context, assignmentID, dedupKey string) (bool, error) {

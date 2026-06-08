@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/cbarraford/office-fleet/internal/plugin"
 	"github.com/cbarraford/office-fleet/internal/repo"
 	"github.com/cbarraford/office-fleet/internal/run"
+	"github.com/cbarraford/office-fleet/internal/seed"
 	"github.com/cbarraford/office-fleet/internal/state"
 	"github.com/cbarraford/office-fleet/internal/trigger"
 
@@ -122,7 +124,15 @@ func migrateCmd() *cobra.Command {
 			if err := db.Migrate(ctx, pool); err != nil {
 				return fmt.Errorf("migrate: %w", err)
 			}
-			fmt.Println("migrations applied successfully")
+			if cfg != nil {
+				agentRepo := repo.NewAgentRepo(pool)
+				dutyRepo := repo.NewDutyRepo(pool)
+				assignmentRepo := repo.NewAssignmentRepo(pool)
+				if err := seed.FromConfig(ctx, cfg, agentRepo, dutyRepo, assignmentRepo); err != nil {
+					return fmt.Errorf("seed: %w", err)
+				}
+			}
+			fmt.Println("schema migrated and config seeded")
 			return nil
 		},
 	}
@@ -167,6 +177,7 @@ func backendsCmd() *cobra.Command {
 		Short: "Backend management commands",
 	}
 	cmd.AddCommand(backendsListCmd())
+	cmd.AddCommand(backendsLoginCmd())
 	return cmd
 }
 
@@ -193,6 +204,43 @@ func backendsListCmd() *cobra.Command {
 				fmt.Printf("%-20s %-20s %-12s %-10s\n", b.Name, b.Kind, b.Auth.Mode, effort)
 			}
 			return nil
+		},
+	}
+}
+
+func backendsLoginCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "login <backend-name>",
+		Short: "Log in to a CLI backend (claude/codex/gemini)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			backendName := args[0]
+			cfg, err := loadConfig()
+			if err != nil {
+				return fmt.Errorf("load config: %w", err)
+			}
+			var backend *config.Backend
+			for i := range cfg.Backends {
+				if cfg.Backends[i].Name == backendName {
+					b := cfg.Backends[i]
+					backend = &b
+					break
+				}
+			}
+			if backend == nil {
+				return fmt.Errorf("backend %q not found in config", backendName)
+			}
+			switch backend.Kind {
+			case "claude", "codex", "gemini":
+				// valid CLI backend kinds
+			default:
+				return fmt.Errorf("backend %q has kind %q which is not a CLI backend (must be claude, codex, or gemini)", backendName, backend.Kind)
+			}
+			c := exec.Command(backend.Kind, "login")
+			c.Stdin = os.Stdin
+			c.Stdout = os.Stdout
+			c.Stderr = os.Stderr
+			return c.Run()
 		},
 	}
 }
@@ -343,10 +391,14 @@ func runCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "run",
+		Use:   "run [assignment-id]",
 		Short: "Execute an assignment",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
+
+			if flagID == "" && len(args) > 0 {
+				flagID = args[0]
+			}
 
 			cfg, err := loadConfig()
 			if err != nil {
@@ -602,7 +654,17 @@ func scheduleCmd() *cobra.Command {
 					return
 				}
 
-				exec := executor.NewClaudeExecutor("")
+				var apiKey string
+				for _, ac := range cfg.Assignments {
+					if ac.Agent == agent.Name && ac.Duty == duty.Name {
+						backend, _, berr := config.ResolveBackend(cfg, ac)
+						if berr == nil && backend.Auth.Mode == "api_key" {
+							apiKey = backend.Auth.APIKey
+						}
+						break
+					}
+				}
+				exec := executor.NewClaudeExecutor(apiKey)
 				result, err := pipeline.Execute(runCtx, run.ExecuteRequest{
 					Assignment:  assignment,
 					Agent:       agent,

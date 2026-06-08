@@ -32,6 +32,8 @@ func (g *GitLabPlugin) EventSources() []plugin.EventSource {
 func (g *GitLabPlugin) Actions() []plugin.Action {
 	return []plugin.Action{
 		{Name: "post_mr_comment", Description: "Post a comment on a merge request"},
+		{Name: "resolve_discussion", Description: "Resolve a discussion thread (stub, SP3)"},
+		{Name: "create_issue", Description: "Create a GitLab issue (stub, SP3)"},
 	}
 }
 
@@ -62,15 +64,31 @@ func (g *GitLabPlugin) Do(ctx context.Context, action string, params map[string]
 	switch action {
 	case "post_mr_comment":
 		return g.postMRComment(ctx, params)
+	case "resolve_discussion", "create_issue":
+		return nil, fmt.Errorf("gitlab: %s not yet implemented (SP3)", action)
 	default:
 		return nil, fmt.Errorf("gitlab: unknown action %q", action)
 	}
 }
 
+// paramToString converts a parameter value to a string, handling string, int, and float64 types.
+func paramToString(v any) string {
+	switch val := v.(type) {
+	case string:
+		return val
+	case int:
+		return fmt.Sprintf("%d", val)
+	case float64:
+		return fmt.Sprintf("%g", val)
+	default:
+		return ""
+	}
+}
+
 func (g *GitLabPlugin) postMRComment(ctx context.Context, params map[string]any) (map[string]any, error) {
-	project, _ := params["project"].(string)
-	mrIID, _ := params["mr_iid"].(string)
-	body, _ := params["body"].(string)
+	project := paramToString(params["project"])
+	mrIID := paramToString(params["mr_iid"])
+	body := paramToString(params["body"])
 	if project == "" || mrIID == "" || body == "" {
 		return nil, fmt.Errorf("gitlab post_mr_comment: project, mr_iid, and body are required")
 	}

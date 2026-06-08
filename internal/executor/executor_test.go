@@ -2,12 +2,15 @@ package executor_test
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"testing"
 
 	"github.com/cbarraford/office-fleet/internal/domain"
 	"github.com/cbarraford/office-fleet/internal/executor"
 )
+
+var liveFlag = flag.Bool("live", false, "run live tests against real claude CLI")
 
 func TestFakeExecutor_RecordsRequest(t *testing.T) {
 	fake := executor.NewFakeExecutor(domain.LLMResult{
@@ -39,5 +42,25 @@ func TestFakeExecutor_ErrorPropagation(t *testing.T) {
 	_, err := fake.Run(context.Background(), executor.LLMRequest{})
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestClaudeExecutor_LiveSmoke(t *testing.T) {
+	if !*liveFlag {
+		t.Skip("skipping live test; pass -live to enable")
+	}
+	ex := executor.NewClaudeExecutor("")
+	req := executor.LLMRequest{
+		Prompt: "Reply with only the word: OK",
+	}
+	result, err := ex.Run(context.Background(), req)
+	if err != nil {
+		t.Fatalf("live claude run failed: %v", err)
+	}
+	if result.Status != 0 {
+		t.Errorf("unexpected non-zero status: %d", result.Status)
+	}
+	if result.Summary == "" {
+		t.Error("expected non-empty summary from live run")
 	}
 }

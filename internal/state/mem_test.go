@@ -57,3 +57,31 @@ func TestMemStore_TwoAssignmentsSameKey(t *testing.T) {
 		t.Fatalf("state leakage: v1=%q v2=%q", v1, v2)
 	}
 }
+
+func TestMemStore_AppendNote(t *testing.T) {
+	ctx := context.Background()
+	s := state.NewMemStore()
+
+	// AppendNote on two different assignmentIDs must not panic and must not error.
+	if err := s.AppendNote(ctx, "assign-1", map[string]string{"msg": "hello"}); err != nil {
+		t.Fatalf("AppendNote assign-1: %v", err)
+	}
+	if err := s.AppendNote(ctx, "assign-2", map[string]string{"msg": "world"}); err != nil {
+		t.Fatalf("AppendNote assign-2: %v", err)
+	}
+
+	// The two assignments have independent KV state — a Get on one does not
+	// affect the other.
+	_ = s.Set(ctx, "assign-1", "k", []byte("v1"))
+	_ = s.Set(ctx, "assign-2", "k", []byte("v2"))
+
+	v1, ok1, err1 := s.Get(ctx, "assign-1", "k")
+	if err1 != nil || !ok1 || string(v1) != "v1" {
+		t.Fatalf("assign-1 state: got %q ok=%v err=%v", v1, ok1, err1)
+	}
+
+	v2, ok2, err2 := s.Get(ctx, "assign-2", "k")
+	if err2 != nil || !ok2 || string(v2) != "v2" {
+		t.Fatalf("assign-2 state: got %q ok=%v err=%v", v2, ok2, err2)
+	}
+}

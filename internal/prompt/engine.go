@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"text/template"
@@ -16,11 +17,12 @@ type Context struct {
 	Assignment map[string]any
 	State      map[string]any
 	Now        time.Time
+	Secrets    map[string]string
 }
 
 // Render executes a Go text/template with the given context.
 func Render(tmpl string, ctx Context) (string, error) {
-	t, err := template.New("prompt").Funcs(helpers()).Parse(tmpl)
+	t, err := template.New("prompt").Funcs(helpers(ctx.Secrets)).Parse(tmpl)
 	if err != nil {
 		return "", fmt.Errorf("parse template: %w", err)
 	}
@@ -60,7 +62,7 @@ func ComposePrompts(
 	return system, task, nil
 }
 
-func helpers() template.FuncMap {
+func helpers(secrets map[string]string) template.FuncMap {
 	return template.FuncMap{
 		"date": func() string { return time.Now().Format("2006-01-02") },
 		"truncate": func(s string, n int) string {
@@ -74,6 +76,26 @@ func helpers() template.FuncMap {
 				return def
 			}
 			return val
+		},
+		"secret": func(name string) (string, error) {
+			if secrets == nil {
+				return "", fmt.Errorf("secrets not available in this execution context")
+			}
+			val, ok := secrets[name]
+			if !ok {
+				return "", fmt.Errorf("secret %q not found", name)
+			}
+			return val, nil
+		},
+		"json": func(v any) (string, error) {
+			b, err := json.Marshal(v)
+			if err != nil {
+				return "", fmt.Errorf("json marshal: %w", err)
+			}
+			return string(b), nil
+		},
+		"fetch": func(pluginName, action string, params map[string]any) (any, error) {
+			return nil, fmt.Errorf("fetch helper not available in this execution context")
 		},
 	}
 }

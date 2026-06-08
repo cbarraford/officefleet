@@ -25,6 +25,10 @@ func NewClaudeExecutor(apiKey string) *ClaudeExecutor {
 func (c *ClaudeExecutor) Kind() string { return "claude" }
 
 func (c *ClaudeExecutor) Run(ctx context.Context, req LLMRequest) (domain.LLMResult, error) {
+	if _, err := exec.LookPath("claude"); err != nil {
+		return domain.LLMResult{}, fmt.Errorf("claude binary not found on PATH: %w", err)
+	}
+
 	if err := verifyTools(req.Tools); err != nil {
 		return domain.LLMResult{}, err
 	}
@@ -32,6 +36,9 @@ func (c *ClaudeExecutor) Run(ctx context.Context, req LLMRequest) (domain.LLMRes
 	args := []string{"--print", "--output-format", "json"}
 	if req.Model != "" {
 		args = append(args, "--model", req.Model)
+	}
+	if req.Effort != "" {
+		args = append(args, "--effort", req.Effort)
 	}
 
 	combinedPrompt := buildClaudePrompt(req)

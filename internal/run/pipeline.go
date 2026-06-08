@@ -84,7 +84,7 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 	}
 
 	// Resolve backend model/effort from config.
-	backend, _, err := config.ResolveBackend(p.cfg, findAssignmentConfig(p.cfg, req.Assignment))
+	backend, _, err := config.ResolveBackend(p.cfg, findAssignmentConfig(p.cfg, req.Assignment, req.Agent.Name, req.Duty.Name))
 	if err != nil {
 		return nil, fmt.Errorf("resolve backend: %w", err)
 	}
@@ -110,6 +110,20 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 	}
 	if err := p.runRepo.Insert(ctx, run); err != nil {
 		return nil, fmt.Errorf("record run start: %w", err)
+	}
+
+	// Dedup: skip if this event has already been processed for this assignment.
+	dedupKey := deriveDedupKey(req.EventParams)
+	if dedupKey != "" {
+		already, err := p.store.HasProcessed(ctx, req.Assignment.ID.String(), dedupKey)
+		if err != nil {
+			return nil, fmt.Errorf("dedup check: %w", err)
+		}
+		if already {
+			_ = p.runRepo.UpdateStatus(ctx, run.ID, domain.RunStatusSkipped, nil)
+			run.Status = domain.RunStatusSkipped
+			return run, nil
+		}
 	}
 
 	// Execute LLM.
@@ -144,6 +158,9 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 	if err := p.runRepo.UpdateResult(ctx, run.ID, &llmResult, deliveries, status); err != nil {
 		return nil, fmt.Errorf("record run result: %w", err)
 	}
+	if dedupKey != "" {
+		_ = p.store.MarkProcessed(ctx, req.Assignment.ID.String(), dedupKey)
+	}
 
 	run.LLMResult = &llmResult
 	run.OutputsDelivered = deliveries
@@ -154,16 +171,35 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 }
 
 // findAssignmentConfig maps a domain.Assignment back to its config.AssignmentConfig for backend resolution.
-func findAssignmentConfig(cfg *config.Config, a *domain.Assignment) config.AssignmentConfig {
+func findAssignmentConfig(cfg *config.Config, a *domain.Assignment, agentName, dutyName string) config.AssignmentConfig {
 	for _, ac := range cfg.Assignments {
-		// Match by agent+duty names is not possible directly; look up by IDs is not in config.
-		// Use the assignment's Backend field directly if set.
-		_ = ac
+		if ac.Agent == agentName && ac.Duty == dutyName {
+			return ac
+		}
 	}
 	// Return a minimal AssignmentConfig so ResolveBackend can still work via Agent/Duty fallback.
 	var ac config.AssignmentConfig
+	ac.Agent = agentName
+	ac.Duty = dutyName
 	if a.Backend != nil {
 		ac.Backend = a.Backend
 	}
 	return ac
 }
+
+// deriveDedupKey extracts a deduplication key from event params.
+func deriveDedupKey(params map[string]any) string {
+	if v, ok := params["mr_iid"]; ok {
+		return fmt.Sprintf("mr_iid:%v", v)
+	}
+	if v, ok := params["commit_sha"]; ok {
+		return fmt.Sprintf("sha:%v", v)
+	}
+	if v, ok := params["dedup_key"]; ok {
+		return fmt.Sprintf("dedup_key:%v", v)
+	}
+	return ""
+}
+
+// strPtr returns a pointer to the given string.
+func strPtr(s string) *string { return &s }

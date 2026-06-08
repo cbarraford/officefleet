@@ -8,6 +8,14 @@ backends:
       mode: subscription
     default_effort: high
 
+# Example: api_key auth backend (use when subscription auth is not available)
+#  - name: claude-apikey
+#    kind: claude
+#    auth:
+#      mode: api_key
+#      api_key: ${env:ANTHROPIC_API_KEY}
+#    default_effort: high
+
 agents:
   - name: dev-1
     role: developer
@@ -47,12 +55,16 @@ duties:
       2. Security — injection risks, credential leakage, unsafe deserialization?
       3. Clarity — confusing variable names, missing context, over-engineering?
 
+      Before reviewing, check the current MR head SHA. If it matches
+      {{.State.last_reviewed_sha}}, respond with exactly: SKIP
+      This prevents duplicate reviews when the MR has not changed.
+
       Output your review as Markdown suitable for a GitLab MR comment.
+      End your response with a line: REVIEWED_SHA=<sha>
+      where <sha> is the current head SHA of the MR, so the pipeline can store it.
     output_actions:
       - plugin: gitlab
         action: post_mr_comment
-        params_template: |
-          {"project": "{{.Assignment.project}}", "mr_iid": "{{.Event.mr_iid}}", "body": "{{.Event.llm_summary}}"}
 
 assignments:
   - agent: dev-1
@@ -63,6 +75,23 @@ assignments:
     config:
       project: "myorg/myrepo"
     extra_instructions: "Focus on concurrency and error handling. Keep comments terse."
+    outputs:
+      - plugin: gitlab
+        action: post_mr_comment
+        params:
+          project: "{{.Assignment.project}}"
+          mr_iid: "{{.Event.mr_iid}}"
+          body: "{{.Event.llm_summary}}"
+
+  - agent: dev-1
+    duty: mr-reviewer
+    enabled: true
+    trigger:
+      kind: cron
+      schedule: "0 9 * * 1-5"
+    config:
+      project: "myorg/myrepo"
+    extra_instructions: "Review all open MRs needing attention. Focus on security and correctness."
     outputs:
       - plugin: gitlab
         action: post_mr_comment

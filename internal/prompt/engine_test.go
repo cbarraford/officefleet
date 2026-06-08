@@ -16,6 +16,7 @@ func testCtx() prompt.Context {
 		Assignment: map[string]any{"project": "myorg/myrepo"},
 		State:      map[string]any{},
 		Now:        time.Date(2026, 6, 7, 0, 0, 0, 0, time.UTC),
+		Secrets:    map[string]string{},
 	}
 }
 
@@ -82,5 +83,53 @@ func TestRender_Truncate(t *testing.T) {
 	}
 	if out != "Fix th..." {
 		t.Fatalf("truncate: %q", out)
+	}
+}
+
+// TEST 1 - json helper (gap M15)
+func TestRender_JSONHelper(t *testing.T) {
+	ctx := testCtx()
+	ctx.Event["data"] = map[string]any{"repo": "myorg/myrepo", "count": 7}
+	out, err := prompt.Render(`{{json .Event.data}}`, ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "repo") {
+		t.Fatalf("json output missing key 'repo': %q", out)
+	}
+	if !strings.Contains(out, "myorg/myrepo") {
+		t.Fatalf("json output missing value 'myorg/myrepo': %q", out)
+	}
+}
+
+// TEST 2 - secret helper success (gap m8)
+func TestRender_SecretSuccess(t *testing.T) {
+	ctx := testCtx()
+	ctx.Secrets["gitlab_token"] = "tok-abc"
+	out, err := prompt.Render(`{{secret "gitlab_token"}}`, ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "tok-abc" {
+		t.Fatalf("expected 'tok-abc', got %q", out)
+	}
+}
+
+// TEST 3 - secret helper missing key returns error (gap m8)
+func TestRender_SecretMissingKey(t *testing.T) {
+	ctx := testCtx()
+	// Secrets is empty map — key does not exist
+	_, err := prompt.Render(`{{secret "missing"}}`, ctx)
+	if err == nil {
+		t.Fatal("expected error for missing secret key, got nil")
+	}
+}
+
+// TEST 4 - fetch helper is a stub returning error
+func TestRender_FetchStubReturnsError(t *testing.T) {
+	ctx := testCtx()
+	_, err := prompt.Render(`{{fetch "gitlab" "get_mr" nil}}`, ctx)
+	if err == nil {
+		t.Fatal("expected error from fetch stub, got nil")
 	}
 }
