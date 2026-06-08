@@ -5,6 +5,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TABLE IF NOT EXISTS agents (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name            TEXT NOT NULL,
+    CONSTRAINT agents_name_unique UNIQUE (name),
     role            TEXT NOT NULL,
     system_prompt   TEXT NOT NULL DEFAULT '',
     default_backend JSONB NOT NULL DEFAULT '{}',
@@ -16,6 +17,7 @@ CREATE TABLE IF NOT EXISTS agents (
 CREATE TABLE IF NOT EXISTS duties (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name            TEXT NOT NULL,
+    CONSTRAINT duties_name_unique UNIQUE (name),
     role            TEXT NOT NULL,
     description     TEXT NOT NULL DEFAULT '',
     trigger_kinds   TEXT[] NOT NULL DEFAULT '{}',
@@ -32,6 +34,7 @@ CREATE TABLE IF NOT EXISTS assignments (
     id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     agent_id              UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
     duty_id               UUID NOT NULL REFERENCES duties(id) ON DELETE CASCADE,
+    CONSTRAINT assignments_agent_duty_unique UNIQUE (agent_id, duty_id),
     enabled               BOOLEAN NOT NULL DEFAULT TRUE,
     trigger               JSONB NOT NULL DEFAULT '{}',
     outputs               JSONB NOT NULL DEFAULT '[]',
@@ -56,7 +59,7 @@ CREATE TABLE IF NOT EXISTS runs (
     outputs_delivered       JSONB NOT NULL DEFAULT '[]',
     status                  TEXT NOT NULL DEFAULT 'queued',
     tokens                  INTEGER NOT NULL DEFAULT 0,
-    cost                    NUMERIC(12,6) NOT NULL DEFAULT 0,
+    cost                    DOUBLE PRECISION NOT NULL DEFAULT 0,
     started_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     finished_at             TIMESTAMPTZ,
     error                   TEXT,

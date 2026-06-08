@@ -3,6 +3,7 @@ package gitlab_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +12,18 @@ import (
 	_ "github.com/cbarraford/office-fleet/internal/plugins/gitlab"
 	"github.com/cbarraford/office-fleet/internal/plugin"
 )
+
+func TestGitLabPlugin_InitSecretError(t *testing.T) {
+	p, ok := plugin.Get("gitlab")
+	if !ok {
+		t.Fatal("gitlab plugin not registered")
+	}
+	secrets := func(name string) (string, error) { return "", errors.New("secret not found") }
+	err := p.Init(context.Background(), nil, secrets)
+	if err == nil {
+		t.Fatal("expected error when SecretLookup fails, got nil")
+	}
+}
 
 func TestGitLabPlugin_PostMRComment(t *testing.T) {
 	var capturedBody string
@@ -114,7 +127,7 @@ func TestGitLabPlugin_PartialMissingParams(t *testing.T) {
 func TestGitLabPlugin_NumericMRIID(t *testing.T) {
 	var capturedPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		capturedPath = r.URL.Path
+		capturedPath = r.URL.RawPath
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(map[string]any{"id": 42})
@@ -127,17 +140,33 @@ func TestGitLabPlugin_NumericMRIID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := p.Do(context.Background(), "post_mr_comment", map[string]any{
-		"project": "myorg/myrepo",
-		"mr_iid":  float64(42),
-		"body":    "LGTM",
+	t.Run("float64 mr_iid", func(t *testing.T) {
+		_, err := p.Do(context.Background(), "post_mr_comment", map[string]any{
+			"project": "myorg/myrepo",
+			"mr_iid":  float64(42),
+			"body":    "LGTM",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(capturedPath, "/projects/myorg%2Fmyrepo/merge_requests/42/notes") {
+			t.Fatalf("unexpected path: %q", capturedPath)
+		}
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(capturedPath, "/merge_requests/42/notes") {
-		t.Fatalf("unexpected path: %q", capturedPath)
-	}
+
+	t.Run("int mr_iid", func(t *testing.T) {
+		_, err := p.Do(context.Background(), "post_mr_comment", map[string]any{
+			"project": "myorg/myrepo",
+			"mr_iid":  int(42),
+			"body":    "LGTM",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(capturedPath, "/projects/myorg%2Fmyrepo/merge_requests/42/notes") {
+			t.Fatalf("unexpected path: %q", capturedPath)
+		}
+	})
 }
 
 func TestGitLabPlugin_StubActions(t *testing.T) {

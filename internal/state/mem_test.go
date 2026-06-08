@@ -58,6 +58,19 @@ func TestMemStore_TwoAssignmentsSameKey(t *testing.T) {
 	}
 }
 
+func TestMemStore_ProcessedIsolation(t *testing.T) {
+	ctx := context.Background()
+	s := state.NewMemStore()
+	_ = s.MarkProcessed(ctx, "a1", "sha-abc")
+	ok, err := s.HasProcessed(ctx, "a2", "sha-abc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Fatal("MarkProcessed on a1 must not affect HasProcessed on a2")
+	}
+}
+
 func TestMemStore_AppendNote(t *testing.T) {
 	ctx := context.Background()
 	s := state.NewMemStore()
@@ -83,5 +96,18 @@ func TestMemStore_AppendNote(t *testing.T) {
 	v2, ok2, err2 := s.Get(ctx, "assign-2", "k")
 	if err2 != nil || !ok2 || string(v2) != "v2" {
 		t.Fatalf("assign-2 state: got %q ok=%v err=%v", v2, ok2, err2)
+	}
+
+	// Verify that two AppendNote calls on assign-1 accumulate two entries.
+	if err := s.AppendNote(ctx, "assign-1", map[string]string{"msg": "second"}); err != nil {
+		t.Fatalf("AppendNote assign-1 second: %v", err)
+	}
+	if got := s.NoteCount("assign-1"); got != 2 {
+		t.Fatalf("assign-1 note count: want 2, got %d", got)
+	}
+
+	// Verify that notes from assign-1 do not appear under assign-2.
+	if got := s.NoteCount("assign-2"); got != 1 {
+		t.Fatalf("assign-2 note count: want 1, got %d", got)
 	}
 }

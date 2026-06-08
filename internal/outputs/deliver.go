@@ -2,12 +2,24 @@ package outputs
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/cbarraford/office-fleet/internal/domain"
 	"github.com/cbarraford/office-fleet/internal/plugin"
 	"github.com/cbarraford/office-fleet/internal/prompt"
 )
+
+// mustJSON encodes v as a JSON string. If marshalling fails it returns an
+// empty JSON object so templates always receive a valid JSON string rather
+// than Go's default map literal syntax.
+func mustJSON(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}
 
 // Deliver executes each configured output binding: renders params, calls plugin.Do.
 // Returns one OutputDelivery per binding; never aborts early on individual failures.
@@ -56,7 +68,7 @@ func renderParams(params map[string]any, result domain.LLMResult, promptCtx prom
 	}
 	enriched.Event["llm_summary"] = result.Summary
 	enriched.Event["llm_transcript"] = result.Transcript
-	enriched.Event["llm_output"] = result.Output
+	enriched.Event["llm_output"] = mustJSON(result.Output)
 
 	out := make(map[string]any, len(params))
 	for k, v := range params {

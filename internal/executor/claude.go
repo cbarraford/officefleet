@@ -34,6 +34,9 @@ func (c *ClaudeExecutor) Run(ctx context.Context, req LLMRequest) (domain.LLMRes
 	}
 
 	args := []string{"--print", "--output-format", "json"}
+	if req.SystemPrompt != "" {
+		args = append(args, "--system", req.SystemPrompt)
+	}
 	if req.Model != "" {
 		args = append(args, "--model", req.Model)
 	}
@@ -68,14 +71,10 @@ func (c *ClaudeExecutor) Run(ctx context.Context, req LLMRequest) (domain.LLMRes
 }
 
 func buildClaudePrompt(req LLMRequest) string {
-	var sb strings.Builder
-	if req.SystemPrompt != "" {
-		sb.WriteString("<system>\n")
-		sb.WriteString(req.SystemPrompt)
-		sb.WriteString("\n</system>\n\n")
+	if req.SystemPrompt == "" {
+		return req.Prompt
 	}
-	sb.WriteString(req.Prompt)
-	return sb.String()
+	return "<system>\n" + req.SystemPrompt + "\n</system>\n" + req.Prompt
 }
 
 // parseClaudeOutput extracts LLMResult from claude CLI --output-format json output.
@@ -99,6 +98,12 @@ func parseClaudeOutput(data []byte) (domain.LLMResult, error) {
 		}, nil
 	}
 	result := domain.LLMResult{Output: map[string]any{}}
+	if isErr, ok := raw["is_error"].(bool); ok && isErr {
+		result.Status = 1
+	}
+	if t, ok := raw["type"].(string); ok && t == "error" {
+		result.Status = 1
+	}
 	if v, ok := raw["result"].(string); ok {
 		result.Summary = v
 		result.Output["raw"] = v
@@ -107,9 +112,13 @@ func parseClaudeOutput(data []byte) (domain.LLMResult, error) {
 		result.Cost = v
 	}
 	if v, ok := raw["usage"].(map[string]any); ok {
-		if tok, ok := v["output_tokens"].(float64); ok {
-			result.Tokens = int(tok)
+		var total float64
+		for _, key := range []string{"input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"} {
+			if tok, ok := v[key].(float64); ok {
+				total += tok
+			}
 		}
+		result.Tokens = int(total)
 	}
 	result.Transcript = string(data)
 	return result, nil

@@ -10,6 +10,9 @@ type Store interface {
 	Set(ctx context.Context, assignmentID, key string, val []byte) error
 	Delete(ctx context.Context, assignmentID, key string) error
 
+	// List returns all key/value pairs stored for the given assignmentID.
+	List(ctx context.Context, assignmentID string) (map[string][]byte, error)
+
 	// AppendNote adds a structured memory row for an assignment.
 	AppendNote(ctx context.Context, assignmentID string, note any) error
 

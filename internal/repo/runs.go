@@ -34,15 +34,21 @@ func (r *RunRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status domain.
 }
 
 func (r *RunRepo) UpdateResult(ctx context.Context, id uuid.UUID, result *domain.LLMResult, outputs []domain.OutputDelivery, status domain.RunStatus) error {
-	resultJSON, _ := json.Marshal(result)
-	outputsJSON, _ := json.Marshal(outputs)
+	resultJSON, err := json.Marshal(result)
+	if err != nil {
+		return fmt.Errorf("marshal llm_result: %w", err)
+	}
+	outputsJSON, err := json.Marshal(outputs)
+	if err != nil {
+		return fmt.Errorf("marshal outputs_delivered: %w", err)
+	}
 	var tokens int
 	var cost float64
 	if result != nil {
 		tokens = result.Tokens
 		cost = result.Cost
 	}
-	_, err := r.db.Exec(ctx,
+	_, err = r.db.Exec(ctx,
 		"UPDATE runs SET llm_result=$1, outputs_delivered=$2, status=$3, tokens=$4, cost=$5, finished_at=NOW() WHERE id=$6",
 		resultJSON, outputsJSON, status, tokens, cost, id)
 	return err

@@ -71,7 +71,48 @@ func parseCronField(s string, min, max int) (cronField, error) {
 	if s == "*" {
 		return cronField{star: true}, nil
 	}
-	// Simple single-value parsing; step/range not needed for SP1 acceptance.
+
+	// */step
+	if len(s) > 2 && s[:2] == "*/" {
+		var step int
+		if _, err := fmt.Sscanf(s[2:], "%d", &step); err != nil || step <= 0 {
+			return cronField{}, fmt.Errorf("unsupported field value %q", s)
+		}
+		var vals []int
+		for v := min; v <= max; v += step {
+			vals = append(vals, v)
+		}
+		return cronField{values: vals}, nil
+	}
+
+	// lo-hi or lo-hi/step
+	if idx := indexByte(s, '-'); idx > 0 {
+		var lo, hi int
+		if _, err := fmt.Sscanf(s[:idx], "%d", &lo); err != nil {
+			return cronField{}, fmt.Errorf("unsupported field value %q", s)
+		}
+		rest := s[idx+1:]
+		step := 1
+		if si := indexByte(rest, '/'); si > 0 {
+			if _, err := fmt.Sscanf(rest[si+1:], "%d", &step); err != nil || step <= 0 {
+				return cronField{}, fmt.Errorf("unsupported field value %q", s)
+			}
+			rest = rest[:si]
+		}
+		if _, err := fmt.Sscanf(rest, "%d", &hi); err != nil {
+			return cronField{}, fmt.Errorf("unsupported field value %q", s)
+		}
+		if lo < min || hi > max || lo > hi {
+			return cronField{}, fmt.Errorf("range %d-%d out of bounds [%d,%d]", lo, hi, min, max)
+		}
+		var vals []int
+		for v := lo; v <= hi; v += step {
+			vals = append(vals, v)
+		}
+		return cronField{values: vals}, nil
+	}
+
+	// Single value.
 	var v int
 	if _, err := fmt.Sscanf(s, "%d", &v); err != nil {
 		return cronField{}, fmt.Errorf("unsupported field value %q", s)
@@ -80,4 +121,14 @@ func parseCronField(s string, min, max int) (cronField, error) {
 		return cronField{}, fmt.Errorf("value %d out of range [%d,%d]", v, min, max)
 	}
 	return cronField{values: []int{v}}, nil
+}
+
+// indexByte returns the index of the first occurrence of b in s, or -1.
+func indexByte(s string, b byte) int {
+	for i := 0; i < len(s); i++ {
+		if s[i] == b {
+			return i
+		}
+	}
+	return -1
 }

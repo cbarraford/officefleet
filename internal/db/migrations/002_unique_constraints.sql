@@ -1,7 +1,18 @@
 -- +migrate Up
-ALTER TABLE agents ADD CONSTRAINT agents_name_unique UNIQUE (name);
-ALTER TABLE duties ADD CONSTRAINT duties_name_unique UNIQUE (name);
-ALTER TABLE assignments ADD CONSTRAINT assignments_agent_duty_unique UNIQUE (agent_id, duty_id);
+DO $$ BEGIN
+    ALTER TABLE agents ADD CONSTRAINT agents_name_unique UNIQUE (name);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    ALTER TABLE duties ADD CONSTRAINT duties_name_unique UNIQUE (name);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    ALTER TABLE assignments ADD CONSTRAINT assignments_agent_duty_unique UNIQUE (agent_id, duty_id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- +migrate Down
 ALTER TABLE assignments DROP CONSTRAINT IF EXISTS assignments_agent_duty_unique;

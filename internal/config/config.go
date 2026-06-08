@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/cbarraford/office-fleet/internal/domain"
@@ -89,7 +90,10 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
 	// Expand ${env:VAR} references before YAML parsing.
-	expanded := expandEnvRefs(string(data))
+	expanded, err := expandEnvRefs(string(data))
+	if err != nil {
+		return nil, err
+	}
 
 	var cfg Config
 	if err := yaml.Unmarshal([]byte(expanded), &cfg); err != nil {
@@ -103,7 +107,8 @@ func Validate(cfg *Config) []error {
 	var errs []error
 
 	backendNames := map[string]bool{}
-	for _, b := range cfg.Backends {
+	for i := range cfg.Backends {
+		b := &cfg.Backends[i]
 		if b.Name == "" {
 			errs = append(errs, fmt.Errorf("backend missing name"))
 			continue
@@ -117,8 +122,13 @@ func Validate(cfg *Config) []error {
 		default:
 			errs = append(errs, fmt.Errorf("backend %q: unknown kind %q", b.Name, b.Kind))
 		}
+		// Normalize an omitted auth mode to "none" so an unset field has an
+		// explicit, unambiguous meaning rather than silently passing as "".
+		if b.Auth.Mode == "" {
+			b.Auth.Mode = "none"
+		}
 		switch b.Auth.Mode {
-		case "subscription", "api_key", "none", "":
+		case "subscription", "api_key", "none":
 		default:
 			errs = append(errs, fmt.Errorf("backend %q: unknown auth mode %q", b.Name, b.Auth.Mode))
 		}
@@ -133,6 +143,9 @@ func Validate(cfg *Config) []error {
 			errs = append(errs, fmt.Errorf("agent missing name"))
 			continue
 		}
+		if agentNames[a.Name] {
+			errs = append(errs, fmt.Errorf("duplicate agent name: %q", a.Name))
+		}
 		agentNames[a.Name] = true
 		if a.DefaultBackend.Name != "" && !backendNames[a.DefaultBackend.Name] {
 			errs = append(errs, fmt.Errorf("agent %q: default_backend %q not defined", a.Name, a.DefaultBackend.Name))
@@ -145,21 +158,48 @@ func Validate(cfg *Config) []error {
 			errs = append(errs, fmt.Errorf("duty missing name"))
 			continue
 		}
+		if dutyNames[d.Name] {
+			errs = append(errs, fmt.Errorf("duplicate duty name: %q", d.Name))
+		}
 		dutyNames[d.Name] = true
 		if d.Backend != nil && !backendNames[d.Backend.Name] {
 			errs = append(errs, fmt.Errorf("duty %q: backend %q not defined", d.Name, d.Backend.Name))
 		}
 	}
 
+	// Build lookup maps for duty and agent configs so we can simulate
+	// three-tier backend resolution during assignment validation.
+	dutyByName := map[string]DutyConfig{}
+	for _, d := range cfg.Duties {
+		dutyByName[d.Name] = d
+	}
+	agentByName := map[string]AgentConfig{}
+	for _, ag := range cfg.Agents {
+		agentByName[ag.Name] = ag
+	}
+
 	for i, a := range cfg.Assignments {
-		if !agentNames[a.Agent] {
+		agentOK := agentNames[a.Agent]
+		dutyOK := dutyNames[a.Duty]
+		if !agentOK {
 			errs = append(errs, fmt.Errorf("assignment[%d]: agent %q not defined", i, a.Agent))
 		}
-		if !dutyNames[a.Duty] {
+		if !dutyOK {
 			errs = append(errs, fmt.Errorf("assignment[%d]: duty %q not defined", i, a.Duty))
 		}
 		if a.Backend != nil && !backendNames[a.Backend.Name] {
 			errs = append(errs, fmt.Errorf("assignment[%d]: backend %q not defined", i, a.Backend.Name))
+		}
+		// Simulate three-tier resolution: if no backend can be resolved at
+		// any tier the assignment will fail at runtime, so reject it here.
+		if agentOK && dutyOK && a.Backend == nil {
+			duty := dutyByName[a.Duty]
+			if duty.Backend == nil {
+				agent := agentByName[a.Agent]
+				if agent.DefaultBackend.Name == "" {
+					errs = append(errs, fmt.Errorf("assignment[%d] (agent=%q duty=%q): no backend resolved — assignment, duty, and agent default_backend are all unset", i, a.Agent, a.Duty))
+				}
+			}
 		}
 	}
 
@@ -213,20 +253,26 @@ func ResolveBackend(cfg *Config, assignment AssignmentConfig) (*Backend, domain.
 	return nil, ref, fmt.Errorf("backend %q not found in config", ref.Name)
 }
 
+// envRefRe matches ${env:VAR_NAME} placeholders.
+var envRefRe = regexp.MustCompile(`\$\{env:([^}]+)\}`)
+
 // expandEnvRefs replaces ${env:VAR} with the corresponding environment variable.
-func expandEnvRefs(s string) string {
-	for {
-		start := strings.Index(s, "${env:")
-		if start == -1 {
-			break
+// Each placeholder is processed exactly once; the substituted value is never re-scanned,
+// preventing both infinite cycles (e.g. FOO=${env:FOO}) and silent injection of nested refs.
+// Returns an error listing every variable name that is not set in the environment.
+func expandEnvRefs(s string) (string, error) {
+	var missing []string
+	result := envRefRe.ReplaceAllStringFunc(s, func(match string) string {
+		varName := match[6 : len(match)-1] // strip "${env:" prefix and "}" suffix
+		val, ok := os.LookupEnv(varName)
+		if !ok {
+			missing = append(missing, varName)
+			return ""
 		}
-		end := strings.Index(s[start:], "}")
-		if end == -1 {
-			break
-		}
-		placeholder := s[start : start+end+1]
-		varName := s[start+6 : start+end]
-		s = strings.ReplaceAll(s, placeholder, os.Getenv(varName))
+		return val
+	})
+	if len(missing) > 0 {
+		return "", fmt.Errorf("config references unset environment variable(s): %s", strings.Join(missing, ", "))
 	}
-	return s
+	return result, nil
 }

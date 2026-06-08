@@ -84,6 +84,29 @@ func buildSecretLookup(ctx context.Context, pool *pgxpool.Pool) plugin.SecretLoo
 	}
 }
 
+// dbSecretsProvider implements run.SecretsProvider by loading all secrets from the DB.
+type dbSecretsProvider struct {
+	pool *pgxpool.Pool
+}
+
+func (d *dbSecretsProvider) Load(ctx context.Context) (map[string]string, error) {
+	rows, err := d.pool.Query(ctx, "SELECT name, encrypted_value FROM secrets")
+	if err != nil {
+		return nil, fmt.Errorf("query secrets: %w", err)
+	}
+	defer rows.Close()
+	m := map[string]string{}
+	for rows.Next() {
+		var name string
+		var val []byte
+		if err := rows.Scan(&name, &val); err != nil {
+			return nil, fmt.Errorf("scan secret row: %w", err)
+		}
+		m[name] = string(val)
+	}
+	return m, rows.Err()
+}
+
 // initPlugins initialises all registered plugins using config and DB secrets.
 func initPlugins(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool) {
 	secretLookup := buildSecretLookup(ctx, pool)
@@ -230,11 +253,8 @@ func backendsLoginCmd() *cobra.Command {
 			if backend == nil {
 				return fmt.Errorf("backend %q not found in config", backendName)
 			}
-			switch backend.Kind {
-			case "claude", "codex", "gemini":
-				// valid CLI backend kinds
-			default:
-				return fmt.Errorf("backend %q has kind %q which is not a CLI backend (must be claude, codex, or gemini)", backendName, backend.Kind)
+			if backend.Auth.Mode != "subscription" {
+				return fmt.Errorf("backend %q does not use subscription auth; login is only supported for subscription backends", backendName)
 			}
 			c := exec.Command(backend.Kind, "login")
 			c.Stdin = os.Stdin
@@ -499,21 +519,29 @@ func runCmd() *cobra.Command {
 					Transcript: "fake transcript",
 				})
 			} else {
-				var apiKey string
+				var resolved *config.Backend
 				for _, ac := range cfg.Assignments {
 					if ac.Agent == agent.Name && ac.Duty == duty.Name {
-						backend, _, berr := config.ResolveBackend(cfg, ac)
-						if berr == nil && backend.Auth.Mode == "api_key" {
-							apiKey = backend.Auth.APIKey
+						b, _, berr := config.ResolveBackend(cfg, ac)
+						if berr == nil {
+							resolved = b
 						}
 						break
 					}
 				}
-				exec = executor.NewClaudeExecutor(apiKey)
+				if resolved == nil || resolved.Kind == "claude" {
+					var apiKey string
+					if resolved != nil && resolved.Auth.Mode == "api_key" {
+						apiKey = resolved.Auth.APIKey
+					}
+					exec = executor.NewClaudeExecutor(apiKey)
+				} else {
+					return fmt.Errorf("backend kind %q is not yet supported", resolved.Kind)
+				}
 			}
 
 			store := state.NewPostgresStore(pool)
-			pipeline := run.NewPipeline(cfg, runRepo, store)
+			pipeline := run.NewPipeline(cfg, runRepo, store, &dbSecretsProvider{pool: pool})
 
 			result, err := pipeline.Execute(ctx, run.ExecuteRequest{
 				Assignment:  assignment,
@@ -604,7 +632,7 @@ func scheduleCmd() *cobra.Command {
 			assignmentRepo := repo.NewAssignmentRepo(pool)
 			runRepo := repo.NewRunRepo(pool)
 			store := state.NewPostgresStore(pool)
-			pipeline := run.NewPipeline(cfg, runRepo, store)
+			pipeline := run.NewPipeline(cfg, runRepo, store, &dbSecretsProvider{pool: pool})
 
 			fmt.Println("scheduler running...")
 
@@ -654,17 +682,27 @@ func scheduleCmd() *cobra.Command {
 					return
 				}
 
-				var apiKey string
+				var resolvedBackend *config.Backend
 				for _, ac := range cfg.Assignments {
 					if ac.Agent == agent.Name && ac.Duty == duty.Name {
-						backend, _, berr := config.ResolveBackend(cfg, ac)
-						if berr == nil && backend.Auth.Mode == "api_key" {
-							apiKey = backend.Auth.APIKey
+						b, _, berr := config.ResolveBackend(cfg, ac)
+						if berr == nil {
+							resolvedBackend = b
 						}
 						break
 					}
 				}
-				exec := executor.NewClaudeExecutor(apiKey)
+				var exec executor.Executor
+				if resolvedBackend == nil || resolvedBackend.Kind == "claude" {
+					var apiKey string
+					if resolvedBackend != nil && resolvedBackend.Auth.Mode == "api_key" {
+						apiKey = resolvedBackend.Auth.APIKey
+					}
+					exec = executor.NewClaudeExecutor(apiKey)
+				} else {
+					fmt.Fprintf(os.Stderr, "scheduler: backend kind %q is not yet supported for assignment %s\n", resolvedBackend.Kind, assignmentID)
+					return
+				}
 				result, err := pipeline.Execute(runCtx, run.ExecuteRequest{
 					Assignment:  assignment,
 					Agent:       agent,

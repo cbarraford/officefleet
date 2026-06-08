@@ -2,6 +2,7 @@ package run
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"time"
@@ -25,20 +26,26 @@ type runRepo interface {
 	UpdateResult(ctx context.Context, id uuid.UUID, result *domain.LLMResult, outputs []domain.OutputDelivery, status domain.RunStatus) error
 }
 
+// SecretsProvider loads all named secrets into a map for prompt rendering.
+type SecretsProvider interface {
+	Load(ctx context.Context) (map[string]string, error)
+}
+
 // Pipeline executes Assignments end-to-end.
 type Pipeline struct {
 	cfg     *config.Config
 	runRepo runRepo
 	store   state.Store
 	plugins map[string]plugin.Plugin // name -> initialized plugin
+	secrets SecretsProvider
 }
 
-func NewPipeline(cfg *config.Config, rr *repo.RunRepo, store state.Store) *Pipeline {
+func NewPipeline(cfg *config.Config, rr *repo.RunRepo, store state.Store, sp SecretsProvider) *Pipeline {
 	plugins := map[string]plugin.Plugin{}
 	for _, p := range plugin.All() {
 		plugins[p.Name()] = p
 	}
-	return &Pipeline{cfg: cfg, runRepo: rr, store: store, plugins: plugins}
+	return &Pipeline{cfg: cfg, runRepo: rr, store: store, plugins: plugins, secrets: sp}
 }
 
 // ExecuteRequest is the input for one run invocation.
@@ -53,6 +60,16 @@ type ExecuteRequest struct {
 
 // Execute runs the full pipeline for one assignment and records the result.
 func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run, error) {
+	// Load secrets for prompt rendering. Guard nil so tests without a provider still work.
+	secretsMap := map[string]string{}
+	if p.secrets != nil {
+		m, err := p.secrets.Load(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("load secrets: %w", err)
+		}
+		secretsMap = m
+	}
+
 	// Build prompt context.
 	promptCtx := prompt.Context{
 		Event:      req.EventParams,
@@ -61,9 +78,25 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 		Assignment: map[string]any(req.Assignment.Config),
 		State:      map[string]any{},
 		Now:        time.Now(),
+		Secrets:    secretsMap,
 	}
 	if promptCtx.Event == nil {
 		promptCtx.Event = map[string]any{}
+	}
+
+	// Load all stored state keys for this assignment into promptCtx.State so
+	// templates like {{.State.last_reviewed_sha}} resolve to their actual values.
+	stateEntries, err := p.store.List(ctx, req.Assignment.ID.String())
+	if err != nil {
+		return nil, fmt.Errorf("load state: %w", err)
+	}
+	for k, v := range stateEntries {
+		// Try JSON first; fall back to treating the bytes as a raw string.
+		var val any
+		if jsonErr := json.Unmarshal(v, &val); jsonErr != nil {
+			val = string(v)
+		}
+		promptCtx.State[k] = val
 	}
 
 	// Select task prompt: override or duty default.
@@ -113,6 +146,9 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 	}
 
 	// Dedup: skip if this event has already been processed for this assignment.
+	// NOTE: Insert is intentionally called before this check so that every
+	// invocation is recorded in the database for audit purposes. Duplicate
+	// events are stored with RunStatusSkipped rather than being silently dropped.
 	dedupKey := deriveDedupKey(req.EventParams)
 	if dedupKey != "" {
 		already, err := p.store.HasProcessed(ctx, req.Assignment.ID.String(), dedupKey)
@@ -163,6 +199,8 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 	}
 
 	run.LLMResult = &llmResult
+	run.Tokens = llmResult.Tokens
+	run.Cost = llmResult.Cost
 	run.OutputsDelivered = deliveries
 	run.Status = status
 	finished := time.Now()

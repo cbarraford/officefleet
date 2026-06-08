@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -41,8 +42,11 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("read migrations dir: %w", err)
 	}
 
+	// Sort by the leading integer prefix of each filename so that migrations
+	// with four-or-more-digit numbers (e.g. 1000_...) still sort after
+	// three-digit ones (e.g. 999_...) regardless of zero-padding.
 	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Name() < entries[j].Name()
+		return migrationNumber(entries[i].Name()) < migrationNumber(entries[j].Name())
 	})
 
 	for _, e := range entries {
@@ -63,15 +67,34 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		}
 
 		upSQL := ExtractUpBlock(string(data))
-		if _, err := pool.Exec(ctx, upSQL); err != nil {
+
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			return fmt.Errorf("begin transaction for migration %s: %w", e.Name(), err)
+		}
+		if _, err := tx.Exec(ctx, upSQL); err != nil {
+			_ = tx.Rollback(ctx)
 			return fmt.Errorf("apply migration %s: %w", e.Name(), err)
 		}
-
-		if _, err := pool.Exec(ctx, "INSERT INTO schema_migrations(version) VALUES($1)", version); err != nil {
+		if _, err := tx.Exec(ctx, "INSERT INTO schema_migrations(version) VALUES($1)", version); err != nil {
+			_ = tx.Rollback(ctx)
 			return fmt.Errorf("record migration %s: %w", e.Name(), err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("commit migration %s: %w", e.Name(), err)
 		}
 	}
 	return nil
+}
+
+// migrationNumber extracts the leading integer from a migration filename
+// (e.g. "001_create_users.sql" → 1, "1000_add_index.sql" → 1000).
+// Returns 0 if no leading integer is found, placing the file first.
+func migrationNumber(name string) int {
+	base := strings.TrimSuffix(name, filepath.Ext(name))
+	parts := strings.SplitN(base, "_", 2)
+	n, _ := strconv.Atoi(parts[0])
+	return n
 }
 
 // ExtractUpBlock returns only the SQL between -- +migrate Up and -- +migrate Down.

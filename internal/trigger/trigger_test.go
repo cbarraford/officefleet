@@ -45,6 +45,40 @@ func TestCronTrigger_Next(t *testing.T) {
 	}
 }
 
+func TestCronTrigger_RangeWeekdays(t *testing.T) {
+	// "0 9 * * 1-5" is the sample fleet.yaml schedule: 9am Mon-Fri.
+	c := trigger.NewCron("0 9 * * 1-5")
+	if err := c.Validate(); err != nil {
+		t.Fatalf("range expression rejected: %v", err)
+	}
+	// Saturday (weekday 6) should not match; advance from Friday 9am to find next firing.
+	// from = Friday 2026-06-05 09:01 — next should be Monday 2026-06-08 09:00.
+	from := time.Date(2026, 6, 5, 9, 1, 0, 0, time.UTC)
+	next, err := c.Next(from)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int(next.Weekday()) != 1 || next.Hour() != 9 || next.Minute() != 0 {
+		t.Fatalf("expected Monday 09:00, got %v (weekday %d)", next, next.Weekday())
+	}
+}
+
+func TestCronTrigger_StepExpression(t *testing.T) {
+	// "*/15 * * * *" fires every 15 minutes.
+	c := trigger.NewCron("*/15 * * * *")
+	if err := c.Validate(); err != nil {
+		t.Fatalf("step expression rejected: %v", err)
+	}
+	from := time.Date(2026, 6, 7, 8, 1, 0, 0, time.UTC)
+	next, err := c.Next(from)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.Minute() != 15 {
+		t.Fatalf("expected minute 15, got %d", next.Minute())
+	}
+}
+
 func TestScheduler_FiresDueAssignments(t *testing.T) {
 	sched := trigger.NewScheduler()
 	c := trigger.NewCron("* * * * *") // every minute

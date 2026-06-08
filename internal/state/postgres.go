@@ -38,6 +38,24 @@ func (s *PostgresStore) Delete(ctx context.Context, assignmentID, key string) er
 	return err
 }
 
+func (s *PostgresStore) List(ctx context.Context, assignmentID string) (map[string][]byte, error) {
+	rows, err := s.db.Query(ctx, "SELECT key, value FROM assignment_state WHERE assignment_id=$1", assignmentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string][]byte{}
+	for rows.Next() {
+		var key string
+		var val []byte
+		if err := rows.Scan(&key, &val); err != nil {
+			return nil, err
+		}
+		out[key] = val
+	}
+	return out, rows.Err()
+}
+
 func (s *PostgresStore) AppendNote(ctx context.Context, assignmentID string, note any) error {
 	noteJSON, err := json.Marshal(note)
 	if err != nil {
@@ -61,7 +79,7 @@ func (s *PostgresStore) HasProcessed(ctx context.Context, assignmentID, dedupKey
 
 func (s *PostgresStore) MarkProcessed(ctx context.Context, assignmentID, dedupKey string) error {
 	_, err := s.db.Exec(ctx,
-		"INSERT INTO assignment_processed (assignment_id, dedup_key) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+		"INSERT INTO assignment_processed (assignment_id, dedup_key) VALUES ($1,$2) ON CONFLICT (assignment_id, dedup_key) DO NOTHING",
 		assignmentID, dedupKey)
 	return err
 }

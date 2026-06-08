@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/cbarraford/office-fleet/internal/plugin"
@@ -79,7 +80,7 @@ func paramToString(v any) string {
 	case int:
 		return fmt.Sprintf("%d", val)
 	case float64:
-		return fmt.Sprintf("%g", val)
+		return strconv.FormatInt(int64(val), 10)
 	default:
 		return ""
 	}
