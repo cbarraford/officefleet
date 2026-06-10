@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/cbarraford/office-fleet/internal/agentloop"
@@ -19,9 +20,12 @@ import (
 
 // Limits are the safety rails for tool execution. Zero values get defaults.
 type Limits struct {
-	CommandTimeout   time.Duration // per run_command; default 120s
-	MaxOutputBytes   int           // observation truncation; default 64 KiB
-	CommandAllowlist []string      // empty = allow all commands
+	CommandTimeout time.Duration // per run_command; default 120s
+	MaxOutputBytes int           // observation truncation; default 64 KiB
+	// CommandAllowlist, when non-empty, gates the basename of the FIRST
+	// whitespace-separated token of cmd only — shell chaining (;, &&, |, $())
+	// is not inspected. It is a nudge for well-behaved models, not a sandbox.
+	CommandAllowlist []string // empty = allow all commands
 }
 
 const (
@@ -144,8 +148,23 @@ func (b *Bridge) runCommand(ctx context.Context, args map[string]any) string {
 	defer cancel()
 	cmd := exec.CommandContext(cmdCtx, "sh", "-c", cmdStr)
 	cmd.Dir = b.workspace
+	// Run in a dedicated process group so cancellation kills background
+	// children too (sh alone would die while its children keep the output
+	// pipe open and outlive the deadline). WaitDelay unblocks CombinedOutput
+	// if something survives the group kill while holding the pipe.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return nil
+		}
+		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+	cmd.WaitDelay = 2 * time.Second
 	out, err := cmd.CombinedOutput()
 
+	if ctx.Err() != nil {
+		return "command cancelled: " + ctx.Err().Error()
+	}
 	if cmdCtx.Err() == context.DeadlineExceeded {
 		return fmt.Sprintf("command timed out after %s", b.limits.CommandTimeout)
 	}

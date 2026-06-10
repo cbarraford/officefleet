@@ -251,3 +251,41 @@ func TestUnknownTool(t *testing.T) {
 		t.Errorf("observation = %q", obs)
 	}
 }
+
+func TestRunCommand_TimeoutKillsBackgroundChildren(t *testing.T) {
+	b, _ := newTestBridge(t, Limits{CommandTimeout: 200 * time.Millisecond})
+	start := time.Now()
+	obs, _, _ := execTool(t, b, "run_command", map[string]any{"cmd": "sleep 5 & echo started"})
+	elapsed := time.Since(start)
+	// Without group-kill the held pipe blocks until the child exits (~5s).
+	if elapsed > 3*time.Second {
+		t.Fatalf("run_command blocked for %v; timeout defeated by backgrounded child", elapsed)
+	}
+	if !strings.Contains(obs, "timed out") {
+		t.Errorf("observation = %q, want timeout notice", obs)
+	}
+}
+
+func TestRunCommand_ParentCancelObservation(t *testing.T) {
+	b, _ := newTestBridge(t, Limits{})
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+	obs, done, _, err := b.Execute(ctx, agentloop.ToolCall{
+		ID: "t", Name: "run_command", Args: map[string]any{"cmd": "sleep 5"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done {
+		t.Fatal("must not terminate")
+	}
+	if !strings.Contains(obs, "cancelled") {
+		t.Errorf("observation = %q, want cancellation notice", obs)
+	}
+	if strings.Contains(obs, "exit code") {
+		t.Errorf("observation = %q, must not report a phantom exit code on cancellation", obs)
+	}
+}
