@@ -58,8 +58,40 @@ type ExecuteRequest struct {
 	Executor    executor.Executor
 }
 
+// Skip reasons recorded on a Run when the pause gate prevents execution.
+const (
+	SkipReasonAgentPaused      = "agent_paused"
+	SkipReasonAssignmentPaused = "assignment_paused"
+)
+
 // Execute runs the full pipeline for one assignment and records the result.
 func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run, error) {
+	// Pause gate: a disabled agent or assignment must not start new work,
+	// regardless of trigger kind. The skip is still recorded so it is auditable.
+	if !req.Agent.Enabled || !req.Assignment.Enabled {
+		reason := SkipReasonAgentPaused
+		if req.Agent.Enabled {
+			reason = SkipReasonAssignmentPaused
+		}
+		run := &domain.Run{
+			ID:           uuid.New(),
+			AssignmentID: req.Assignment.ID,
+			AgentID:      req.Agent.ID,
+			DutyID:       req.Duty.ID,
+			TriggerKind:  req.TriggerKind,
+			Status:       domain.RunStatusSkipped,
+			StartedAt:    time.Now(),
+			Error:        &reason,
+		}
+		if err := p.runRepo.Insert(ctx, run); err != nil {
+			return nil, fmt.Errorf("record skipped run: %w", err)
+		}
+		// Insert does not persist the error column; UpdateStatus records the
+		// skip reason and finished_at.
+		_ = p.runRepo.UpdateStatus(ctx, run.ID, domain.RunStatusSkipped, &reason)
+		return run, nil
+	}
+
 	// Load secrets for prompt rendering. Guard nil so tests without a provider still work.
 	secretsMap := map[string]string{}
 	if p.secrets != nil {

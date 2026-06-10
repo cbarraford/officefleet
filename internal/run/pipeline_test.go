@@ -992,3 +992,116 @@ func TestPipelineExecute_SecretInTemplate(t *testing.T) {
 		t.Errorf("expected RenderedPrompt %q, got %q", "Use token: tok-abc123", run.RenderedPrompt)
 	}
 }
+
+// pausedTestFixture builds the common pipeline/request setup for pause tests.
+// agentEnabled / assignmentEnabled control the respective Enabled flags.
+func pausedTestFixture(agentEnabled, assignmentEnabled bool) (*Pipeline, ExecuteRequest, *fakeRunRepo, *executor.FakeExecutor) {
+	fakeExec := executor.NewFakeExecutor(domain.LLMResult{Status: 0, Summary: "should not run"})
+	store := state.NewMemStore()
+
+	backendName := "pause-backend"
+	cfg := &config.Config{
+		Backends: []config.Backend{
+			{
+				Name:          backendName,
+				Kind:          "claude",
+				Model:         "claude-3-5-sonnet",
+				DefaultEffort: "normal",
+				Auth:          config.BackendAuth{Mode: "subscription"},
+			},
+		},
+	}
+
+	rr := newFakeRunRepo()
+	pipeline := &Pipeline{
+		cfg:     cfg,
+		runRepo: rr,
+		store:   store,
+		plugins: map[string]plugin.Plugin{},
+	}
+
+	agentID := uuid.New()
+	dutyID := uuid.New()
+
+	agent := &domain.Agent{
+		ID:           agentID,
+		Name:         "pause-agent",
+		Role:         "tester",
+		SystemPrompt: "You are a pause test agent.",
+		Enabled:      agentEnabled,
+	}
+	duty := &domain.Duty{
+		ID:          dutyID,
+		Name:        "pause-duty",
+		Role:        "testing",
+		Description: "A duty for pause testing.",
+		Prompt:      "Perform the pause test task.",
+	}
+	assignment := &domain.Assignment{
+		ID:      uuid.New(),
+		AgentID: agentID,
+		DutyID:  dutyID,
+		Enabled: assignmentEnabled,
+		Backend: &domain.BackendRef{Name: backendName},
+		Config:  map[string]any{},
+	}
+
+	req := ExecuteRequest{
+		Assignment:  assignment,
+		Agent:       agent,
+		Duty:        duty,
+		TriggerKind: "manual",
+		EventParams: map[string]any{"mr_iid": "7"},
+		Executor:    fakeExec,
+	}
+	return pipeline, req, rr, fakeExec
+}
+
+// assertPausedSkip verifies a paused run was skipped, recorded for audit with
+// the expected reason, and never reached the executor.
+func assertPausedSkip(t *testing.T, run *domain.Run, rr *fakeRunRepo, fakeExec *executor.FakeExecutor, wantReason string) {
+	t.Helper()
+	if run == nil {
+		t.Fatal("Execute returned nil run")
+	}
+	if run.Status != domain.RunStatusSkipped {
+		t.Errorf("expected status %q, got %q", domain.RunStatusSkipped, run.Status)
+	}
+	if run.Error == nil || *run.Error != wantReason {
+		got := "<nil>"
+		if run.Error != nil {
+			got = *run.Error
+		}
+		t.Errorf("expected skip reason %q, got %q", wantReason, got)
+	}
+	if fakeExec.LastReq.Prompt != "" {
+		t.Error("expected executor not to be called (LastReq.Prompt should be empty)")
+	}
+	stored, ok := rr.runs[run.ID]
+	if !ok {
+		t.Fatal("expected skipped run to be inserted into the repo for audit, but it was not found")
+	}
+	if stored.Status != domain.RunStatusSkipped {
+		t.Errorf("expected stored run status %q, got %q", domain.RunStatusSkipped, stored.Status)
+	}
+}
+
+func TestPipelineExecute_AgentPausedSkip(t *testing.T) {
+	pipeline, req, rr, fakeExec := pausedTestFixture(false, true)
+
+	run, err := pipeline.Execute(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	assertPausedSkip(t, run, rr, fakeExec, "agent_paused")
+}
+
+func TestPipelineExecute_AssignmentPausedSkip(t *testing.T) {
+	pipeline, req, rr, fakeExec := pausedTestFixture(true, false)
+
+	run, err := pipeline.Execute(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	assertPausedSkip(t, run, rr, fakeExec, "assignment_paused")
+}
