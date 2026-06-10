@@ -82,7 +82,9 @@ type ToolProtocol interface {
 
 // Opts configures one loop run.
 type Opts struct {
-	Model         string
+	Model string
+	// Params are passed through to the provider request body. The keys
+	// "model", "messages", and "tools" are reserved and ignored by the transport.
 	Params        map[string]any
 	MaxIterations int // <=0 means DefaultMaxIterations
 }

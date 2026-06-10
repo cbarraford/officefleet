@@ -66,3 +66,22 @@ func TestNativeProtocol_DecodeNoCalls(t *testing.T) {
 		t.Fatalf("Decode returned %d calls, want 0", len(calls))
 	}
 }
+
+func TestNativeProtocol_DecodeMultipleCalls(t *testing.T) {
+	resp := ChatResponse{
+		Message: Message{
+			Role: "assistant",
+			ToolCalls: []ToolCall{
+				{ID: "c1", Name: "read_file", Args: map[string]any{"path": "a.txt"}},
+				{ID: "c2", Name: "list_dir", Args: map[string]any{"path": "."}},
+			},
+		},
+	}
+	calls := Native.Decode(resp)
+	if len(calls) != 2 {
+		t.Fatalf("Decode returned %d calls, want 2", len(calls))
+	}
+	if calls[0].ID != "c1" || calls[1].ID != "c2" {
+		t.Errorf("calls out of order: %+v", calls)
+	}
+}
