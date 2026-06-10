@@ -5,6 +5,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/cbarraford/office-fleet/internal/domain"
 	"gopkg.in/yaml.v3"
@@ -19,12 +20,22 @@ type BackendAuth struct {
 // Backend is a named, configured LLM provider instance.
 type Backend struct {
 	Name          string         `yaml:"name"`
-	Kind          string         `yaml:"kind"` // claude | openai-compatible
+	Kind          string         `yaml:"kind"` // claude | openai-compatible | voter
 	Auth          BackendAuth    `yaml:"auth"`
 	BaseURI       string         `yaml:"base_uri,omitempty"`
 	Model         string         `yaml:"model,omitempty"`
 	DefaultEffort string         `yaml:"default_effort,omitempty"`
 	Params        map[string]any `yaml:"params,omitempty"`
+
+	// Generic agent loop limits (openai-compatible only).
+	MaxIterations    int      `yaml:"max_iterations,omitempty"`    // default 25
+	CommandTimeout   string   `yaml:"command_timeout,omitempty"`   // Go duration, e.g. "120s"; default 120s
+	MaxOutputBytes   int      `yaml:"max_output_bytes,omitempty"`  // default 65536
+	CommandAllowlist []string `yaml:"command_allowlist,omitempty"` // empty = allow all
+
+	// Voter (kind: voter only).
+	Strategy string   `yaml:"strategy,omitempty"` // first_success | majority
+	Panel    []string `yaml:"panel,omitempty"`    // names of non-voter backends
 }
 
 // AgentConfig configures one agent (mirrors domain.Agent plus YAML BackendRef).
@@ -107,6 +118,7 @@ func Validate(cfg *Config) []error {
 	var errs []error
 
 	backendNames := map[string]bool{}
+	backendKind := map[string]string{}
 	for i := range cfg.Backends {
 		b := &cfg.Backends[i]
 		if b.Name == "" {
@@ -117,8 +129,9 @@ func Validate(cfg *Config) []error {
 			errs = append(errs, fmt.Errorf("duplicate backend name: %q", b.Name))
 		}
 		backendNames[b.Name] = true
+		backendKind[b.Name] = b.Kind
 		switch b.Kind {
-		case "claude", "openai-compatible":
+		case "claude", "openai-compatible", "voter":
 		default:
 			errs = append(errs, fmt.Errorf("backend %q: unknown kind %q", b.Name, b.Kind))
 		}
@@ -135,6 +148,61 @@ func Validate(cfg *Config) []error {
 		if b.Auth.Mode == "api_key" && strings.TrimSpace(b.Auth.APIKey) == "" {
 			errs = append(errs, fmt.Errorf("backend %s: auth mode api_key requires api_key to be set", b.Name))
 		}
+		switch b.Kind {
+		case "openai-compatible":
+			if b.BaseURI == "" {
+				errs = append(errs, fmt.Errorf("backend %q: kind openai-compatible requires base_uri", b.Name))
+			}
+			if b.Model == "" {
+				errs = append(errs, fmt.Errorf("backend %q: kind openai-compatible requires model", b.Name))
+			}
+			if b.Auth.Mode == "subscription" {
+				errs = append(errs, fmt.Errorf("backend %q: subscription auth is not supported for endpoint backends (use api_key or none)", b.Name))
+			}
+		case "voter":
+			if b.Strategy != "first_success" && b.Strategy != "majority" {
+				errs = append(errs, fmt.Errorf("backend %q: voter strategy must be first_success or majority, got %q", b.Name, b.Strategy))
+			}
+			if len(b.Panel) == 0 {
+				errs = append(errs, fmt.Errorf("backend %q: voter requires a non-empty panel", b.Name))
+			}
+			if b.BaseURI != "" || b.Model != "" || b.MaxIterations != 0 ||
+				b.CommandTimeout != "" || b.MaxOutputBytes != 0 || len(b.CommandAllowlist) != 0 {
+				errs = append(errs, fmt.Errorf("backend %q: voter backends must not set base_uri/model/loop-limit fields", b.Name))
+			}
+		}
+		if b.CommandTimeout != "" {
+			if _, err := time.ParseDuration(b.CommandTimeout); err != nil {
+				errs = append(errs, fmt.Errorf("backend %q: invalid command_timeout %q: %v", b.Name, b.CommandTimeout, err))
+			}
+		}
+	}
+
+	// Voter panels: every member must be a defined, non-voter backend.
+	for i := range cfg.Backends {
+		b := &cfg.Backends[i]
+		if b.Kind != "voter" {
+			continue
+		}
+		for _, member := range b.Panel {
+			if !backendNames[member] {
+				errs = append(errs, fmt.Errorf("backend %q: panel member %q not defined", b.Name, member))
+				continue
+			}
+			if backendKind[member] == "voter" {
+				errs = append(errs, fmt.Errorf("backend %q: panel member %q is a voter; voter nesting is not supported", b.Name, member))
+			}
+		}
+	}
+
+	// rejectVoterOverride flags model/effort overrides on refs that point at voters.
+	rejectVoterOverride := func(where string, ref domain.BackendRef) {
+		if ref.Name == "" || backendKind[ref.Name] != "voter" {
+			return
+		}
+		if ref.Model != "" || ref.Effort != "" {
+			errs = append(errs, fmt.Errorf("%s: model/effort override on voter backend %q is not supported (each panel member resolves its own)", where, ref.Name))
+		}
 	}
 
 	agentNames := map[string]bool{}
@@ -150,6 +218,7 @@ func Validate(cfg *Config) []error {
 		if a.DefaultBackend.Name != "" && !backendNames[a.DefaultBackend.Name] {
 			errs = append(errs, fmt.Errorf("agent %q: default_backend %q not defined", a.Name, a.DefaultBackend.Name))
 		}
+		rejectVoterOverride(fmt.Sprintf("agent %q", a.Name), a.DefaultBackend)
 	}
 
 	dutyNames := map[string]bool{}
@@ -164,6 +233,9 @@ func Validate(cfg *Config) []error {
 		dutyNames[d.Name] = true
 		if d.Backend != nil && !backendNames[d.Backend.Name] {
 			errs = append(errs, fmt.Errorf("duty %q: backend %q not defined", d.Name, d.Backend.Name))
+		}
+		if d.Backend != nil {
+			rejectVoterOverride(fmt.Sprintf("duty %q", d.Name), *d.Backend)
 		}
 	}
 
@@ -189,6 +261,9 @@ func Validate(cfg *Config) []error {
 		}
 		if a.Backend != nil && !backendNames[a.Backend.Name] {
 			errs = append(errs, fmt.Errorf("assignment[%d]: backend %q not defined", i, a.Backend.Name))
+		}
+		if a.Backend != nil {
+			rejectVoterOverride(fmt.Sprintf("assignment[%d]", i), *a.Backend)
 		}
 		// Simulate three-tier resolution: if no backend can be resolved at
 		// any tier the assignment will fail at runtime, so reject it here.

@@ -519,3 +519,131 @@ func TestLoad_SetEnvRefExpandsCorrectly(t *testing.T) {
 		t.Fatalf("expected DSN to be expanded, got %q", cfg.Database.DSN)
 	}
 }
+
+// --- SP2 validation tests ---
+
+func validEndpointBackend() config.Backend {
+	return config.Backend{
+		Name:    "local-ollama",
+		Kind:    "openai-compatible",
+		BaseURI: "http://localhost:11434/v1",
+		Model:   "llama3.1:70b",
+		Auth:    config.BackendAuth{Mode: "none"},
+	}
+}
+
+func validVoterConfig() *config.Config {
+	return &config.Config{
+		Backends: []config.Backend{
+			{Name: "claude-sub", Kind: "claude", Auth: config.BackendAuth{Mode: "subscription"}},
+			validEndpointBackend(),
+			{Name: "panel-1", Kind: "voter", Strategy: "first_success", Panel: []string{"claude-sub", "local-ollama"}},
+		},
+	}
+}
+
+func errorsContain(t *testing.T, errs []error, substr string) {
+	t.Helper()
+	for _, e := range errs {
+		if strings.Contains(e.Error(), substr) {
+			return
+		}
+	}
+	t.Errorf("expected a validation error containing %q, got %v", substr, errs)
+}
+
+func TestValidate_EndpointBackendValid(t *testing.T) {
+	cfg := &config.Config{Backends: []config.Backend{validEndpointBackend()}}
+	if errs := config.Validate(cfg); len(errs) != 0 {
+		t.Errorf("expected no errors, got %v", errs)
+	}
+}
+
+func TestValidate_EndpointRequiresBaseURI(t *testing.T) {
+	b := validEndpointBackend()
+	b.BaseURI = ""
+	errs := config.Validate(&config.Config{Backends: []config.Backend{b}})
+	errorsContain(t, errs, "base_uri")
+}
+
+func TestValidate_EndpointRequiresModel(t *testing.T) {
+	b := validEndpointBackend()
+	b.Model = ""
+	errs := config.Validate(&config.Config{Backends: []config.Backend{b}})
+	errorsContain(t, errs, "model")
+}
+
+func TestValidate_EndpointRejectsSubscription(t *testing.T) {
+	b := validEndpointBackend()
+	b.Auth = config.BackendAuth{Mode: "subscription"}
+	errs := config.Validate(&config.Config{Backends: []config.Backend{b}})
+	errorsContain(t, errs, "subscription")
+}
+
+func TestValidate_EndpointBadCommandTimeout(t *testing.T) {
+	b := validEndpointBackend()
+	b.CommandTimeout = "two minutes"
+	errs := config.Validate(&config.Config{Backends: []config.Backend{b}})
+	errorsContain(t, errs, "command_timeout")
+}
+
+func TestValidate_VoterValid(t *testing.T) {
+	if errs := config.Validate(validVoterConfig()); len(errs) != 0 {
+		t.Errorf("expected no errors, got %v", errs)
+	}
+}
+
+func TestValidate_VoterBadStrategy(t *testing.T) {
+	cfg := validVoterConfig()
+	cfg.Backends[2].Strategy = "consensus"
+	errs := config.Validate(cfg)
+	errorsContain(t, errs, "strategy")
+}
+
+func TestValidate_VoterEmptyPanel(t *testing.T) {
+	cfg := validVoterConfig()
+	cfg.Backends[2].Panel = nil
+	errs := config.Validate(cfg)
+	errorsContain(t, errs, "panel")
+}
+
+func TestValidate_VoterUnknownMember(t *testing.T) {
+	cfg := validVoterConfig()
+	cfg.Backends[2].Panel = []string{"claude-sub", "ghost"}
+	errs := config.Validate(cfg)
+	errorsContain(t, errs, "ghost")
+}
+
+func TestValidate_VoterNoNesting(t *testing.T) {
+	cfg := validVoterConfig()
+	cfg.Backends = append(cfg.Backends, config.Backend{
+		Name: "panel-2", Kind: "voter", Strategy: "majority", Panel: []string{"panel-1"},
+	})
+	errs := config.Validate(cfg)
+	errorsContain(t, errs, "voter")
+}
+
+func TestValidate_VoterRejectsEndpointFields(t *testing.T) {
+	cfg := validVoterConfig()
+	cfg.Backends[2].Model = "llama3.1"
+	errs := config.Validate(cfg)
+	errorsContain(t, errs, "must not set")
+}
+
+func TestValidate_VoterRefModelOverrideRejected(t *testing.T) {
+	cfg := validVoterConfig()
+	cfg.Agents = []config.AgentConfig{
+		{Name: "a1", DefaultBackend: domain.BackendRef{Name: "panel-1", Model: "llama3.1"}},
+	}
+	errs := config.Validate(cfg)
+	errorsContain(t, errs, "override")
+}
+
+func TestValidate_VoterRefEffortOverrideRejected(t *testing.T) {
+	cfg := validVoterConfig()
+	cfg.Duties = []config.DutyConfig{
+		{Name: "d1", Backend: &domain.BackendRef{Name: "panel-1", Effort: "high"}},
+	}
+	errs := config.Validate(cfg)
+	errorsContain(t, errs, "override")
+}
