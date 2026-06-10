@@ -11,7 +11,6 @@ import (
 	"github.com/cbarraford/office-fleet/internal/domain"
 	"github.com/cbarraford/office-fleet/internal/executor"
 	"github.com/cbarraford/office-fleet/internal/outputs"
-	"github.com/cbarraford/office-fleet/internal/plugin"
 	"github.com/cbarraford/office-fleet/internal/prompt"
 	"github.com/cbarraford/office-fleet/internal/repo"
 	"github.com/cbarraford/office-fleet/internal/state"
@@ -36,16 +35,11 @@ type Pipeline struct {
 	cfg     *config.Config
 	runRepo runRepo
 	store   state.Store
-	plugins map[string]plugin.Plugin // name -> initialized plugin
 	secrets SecretsProvider
 }
 
 func NewPipeline(cfg *config.Config, rr *repo.RunRepo, store state.Store, sp SecretsProvider) *Pipeline {
-	plugins := map[string]plugin.Plugin{}
-	for _, p := range plugin.All() {
-		plugins[p.Name()] = p
-	}
-	return &Pipeline{cfg: cfg, runRepo: rr, store: store, plugins: plugins, secrets: sp}
+	return &Pipeline{cfg: cfg, runRepo: rr, store: store, secrets: sp}
 }
 
 // ExecuteRequest is the input for one run invocation.

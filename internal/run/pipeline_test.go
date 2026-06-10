@@ -114,7 +114,6 @@ func TestPipelineExecute(t *testing.T) {
 		cfg:     cfg,
 		runRepo: rr,
 		store:   store,
-		plugins: map[string]plugin.Plugin{},
 	}
 
 	// Domain objects.
@@ -246,7 +245,6 @@ func TestPipelineExecute_WithOutputDelivery(t *testing.T) {
 		cfg:     cfg,
 		runRepo: rr,
 		store:   store,
-		plugins: map[string]plugin.Plugin{},
 	}
 
 	agentID := uuid.New()
@@ -355,7 +353,6 @@ func TestPipelineExecute_DutyBackendFallback(t *testing.T) {
 		cfg:     cfg,
 		runRepo: rr,
 		store:   store,
-		plugins: map[string]plugin.Plugin{},
 	}
 
 	agentID := uuid.New()
@@ -457,7 +454,6 @@ func TestPipelineExecute_AgentBackendFallback(t *testing.T) {
 		cfg:     cfg,
 		runRepo: rr,
 		store:   store,
-		plugins: map[string]plugin.Plugin{},
 	}
 
 	agentID := uuid.New()
@@ -548,7 +544,6 @@ func TestPipelineExecute_TaskPromptOverride(t *testing.T) {
 		cfg:     cfg,
 		runRepo: rr,
 		store:   store,
-		plugins: map[string]plugin.Plugin{},
 	}
 
 	agentID := uuid.New()
@@ -645,7 +640,6 @@ func TestPipelineExecute_ExtraInstructions(t *testing.T) {
 		cfg:     cfg,
 		runRepo: rr,
 		store:   store,
-		plugins: map[string]plugin.Plugin{},
 	}
 
 	agentID := uuid.New()
@@ -741,7 +735,6 @@ func TestPipelineExecute_StatePopulatedInPrompt(t *testing.T) {
 		cfg:     cfg,
 		runRepo: rr,
 		store:   store,
-		plugins: map[string]plugin.Plugin{},
 	}
 
 	agentID := uuid.New()
@@ -834,7 +827,6 @@ func TestPipelineExecute_DedupSkip(t *testing.T) {
 		cfg:     cfg,
 		runRepo: rr,
 		store:   store,
-		plugins: map[string]plugin.Plugin{},
 	}
 
 	agentID := uuid.New()
@@ -937,7 +929,6 @@ func TestPipelineExecute_SecretInTemplate(t *testing.T) {
 		cfg:     cfg,
 		runRepo: rr,
 		store:   store,
-		plugins: map[string]plugin.Plugin{},
 		secrets: &fakeSecretsProvider{data: map[string]string{"api_token": "tok-abc123"}},
 	}
 
@@ -1017,7 +1008,6 @@ func pausedTestFixture(agentEnabled, assignmentEnabled bool) (*Pipeline, Execute
 		cfg:     cfg,
 		runRepo: rr,
 		store:   store,
-		plugins: map[string]plugin.Plugin{},
 	}
 
 	agentID := uuid.New()
@@ -1143,7 +1133,6 @@ func TestPipelineExecute_ModelReportedFailure(t *testing.T) {
 		cfg:     cfg,
 		runRepo: rr,
 		store:   store,
-		plugins: map[string]plugin.Plugin{},
 	}
 
 	agentID := uuid.New()
@@ -1222,7 +1211,7 @@ func TestPipelineExecute_ZeroStatusStillSucceeds(t *testing.T) {
 		DefaultEffort: "normal", Auth: config.BackendAuth{Mode: "subscription"},
 	}}}
 	rr := newFakeRunRepo()
-	pipeline := &Pipeline{cfg: cfg, runRepo: rr, store: store, plugins: map[string]plugin.Plugin{}}
+	pipeline := &Pipeline{cfg: cfg, runRepo: rr, store: store}
 
 	agentID, dutyID := uuid.New(), uuid.New()
 	run, err := pipeline.Execute(ctx, ExecuteRequest{
@@ -1255,7 +1244,7 @@ func TestPipelineExecute_ExecutorErrorPreservesPartialResult(t *testing.T) {
 		DefaultEffort: "normal", Auth: config.BackendAuth{Mode: "subscription"},
 	}}}
 	rr := newFakeRunRepo()
-	pipeline := &Pipeline{cfg: cfg, runRepo: rr, store: store, plugins: map[string]plugin.Plugin{}}
+	pipeline := &Pipeline{cfg: cfg, runRepo: rr, store: store}
 
 	agentID, dutyID := uuid.New(), uuid.New()
 	run, err := pipeline.Execute(ctx, ExecuteRequest{

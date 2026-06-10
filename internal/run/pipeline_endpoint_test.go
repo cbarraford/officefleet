@@ -94,7 +94,8 @@ func TestPipelineExecute_EndpointBackendEndToEnd(t *testing.T) {
 
 	recorder := &deliveryRecorder{name: "ep-recorder-plugin"}
 	// plugin.Register writes to the global registry; outputs.Deliver calls
-	// plugin.Get() directly, so the pipeline.plugins map is not used here.
+	// plugin.Get() directly (the former Pipeline.plugins field was removed as dead code),
+	// so plugins resolve via the registry.
 	plugin.Register(recorder)
 
 	rr := newFakeRunRepo()
@@ -102,7 +103,6 @@ func TestPipelineExecute_EndpointBackendEndToEnd(t *testing.T) {
 		cfg:     cfg,
 		runRepo: rr,
 		store:   state.NewMemStore(),
-		plugins: map[string]plugin.Plugin{},
 	}
 
 	agentID, dutyID, assignmentID := uuid.New(), uuid.New(), uuid.New()
