@@ -307,6 +307,9 @@ func backendsTestCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("backend test failed: %w", err)
 			}
+			if result.Status != 0 {
+				return fmt.Errorf("backend %q returned non-zero status %d: %s", backendName, result.Status, result.Summary)
+			}
 			fmt.Printf("Status:  %d\n", result.Status)
 			fmt.Printf("Summary: %s\n", result.Summary)
 			fmt.Printf("Tokens:  %d\n", result.Tokens)

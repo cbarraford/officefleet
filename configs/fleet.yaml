@@ -13,7 +13,7 @@ backends:
 #    kind: claude
 #    auth:
 #      mode: api_key
-#      api_key: ${env:ANTHROPIC_API_KEY}
+#      api_key: your-anthropic-api-key   # or reference an env var via env expansion
 #    default_effort: high
 
 # Example: openai-compatible endpoint backend (Ollama/vLLM/llama.cpp; SP2)
