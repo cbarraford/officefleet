@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/cbarraford/office-fleet/internal/config"
@@ -38,7 +39,7 @@ func TestPipelineExecute_EndpointBackendEndToEnd(t *testing.T) {
 	ctx := context.Background()
 
 	// Scripted openai-compatible server: one tool turn, then submit_result.
-	call := 0
+	var call atomic.Int32
 	responses := []string{
 		`{
 		  "choices": [{"message": {"role": "assistant", "content": "",
@@ -55,8 +56,9 @@ func TestPipelineExecute_EndpointBackendEndToEnd(t *testing.T) {
 		}`,
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if call >= len(responses) {
-			t.Errorf("unexpected chat call #%d", call+1)
+		n := int(call.Add(1)) - 1
+		if n >= len(responses) {
+			t.Errorf("unexpected chat call #%d", n+1)
 			w.WriteHeader(500)
 			return
 		}
@@ -66,10 +68,14 @@ func TestPipelineExecute_EndpointBackendEndToEnd(t *testing.T) {
 			t.Errorf("model = %v", body["model"])
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(responses[call]))
-		call++
+		_, _ = w.Write([]byte(responses[n]))
 	}))
 	defer srv.Close()
+	t.Cleanup(func() {
+		if got := int(call.Load()); got != len(responses) {
+			t.Errorf("want %d chat calls, got %d", len(responses), got)
+		}
+	})
 
 	backendName := "ep-backend"
 	cfg := &config.Config{
@@ -87,6 +93,8 @@ func TestPipelineExecute_EndpointBackendEndToEnd(t *testing.T) {
 	}
 
 	recorder := &deliveryRecorder{name: "ep-recorder-plugin"}
+	// plugin.Register writes to the global registry; outputs.Deliver calls
+	// plugin.Get() directly, so the pipeline.plugins map is not used here.
 	plugin.Register(recorder)
 
 	rr := newFakeRunRepo()
@@ -137,7 +145,7 @@ func TestPipelineExecute_EndpointBackendEndToEnd(t *testing.T) {
 	if run.LLMResult == nil || run.LLMResult.Summary != "review complete" {
 		t.Fatalf("LLMResult = %+v", run.LLMResult)
 	}
-	if run.Tokens != 75 { // 30 + 45
+	if run.Tokens != 75 { // turn1(20+10) + turn2(30+15) = 75
 		t.Errorf("Tokens = %d, want 75", run.Tokens)
 	}
 	if run.RenderedSystemPrompt == "" || run.RenderedPrompt == "" {
