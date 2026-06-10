@@ -1104,3 +1104,139 @@ func TestPipelineExecute_AssignmentPausedSkip(t *testing.T) {
 	}
 	assertPausedSkip(t, run, rr, fakeExec, "assignment_paused")
 }
+
+func TestPipelineExecute_ModelReportedFailure(t *testing.T) {
+	ctx := context.Background()
+
+	// Register a plugin that must NOT be called.
+	mock := &mockPlugin{name: "must-not-deliver-plugin"}
+	plugin.Register(mock)
+
+	cannedResult := domain.LLMResult{
+		Status:     2,
+		Summary:    "could not complete the review",
+		Output:     map[string]any{},
+		Transcript: "TRANSCRIPT_SENTINEL",
+		Tokens:     11,
+		Cost:       0.002,
+	}
+	fakeExec := executor.NewFakeExecutor(cannedResult)
+	store := state.NewMemStore()
+
+	backendName := "modelfail-backend"
+	backendRef := &domain.BackendRef{Name: backendName}
+	cfg := &config.Config{
+		Backends: []config.Backend{
+			{
+				Name:          backendName,
+				Kind:          "claude",
+				Model:         "claude-3-5-sonnet",
+				DefaultEffort: "normal",
+				Auth:          config.BackendAuth{Mode: "subscription"},
+			},
+		},
+	}
+
+	rr := newFakeRunRepo()
+	pipeline := &Pipeline{
+		cfg:     cfg,
+		runRepo: rr,
+		store:   store,
+		plugins: map[string]plugin.Plugin{},
+	}
+
+	agentID := uuid.New()
+	dutyID := uuid.New()
+	assignmentID := uuid.New()
+
+	agent := &domain.Agent{
+		ID: agentID, Name: "modelfail-agent", Role: "tester",
+		SystemPrompt: "You are a test agent.", Enabled: true,
+	}
+	duty := &domain.Duty{
+		ID: dutyID, Name: "modelfail-duty", Role: "testing",
+		Description: "A duty for model-failure testing.", Prompt: "Do the task.",
+	}
+	assignment := &domain.Assignment{
+		ID: assignmentID, AgentID: agentID, DutyID: dutyID,
+		Enabled: true, Backend: backendRef, Config: map[string]any{},
+		Outputs: []domain.OutputBinding{
+			{Plugin: "must-not-deliver-plugin", Action: "notify", Params: map[string]any{"m": "x"}},
+		},
+	}
+
+	req := ExecuteRequest{
+		Assignment: assignment, Agent: agent, Duty: duty,
+		TriggerKind: "event", EventParams: map[string]any{"mr_iid": "99"},
+		Executor: fakeExec,
+	}
+
+	run, err := pipeline.Execute(ctx, req)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v (model-reported failure must not be a pipeline error)", err)
+	}
+	if run.Status != domain.RunStatusFailed {
+		t.Errorf("status = %q, want failed", run.Status)
+	}
+	if run.Error == nil || !strings.Contains(*run.Error, "status 2") {
+		t.Errorf("run.Error = %v, want llm failure message", run.Error)
+	}
+	// Full result recorded (transcript retained).
+	if run.LLMResult == nil || run.LLMResult.Transcript != "TRANSCRIPT_SENTINEL" {
+		t.Errorf("LLMResult = %+v, want transcript retained", run.LLMResult)
+	}
+	if run.Tokens != 11 {
+		t.Errorf("Tokens = %d, want 11", run.Tokens)
+	}
+	// Outputs skipped.
+	if mock.called {
+		t.Error("output plugin was called for a failed-status result")
+	}
+	if len(run.OutputsDelivered) != 0 {
+		t.Errorf("OutputsDelivered = %v, want none", run.OutputsDelivered)
+	}
+	// Dedup NOT marked: a retry must be possible.
+	already, err := store.HasProcessed(ctx, assignmentID.String(), "mr_iid:99")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if already {
+		t.Error("dedup key was marked processed for a failed run; retries are now impossible")
+	}
+	// Stored run reflects failure.
+	stored := rr.runs[run.ID]
+	if stored == nil || stored.Status != domain.RunStatusFailed {
+		t.Errorf("stored run = %+v", stored)
+	}
+}
+
+func TestPipelineExecute_ZeroStatusStillSucceeds(t *testing.T) {
+	// Guard: the new Status check must not affect the success path.
+	ctx := context.Background()
+	fakeExec := executor.NewFakeExecutor(domain.LLMResult{Status: 0, Summary: "fine"})
+	store := state.NewMemStore()
+	backendName := "zerostatus-backend"
+	cfg := &config.Config{Backends: []config.Backend{{
+		Name: backendName, Kind: "claude", Model: "claude-3-5-sonnet",
+		DefaultEffort: "normal", Auth: config.BackendAuth{Mode: "subscription"},
+	}}}
+	rr := newFakeRunRepo()
+	pipeline := &Pipeline{cfg: cfg, runRepo: rr, store: store, plugins: map[string]plugin.Plugin{}}
+
+	agentID, dutyID := uuid.New(), uuid.New()
+	run, err := pipeline.Execute(ctx, ExecuteRequest{
+		Assignment: &domain.Assignment{
+			ID: uuid.New(), AgentID: agentID, DutyID: dutyID, Enabled: true,
+			Backend: &domain.BackendRef{Name: backendName}, Config: map[string]any{},
+		},
+		Agent:       &domain.Agent{ID: agentID, Name: "z-agent", Role: "t", SystemPrompt: "s", Enabled: true},
+		Duty:        &domain.Duty{ID: dutyID, Name: "z-duty", Role: "t", Description: "d", Prompt: "p"},
+		TriggerKind: "manual", EventParams: map[string]any{}, Executor: fakeExec,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != domain.RunStatusSucceeded {
+		t.Errorf("status = %q, want succeeded", run.Status)
+	}
+}

@@ -212,6 +212,27 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 		return run, fmt.Errorf("executor: %w", llmErr)
 	}
 
+	// Model-reported failure: a nonzero status means the work did not succeed.
+	// Record the full result for audit (including the transcript) but skip
+	// output delivery — a failed run must not post half-formed outputs — and
+	// skip dedup marking so the work can be retried. This also captures the
+	// claude path's is_error, which parseClaudeOutput maps to Status 1.
+	if llmResult.Status != 0 {
+		errMsg := fmt.Sprintf("llm reported failure status %d: %s", llmResult.Status, llmResult.Summary)
+		if err := p.runRepo.UpdateResult(ctx, run.ID, &llmResult, nil, domain.RunStatusFailed); err != nil {
+			return nil, fmt.Errorf("record run result: %w", err)
+		}
+		_ = p.runRepo.UpdateStatus(ctx, run.ID, domain.RunStatusFailed, &errMsg)
+		run.LLMResult = &llmResult
+		run.Tokens = llmResult.Tokens
+		run.Cost = llmResult.Cost
+		run.Status = domain.RunStatusFailed
+		run.Error = &errMsg
+		finished := time.Now()
+		run.FinishedAt = &finished
+		return run, nil
+	}
+
 	// Deliver outputs.
 	deliveries := outputs.Deliver(ctx, req.Assignment.Outputs, llmResult, promptCtx)
 
