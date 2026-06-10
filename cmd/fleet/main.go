@@ -201,6 +201,7 @@ func backendsCmd() *cobra.Command {
 	}
 	cmd.AddCommand(backendsListCmd())
 	cmd.AddCommand(backendsLoginCmd())
+	cmd.AddCommand(backendsTestCmd())
 	return cmd
 }
 
@@ -261,6 +262,55 @@ func backendsLoginCmd() *cobra.Command {
 			c.Stdout = os.Stdout
 			c.Stderr = os.Stderr
 			return c.Run()
+		},
+	}
+}
+
+func backendsTestCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "test <backend-name>",
+		Short: "One-shot connectivity/auth smoke test against a backend",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			backendName := args[0]
+			cfg, err := loadConfig()
+			if err != nil {
+				return fmt.Errorf("load config: %w", err)
+			}
+			var backend *config.Backend
+			for i := range cfg.Backends {
+				if cfg.Backends[i].Name == backendName {
+					backend = &cfg.Backends[i]
+					break
+				}
+			}
+			if backend == nil {
+				return fmt.Errorf("backend %q not found in config", backendName)
+			}
+			ex, err := executor.FromBackend(cfg, backend)
+			if err != nil {
+				return fmt.Errorf("build executor: %w", err)
+			}
+			ws, err := os.MkdirTemp("", "fleet-backend-test-*")
+			if err != nil {
+				return fmt.Errorf("create workspace: %w", err)
+			}
+			defer os.RemoveAll(ws)
+
+			fmt.Printf("testing backend %q (kind %s)...\n", backend.Name, backend.Kind)
+			result, err := ex.Run(cmd.Context(), executor.LLMRequest{
+				Prompt:    "Reply with only the word: OK",
+				Workspace: ws,
+				Model:     backend.Model,
+				Effort:    backend.DefaultEffort,
+			})
+			if err != nil {
+				return fmt.Errorf("backend test failed: %w", err)
+			}
+			fmt.Printf("Status:  %d\n", result.Status)
+			fmt.Printf("Summary: %s\n", result.Summary)
+			fmt.Printf("Tokens:  %d\n", result.Tokens)
+			return nil
 		},
 	}
 }
@@ -411,8 +461,9 @@ func runCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "run [assignment-id]",
-		Short: "Execute an assignment",
+		Use:          "run [assignment-id]",
+		Short:        "Execute an assignment",
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 
@@ -529,14 +580,16 @@ func runCmd() *cobra.Command {
 						break
 					}
 				}
-				if resolved == nil || resolved.Kind == "claude" {
-					var apiKey string
-					if resolved != nil && resolved.Auth.Mode == "api_key" {
-						apiKey = resolved.Auth.APIKey
-					}
-					exec = executor.NewClaudeExecutor(apiKey)
+				if resolved == nil {
+					// No matching config assignment (e.g. DB-seeded): keep
+					// the SP1 default of the subscription claude CLI.
+					exec = executor.NewClaudeExecutor("")
 				} else {
-					return fmt.Errorf("backend kind %q is not yet supported", resolved.Kind)
+					var eerr error
+					exec, eerr = executor.FromBackend(cfg, resolved)
+					if eerr != nil {
+						return fmt.Errorf("build executor: %w", eerr)
+					}
 				}
 			}
 
@@ -557,6 +610,9 @@ func runCmd() *cobra.Command {
 
 			fmt.Printf("Run ID:   %s\n", result.ID)
 			fmt.Printf("Status:   %s\n", result.Status)
+			if result.Error != nil {
+				fmt.Printf("Error:    %s\n", *result.Error)
+			}
 			if result.LLMResult != nil {
 				fmt.Printf("Summary:  %s\n", result.LLMResult.Summary)
 				fmt.Printf("Tokens:   %d\n", result.LLMResult.Tokens)
@@ -570,6 +626,9 @@ func runCmd() *cobra.Command {
 						fmt.Printf("    error: %s\n", od.Error)
 					}
 				}
+			}
+			if result.Status == domain.RunStatusFailed {
+				return fmt.Errorf("run %s failed", result.ID)
 			}
 			return nil
 		},
@@ -693,15 +752,15 @@ func scheduleCmd() *cobra.Command {
 					}
 				}
 				var exec executor.Executor
-				if resolvedBackend == nil || resolvedBackend.Kind == "claude" {
-					var apiKey string
-					if resolvedBackend != nil && resolvedBackend.Auth.Mode == "api_key" {
-						apiKey = resolvedBackend.Auth.APIKey
-					}
-					exec = executor.NewClaudeExecutor(apiKey)
+				if resolvedBackend == nil {
+					exec = executor.NewClaudeExecutor("")
 				} else {
-					fmt.Fprintf(os.Stderr, "scheduler: backend kind %q is not yet supported for assignment %s\n", resolvedBackend.Kind, assignmentID)
-					return
+					var eerr error
+					exec, eerr = executor.FromBackend(cfg, resolvedBackend)
+					if eerr != nil {
+						fmt.Fprintf(os.Stderr, "scheduler: build executor for assignment %s: %v\n", assignmentID, eerr)
+						return
+					}
 				}
 				result, err := pipeline.Execute(runCtx, run.ExecuteRequest{
 					Assignment:  assignment,
@@ -715,7 +774,11 @@ func scheduleCmd() *cobra.Command {
 					fmt.Fprintf(os.Stderr, "scheduler: execute assignment %s: %v\n", assignmentID, err)
 					return
 				}
-				fmt.Printf("scheduler: assignment %s completed with status %s\n", assignmentID, result.Status)
+				if result.Error != nil {
+					fmt.Printf("scheduler: assignment %s completed with status %s (error: %s)\n", assignmentID, result.Status, *result.Error)
+				} else {
+					fmt.Printf("scheduler: assignment %s completed with status %s\n", assignmentID, result.Status)
+				}
 			})
 
 			return nil

@@ -16,6 +16,28 @@ backends:
 #      api_key: ${env:ANTHROPIC_API_KEY}
 #    default_effort: high
 
+# Example: openai-compatible endpoint backend (Ollama/vLLM/llama.cpp; SP2)
+# Driven by OfficeFleet's generic agent loop. Requires base_uri + model.
+#  - name: local-ollama
+#    kind: openai-compatible
+#    base_uri: http://localhost:11434/v1
+#    model: llama3.1:70b
+#    auth:
+#      mode: none                  # or: mode: api_key  (add api_key: with an env ref)
+#    default_effort: medium
+#    params:
+#      num_ctx: 8192               # passed through to the provider request
+#    max_iterations: 25            # agent loop cap
+#    command_timeout: 120s         # per run_command
+#    max_output_bytes: 65536       # tool observation cap
+#    command_allowlist: []         # empty = allow all commands
+
+# Example: multi-model voter (SP2) — fans out to a panel, aggregates by strategy
+#  - name: review-panel
+#    kind: voter
+#    strategy: first_success       # or: majority (plurality on status code)
+#    panel: [claude-default, local-ollama]
+
 agents:
   - name: dev-1
     role: developer
