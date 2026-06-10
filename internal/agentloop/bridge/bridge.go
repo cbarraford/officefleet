@@ -5,6 +5,7 @@ package bridge
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -162,11 +163,23 @@ func (b *Bridge) runCommand(ctx context.Context, args map[string]any) string {
 	cmd.WaitDelay = 2 * time.Second
 	out, err := cmd.CombinedOutput()
 
+	// Best-effort reap of background children: Cancel only fires while sh
+	// itself is still running, so a command that exits quickly leaving
+	// children behind (e.g. "daemon & echo ok") would otherwise leak them.
+	if cmd.Process != nil {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+
 	if ctx.Err() != nil {
 		return "command cancelled: " + ctx.Err().Error()
 	}
 	if cmdCtx.Err() == context.DeadlineExceeded {
 		return fmt.Sprintf("command timed out after %s", b.limits.CommandTimeout)
+	}
+	if errors.Is(err, exec.ErrWaitDelay) {
+		// The command itself exited successfully but background children held
+		// the output pipe until WaitDelay expired; they have been killed.
+		return fmt.Sprintf("exit code: 0\n%s\n[note: background children were killed after the command exited; output may be incomplete]", b.truncate(string(out)))
 	}
 	exitCode := 0
 	if err != nil {

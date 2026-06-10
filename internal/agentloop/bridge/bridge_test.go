@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -287,5 +288,28 @@ func TestRunCommand_ParentCancelObservation(t *testing.T) {
 	}
 	if strings.Contains(obs, "exit code") {
 		t.Errorf("observation = %q, must not report a phantom exit code on cancellation", obs)
+	}
+}
+
+func TestRunCommand_ReapsOrphanedBackgroundChildren(t *testing.T) {
+	b, _ := newTestBridge(t, Limits{}) // default 120s timeout: WaitDelay path, not deadline
+	start := time.Now()
+	// Unique sleep duration so pgrep can find this exact orphan if it leaks.
+	obs, _, _ := execTool(t, b, "run_command", map[string]any{"cmd": "sleep 397 & echo started"})
+	elapsed := time.Since(start)
+	if elapsed > 5*time.Second {
+		t.Fatalf("run_command blocked for %v", elapsed)
+	}
+	if !strings.Contains(obs, "started") {
+		t.Errorf("observation = %q, want command output", obs)
+	}
+	if !strings.Contains(obs, "exit code: 0") {
+		t.Errorf("observation = %q, want exit code 0 (command itself succeeded)", obs)
+	}
+	// The backgrounded child must have been reaped, not leaked.
+	time.Sleep(100 * time.Millisecond)
+	out, _ := exec.Command("pgrep", "-f", "sleep 397").Output()
+	if len(strings.TrimSpace(string(out))) > 0 {
+		t.Errorf("orphaned child survived: pgrep output %q", out)
 	}
 }
