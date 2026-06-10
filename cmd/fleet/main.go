@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -58,6 +59,20 @@ func main() {
 // loadConfig loads fleet.yaml from the --config flag path.
 func loadConfig() (*config.Config, error) {
 	return config.Load(flagConfig)
+}
+
+// loadValidatedConfig loads fleet.yaml and rejects it if validation fails.
+// Execution paths (run, schedule, backends test) must not act on an invalid
+// config; read-only listing commands stay lenient.
+func loadValidatedConfig() (*config.Config, error) {
+	cfg, err := loadConfig()
+	if err != nil {
+		return nil, err
+	}
+	if errs := config.Validate(cfg); len(errs) > 0 {
+		return nil, fmt.Errorf("invalid config: %w", errors.Join(errs...))
+	}
+	return cfg, nil
 }
 
 // resolveDSN returns the effective DSN: --db flag > config DSN > FLEET_DATABASE_DSN env.
@@ -273,7 +288,7 @@ func backendsTestCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			backendName := args[0]
-			cfg, err := loadConfig()
+			cfg, err := loadValidatedConfig()
 			if err != nil {
 				return fmt.Errorf("load config: %w", err)
 			}
@@ -474,7 +489,7 @@ func runCmd() *cobra.Command {
 				flagID = args[0]
 			}
 
-			cfg, err := loadConfig()
+			cfg, err := loadValidatedConfig()
 			if err != nil {
 				return fmt.Errorf("load config: %w", err)
 			}
@@ -654,7 +669,7 @@ func scheduleCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 
-			cfg, err := loadConfig()
+			cfg, err := loadValidatedConfig()
 			if err != nil {
 				return fmt.Errorf("load config: %w", err)
 			}
