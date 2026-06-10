@@ -33,18 +33,18 @@ type OutputActionType struct {
 
 // Duty is a reusable definition of work.
 type Duty struct {
-	ID             uuid.UUID          `db:"id"`
-	Name           string             `db:"name"`
-	Role           string             `db:"role"` // category tag, not operative persona
-	Description    string             `db:"description"`
-	TriggerKinds   []string           `db:"trigger_kinds"`
-	Prompt         string             `db:"prompt"`
-	RequiredTools  []string           `db:"required_tools"`
-	OutputActions  []OutputActionType `db:"output_actions"`
-	ConfigSchema   map[string]any     `db:"config_schema"`
-	Backend        *BackendRef        `db:"backend"`
-	CreatedAt      time.Time          `db:"created_at"`
-	UpdatedAt      time.Time          `db:"updated_at"`
+	ID            uuid.UUID          `db:"id"`
+	Name          string             `db:"name"`
+	Role          string             `db:"role"` // category tag, not operative persona
+	Description   string             `db:"description"`
+	TriggerKinds  []string           `db:"trigger_kinds"`
+	Prompt        string             `db:"prompt"`
+	RequiredTools []string           `db:"required_tools"`
+	OutputActions []OutputActionType `db:"output_actions"`
+	ConfigSchema  map[string]any     `db:"config_schema"`
+	Backend       *BackendRef        `db:"backend"`
+	CreatedAt     time.Time          `db:"created_at"`
+	UpdatedAt     time.Time          `db:"updated_at"`
 }
 
 // TriggerConfig holds the chosen trigger kind and its configuration.

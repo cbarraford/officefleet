@@ -12,19 +12,19 @@ import (
 
 // BackendAuth describes how a backend authenticates with its provider.
 type BackendAuth struct {
-	Mode   string `yaml:"mode"`             // subscription | api_key | none
+	Mode   string `yaml:"mode"`              // subscription | api_key | none
 	APIKey string `yaml:"api_key,omitempty"` // may be ${secret:name} reference
 }
 
 // Backend is a named, configured LLM provider instance.
 type Backend struct {
-	Name          string            `yaml:"name"`
-	Kind          string            `yaml:"kind"` // claude | openai-compatible
-	Auth          BackendAuth       `yaml:"auth"`
-	BaseURI       string            `yaml:"base_uri,omitempty"`
-	Model         string            `yaml:"model,omitempty"`
-	DefaultEffort string            `yaml:"default_effort,omitempty"`
-	Params        map[string]any    `yaml:"params,omitempty"`
+	Name          string         `yaml:"name"`
+	Kind          string         `yaml:"kind"` // claude | openai-compatible
+	Auth          BackendAuth    `yaml:"auth"`
+	BaseURI       string         `yaml:"base_uri,omitempty"`
+	Model         string         `yaml:"model,omitempty"`
+	DefaultEffort string         `yaml:"default_effort,omitempty"`
+	Params        map[string]any `yaml:"params,omitempty"`
 }
 
 // AgentConfig configures one agent (mirrors domain.Agent plus YAML BackendRef).
@@ -38,15 +38,15 @@ type AgentConfig struct {
 
 // DutyConfig configures one duty.
 type DutyConfig struct {
-	Name          string                     `yaml:"name"`
-	Role          string                     `yaml:"role"`
-	Description   string                     `yaml:"description"`
-	TriggerKinds  []string                   `yaml:"trigger_kinds"`
-	Prompt        string                     `yaml:"prompt"`
-	RequiredTools []string                   `yaml:"required_tools"`
-	OutputActions []domain.OutputActionType  `yaml:"output_actions"`
-	ConfigSchema  map[string]any             `yaml:"config_schema,omitempty"`
-	Backend       *domain.BackendRef         `yaml:"backend,omitempty"`
+	Name          string                    `yaml:"name"`
+	Role          string                    `yaml:"role"`
+	Description   string                    `yaml:"description"`
+	TriggerKinds  []string                  `yaml:"trigger_kinds"`
+	Prompt        string                    `yaml:"prompt"`
+	RequiredTools []string                  `yaml:"required_tools"`
+	OutputActions []domain.OutputActionType `yaml:"output_actions"`
+	ConfigSchema  map[string]any            `yaml:"config_schema,omitempty"`
+	Backend       *domain.BackendRef        `yaml:"backend,omitempty"`
 }
 
 // AssignmentConfig configures one assignment.

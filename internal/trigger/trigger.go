@@ -25,9 +25,9 @@ func NewManual(params Params) *ManualTrigger {
 	return &ManualTrigger{triggerParams: params}
 }
 
-func (m *ManualTrigger) Kind() string  { return "manual" }
+func (m *ManualTrigger) Kind() string    { return "manual" }
 func (m *ManualTrigger) Validate() error { return nil }
-func (m *ManualTrigger) Params() Params { return m.triggerParams }
+func (m *ManualTrigger) Params() Params  { return m.triggerParams }
 
 // CronTrigger fires on a schedule defined by a cron expression.
 type CronTrigger struct {

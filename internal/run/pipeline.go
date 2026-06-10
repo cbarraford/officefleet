@@ -7,7 +7,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/cbarraford/office-fleet/internal/config"
 	"github.com/cbarraford/office-fleet/internal/domain"
 	"github.com/cbarraford/office-fleet/internal/executor"
@@ -16,6 +15,7 @@ import (
 	"github.com/cbarraford/office-fleet/internal/prompt"
 	"github.com/cbarraford/office-fleet/internal/repo"
 	"github.com/cbarraford/office-fleet/internal/state"
+	"github.com/google/uuid"
 )
 
 // runRepo is the interface Pipeline uses for run persistence.

@@ -20,25 +20,32 @@ func NewMemStore() *MemStore {
 }
 
 func (m *MemStore) Get(_ context.Context, assignmentID, key string) ([]byte, bool, error) {
-	m.mu.Lock(); defer m.mu.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	v, ok := m.kv[assignmentID+":"+key]
 	return v, ok, nil
 }
 
 func (m *MemStore) Set(_ context.Context, assignmentID, key string, val []byte) error {
-	m.mu.Lock(); defer m.mu.Unlock()
-	m.kv[assignmentID+":"+key] = val; return nil
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.kv[assignmentID+":"+key] = val
+	return nil
 }
 
 func (m *MemStore) Delete(_ context.Context, assignmentID, key string) error {
-	m.mu.Lock(); defer m.mu.Unlock()
-	delete(m.kv, assignmentID+":"+key); return nil
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.kv, assignmentID+":"+key)
+	return nil
 }
 
 func (m *MemStore) AppendNote(_ context.Context, assignmentID string, note any) error {
 	b, _ := json.Marshal(note)
-	m.mu.Lock(); defer m.mu.Unlock()
-	m.notes[assignmentID] = append(m.notes[assignmentID], b); return nil
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.notes[assignmentID] = append(m.notes[assignmentID], b)
+	return nil
 }
 
 func (m *MemStore) List(_ context.Context, assignmentID string) (map[string][]byte, error) {
@@ -56,21 +63,25 @@ func (m *MemStore) List(_ context.Context, assignmentID string) (map[string][]by
 }
 
 func (m *MemStore) HasProcessed(_ context.Context, assignmentID, dedupKey string) (bool, error) {
-	m.mu.Lock(); defer m.mu.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return m.processed[assignmentID][dedupKey], nil
 }
 
 func (m *MemStore) MarkProcessed(_ context.Context, assignmentID, dedupKey string) error {
-	m.mu.Lock(); defer m.mu.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.processed[assignmentID] == nil {
 		m.processed[assignmentID] = map[string]bool{}
 	}
-	m.processed[assignmentID][dedupKey] = true; return nil
+	m.processed[assignmentID][dedupKey] = true
+	return nil
 }
 
 // NoteCount returns the number of notes stored for the given assignmentID.
 // It is provided for testing purposes.
 func (m *MemStore) NoteCount(assignmentID string) int {
-	m.mu.Lock(); defer m.mu.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return len(m.notes[assignmentID])
 }

@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/cbarraford/office-fleet/internal/config"
 	"github.com/cbarraford/office-fleet/internal/domain"
 	"github.com/cbarraford/office-fleet/internal/executor"
 	"github.com/cbarraford/office-fleet/internal/plugin"
 	"github.com/cbarraford/office-fleet/internal/state"
+	"github.com/google/uuid"
 )
 
 // fakeSecretsProvider is an in-memory SecretsProvider for tests.
@@ -29,10 +29,10 @@ type mockPlugin struct {
 	called bool
 }
 
-func (m *mockPlugin) Name() string                  { return m.name }
+func (m *mockPlugin) Name() string                       { return m.name }
 func (m *mockPlugin) EventSources() []plugin.EventSource { return nil }
-func (m *mockPlugin) Actions() []plugin.Action      { return nil }
-func (m *mockPlugin) ConfigSchema() plugin.Schema    { return nil }
+func (m *mockPlugin) Actions() []plugin.Action           { return nil }
+func (m *mockPlugin) ConfigSchema() plugin.Schema        { return nil }
 func (m *mockPlugin) Init(_ context.Context, _ map[string]any, _ plugin.SecretLookup) error {
 	return nil
 }
@@ -514,7 +514,6 @@ func TestPipelineExecute_AgentBackendFallback(t *testing.T) {
 		t.Errorf("expected Summary %q, got %q", cannedResult.Summary, run.LLMResult.Summary)
 	}
 }
-
 
 func TestPipelineExecute_TaskPromptOverride(t *testing.T) {
 	ctx := context.Background()

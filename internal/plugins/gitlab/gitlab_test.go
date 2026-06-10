@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	_ "github.com/cbarraford/office-fleet/internal/plugins/gitlab"
 	"github.com/cbarraford/office-fleet/internal/plugin"
+	_ "github.com/cbarraford/office-fleet/internal/plugins/gitlab"
 )
 
 func TestGitLabPlugin_InitSecretError(t *testing.T) {

@@ -73,9 +73,9 @@ func TestValidate_MissingBackend(t *testing.T) {
 
 func TestValidate_Clean(t *testing.T) {
 	cfg := &config.Config{
-		Backends: []config.Backend{{Name: "b1", Kind: "claude", Auth: config.BackendAuth{Mode: "subscription"}}},
-		Agents:   []config.AgentConfig{{Name: "a1", DefaultBackend: domain.BackendRef{Name: "b1"}}},
-		Duties:   []config.DutyConfig{{Name: "d1"}},
+		Backends:    []config.Backend{{Name: "b1", Kind: "claude", Auth: config.BackendAuth{Mode: "subscription"}}},
+		Agents:      []config.AgentConfig{{Name: "a1", DefaultBackend: domain.BackendRef{Name: "b1"}}},
+		Duties:      []config.DutyConfig{{Name: "d1"}},
 		Assignments: []config.AssignmentConfig{{Agent: "a1", Duty: "d1"}},
 	}
 	errs := config.Validate(cfg)
@@ -108,9 +108,9 @@ func TestResolveBackend_Precedence(t *testing.T) {
 
 func TestResolveBackend_FallsBackToAgent(t *testing.T) {
 	cfg := &config.Config{
-		Backends: []config.Backend{{Name: "agent-backend", Kind: "claude", DefaultEffort: "high"}},
-		Agents:   []config.AgentConfig{{Name: "a1", DefaultBackend: domain.BackendRef{Name: "agent-backend"}}},
-		Duties:   []config.DutyConfig{{Name: "d1"}},
+		Backends:    []config.Backend{{Name: "agent-backend", Kind: "claude", DefaultEffort: "high"}},
+		Agents:      []config.AgentConfig{{Name: "a1", DefaultBackend: domain.BackendRef{Name: "agent-backend"}}},
+		Duties:      []config.DutyConfig{{Name: "d1"}},
 		Assignments: []config.AssignmentConfig{{Agent: "a1", Duty: "d1"}},
 	}
 	b, _, err := config.ResolveBackend(cfg, cfg.Assignments[0])
@@ -130,8 +130,8 @@ func TestResolveBackend_DutyWinsOverAgent(t *testing.T) {
 			{Name: "agent-backend", Kind: "claude", DefaultEffort: "low"},
 			{Name: "duty-backend", Kind: "claude", DefaultEffort: "medium"},
 		},
-		Agents: []config.AgentConfig{{Name: "a1", DefaultBackend: domain.BackendRef{Name: "agent-backend"}}},
-		Duties: []config.DutyConfig{{Name: "d1", Backend: &domain.BackendRef{Name: "duty-backend"}}},
+		Agents:      []config.AgentConfig{{Name: "a1", DefaultBackend: domain.BackendRef{Name: "agent-backend"}}},
+		Duties:      []config.DutyConfig{{Name: "d1", Backend: &domain.BackendRef{Name: "duty-backend"}}},
 		Assignments: []config.AssignmentConfig{{Agent: "a1", Duty: "d1"}},
 	}
 	b, _, err := config.ResolveBackend(cfg, cfg.Assignments[0])
@@ -227,9 +227,9 @@ func TestValidate_DuplicateBackendName(t *testing.T) {
 // unset must produce a validation error so it fails at config time rather than runtime.
 func TestValidate_AssignmentNoBackendAtAnyTier(t *testing.T) {
 	cfg := &config.Config{
-		Backends: []config.Backend{{Name: "b1", Kind: "claude", Auth: config.BackendAuth{Mode: "subscription"}}},
-		Agents:   []config.AgentConfig{{Name: "a1"}},                      // no DefaultBackend
-		Duties:   []config.DutyConfig{{Name: "d1"}},                       // no Backend
+		Backends:    []config.Backend{{Name: "b1", Kind: "claude", Auth: config.BackendAuth{Mode: "subscription"}}},
+		Agents:      []config.AgentConfig{{Name: "a1"}},                   // no DefaultBackend
+		Duties:      []config.DutyConfig{{Name: "d1"}},                    // no Backend
 		Assignments: []config.AssignmentConfig{{Agent: "a1", Duty: "d1"}}, // no Backend
 	}
 	errs := config.Validate(cfg)
@@ -252,9 +252,9 @@ func TestValidate_AssignmentNoBackendAtAnyTier(t *testing.T) {
 // backend, the assignment is valid even if the agent has no default.
 func TestValidate_AssignmentNoBackendAtAnyTier_DutyCoversIt(t *testing.T) {
 	cfg := &config.Config{
-		Backends: []config.Backend{{Name: "b1", Kind: "claude", Auth: config.BackendAuth{Mode: "subscription"}}},
-		Agents:   []config.AgentConfig{{Name: "a1"}}, // no DefaultBackend
-		Duties:   []config.DutyConfig{{Name: "d1", Backend: &domain.BackendRef{Name: "b1"}}},
+		Backends:    []config.Backend{{Name: "b1", Kind: "claude", Auth: config.BackendAuth{Mode: "subscription"}}},
+		Agents:      []config.AgentConfig{{Name: "a1"}}, // no DefaultBackend
+		Duties:      []config.DutyConfig{{Name: "d1", Backend: &domain.BackendRef{Name: "b1"}}},
 		Assignments: []config.AssignmentConfig{{Agent: "a1", Duty: "d1"}},
 	}
 	errs := config.Validate(cfg)
@@ -348,9 +348,9 @@ func TestValidate_UnknownAuthMode(t *testing.T) {
 func TestResolveBackend_NoneConfigured(t *testing.T) {
 	cfg := &config.Config{
 		Backends:    []config.Backend{{Name: "some-backend", Kind: "claude"}},
-		Agents:      []config.AgentConfig{{Name: "a1"}},                        // no DefaultBackend
-		Duties:      []config.DutyConfig{{Name: "d1"}},                         // no Backend
-		Assignments: []config.AssignmentConfig{{Agent: "a1", Duty: "d1"}},      // no Backend
+		Agents:      []config.AgentConfig{{Name: "a1"}},                   // no DefaultBackend
+		Duties:      []config.DutyConfig{{Name: "d1"}},                    // no Backend
+		Assignments: []config.AssignmentConfig{{Agent: "a1", Duty: "d1"}}, // no Backend
 	}
 	_, _, err := config.ResolveBackend(cfg, cfg.Assignments[0])
 	if err == nil {

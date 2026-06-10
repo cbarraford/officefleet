@@ -19,10 +19,10 @@ type mockPlugin struct {
 	err   error
 }
 
-func (m *mockPlugin) Name() string                  { return "mock" }
+func (m *mockPlugin) Name() string                       { return "mock" }
 func (m *mockPlugin) EventSources() []plugin.EventSource { return nil }
-func (m *mockPlugin) Actions() []plugin.Action      { return nil }
-func (m *mockPlugin) ConfigSchema() plugin.Schema   { return nil }
+func (m *mockPlugin) Actions() []plugin.Action           { return nil }
+func (m *mockPlugin) ConfigSchema() plugin.Schema        { return nil }
 func (m *mockPlugin) Init(_ context.Context, _ map[string]any, _ plugin.SecretLookup) error {
 	return nil
 }
