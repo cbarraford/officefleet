@@ -56,3 +56,40 @@ func TestFromBackend_UnknownKind(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestFromBackend_Voter(t *testing.T) {
+	cfg := &config.Config{
+		Backends: []config.Backend{
+			{Name: "c", Kind: "claude", Auth: config.BackendAuth{Mode: "subscription"}, Model: "claude-x", DefaultEffort: "high"},
+			{Name: "e", Kind: "openai-compatible", BaseURI: "http://x/v1", Model: "llama3.1", Auth: config.BackendAuth{Mode: "none"}},
+		},
+	}
+	exec, err := FromBackend(cfg, &config.Backend{
+		Name: "panel", Kind: "voter", Strategy: "majority", Panel: []string{"c", "e"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, ok := exec.(*VotingExecutor)
+	if !ok {
+		t.Fatalf("got %T", exec)
+	}
+	if len(v.Panel) != 2 {
+		t.Fatalf("panel size = %d", len(v.Panel))
+	}
+	if v.Panel[0].Model != "claude-x" || v.Panel[0].Effort != "high" {
+		t.Errorf("member 0 model/effort = %q/%q", v.Panel[0].Model, v.Panel[0].Effort)
+	}
+	if v.Panel[1].Model != "llama3.1" {
+		t.Errorf("member 1 model = %q", v.Panel[1].Model)
+	}
+}
+
+func TestFromBackend_VoterUnknownMember(t *testing.T) {
+	_, err := FromBackend(&config.Config{}, &config.Backend{
+		Name: "panel", Kind: "voter", Strategy: "majority", Panel: []string{"ghost"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "ghost") {
+		t.Fatalf("err = %v", err)
+	}
+}

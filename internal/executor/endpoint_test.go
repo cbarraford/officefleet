@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -20,6 +22,16 @@ func scriptedChatHandler(t *testing.T, responses []string) http.HandlerFunc {
 			t.Errorf("unexpected extra chat call #%d", call+1)
 			w.WriteHeader(500)
 			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if call == 0 {
+			if _, ok := body["tools"]; !ok {
+				t.Error("first request missing tools field")
+			}
+		}
+		if msgs, ok := body["messages"].([]any); ok && call == len(responses)-1 && len(msgs) <= 2 {
+			t.Errorf("last request has %d messages; expected conversation growth", len(msgs))
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(responses[call]))
@@ -84,6 +96,13 @@ func TestEndpointExecutor_EndToEnd(t *testing.T) {
 	}
 	if !strings.Contains(result.Transcript, "run_command") {
 		t.Error("transcript missing tool activity")
+	}
+	data, rerr := os.ReadFile(filepath.Join(ws, "out.txt"))
+	if rerr != nil || !strings.Contains(string(data), "workfile") {
+		t.Errorf("workspace write missing: content=%q err=%v", data, rerr)
+	}
+	if !strings.Contains(result.Transcript, "workfile") {
+		t.Error("transcript missing read_file observation content")
 	}
 }
 
