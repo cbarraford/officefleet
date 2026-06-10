@@ -28,8 +28,11 @@ type Backend struct {
 	Params        map[string]any `yaml:"params,omitempty"`
 
 	// Generic agent loop limits (openai-compatible only).
-	MaxIterations    int      `yaml:"max_iterations,omitempty"`    // default 25
-	CommandTimeout   string   `yaml:"command_timeout,omitempty"`   // Go duration, e.g. "120s"; default 120s
+	MaxIterations int `yaml:"max_iterations,omitempty"` // default 25
+	// CommandTimeout is a Go duration string (e.g. "120s"); default 120s.
+	// Kept as a string because yaml.v3 cannot decode time.Duration directly;
+	// Validate checks the format and executor.FromBackend parses it.
+	CommandTimeout   string   `yaml:"command_timeout,omitempty"`
 	MaxOutputBytes   int      `yaml:"max_output_bytes,omitempty"`  // default 65536
 	CommandAllowlist []string `yaml:"command_allowlist,omitempty"` // empty = allow all
 
@@ -146,7 +149,7 @@ func Validate(cfg *Config) []error {
 			errs = append(errs, fmt.Errorf("backend %q: unknown auth mode %q", b.Name, b.Auth.Mode))
 		}
 		if b.Auth.Mode == "api_key" && strings.TrimSpace(b.Auth.APIKey) == "" {
-			errs = append(errs, fmt.Errorf("backend %s: auth mode api_key requires api_key to be set", b.Name))
+			errs = append(errs, fmt.Errorf("backend %q: auth mode api_key requires api_key to be set", b.Name))
 		}
 		switch b.Kind {
 		case "openai-compatible":

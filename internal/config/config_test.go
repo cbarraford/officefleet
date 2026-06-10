@@ -647,3 +647,15 @@ func TestValidate_VoterRefEffortOverrideRejected(t *testing.T) {
 	errs := config.Validate(cfg)
 	errorsContain(t, errs, "override")
 }
+
+func TestValidate_VoterRefOverrideOnAssignment(t *testing.T) {
+	cfg := validVoterConfig()
+	cfg.Agents = []config.AgentConfig{{Name: "a1", DefaultBackend: domain.BackendRef{Name: "claude-sub"}}}
+	cfg.Duties = []config.DutyConfig{{Name: "d1"}}
+	cfg.Assignments = []config.AssignmentConfig{{
+		Agent: "a1", Duty: "d1",
+		Backend: &domain.BackendRef{Name: "panel-1", Model: "llama3.1"},
+	}}
+	errs := config.Validate(cfg)
+	errorsContain(t, errs, "override")
+}
