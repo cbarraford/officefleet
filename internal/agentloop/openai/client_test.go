@@ -256,3 +256,46 @@ func TestChat_EmptyChoices(t *testing.T) {
 		t.Fatal("expected error on empty choices")
 	}
 }
+
+func TestChat_NullContentWithToolCalls(t *testing.T) {
+	// Ollama/vLLM routinely send content:null alongside tool_calls.
+	nullContent := `{
+	  "choices": [{"message": {"role": "assistant", "content": null,
+	    "tool_calls": [{"id": "c1", "type": "function",
+	      "function": {"name": "run_command", "arguments": "{\"cmd\":\"ls\"}"}}]}}],
+	  "usage": {"prompt_tokens": 1, "completion_tokens": 1}
+	}`
+	srv := chatServer(t, 200, nullContent, nil, nil)
+	defer srv.Close()
+
+	c := &Client{BaseURL: srv.URL + "/v1", RetryDelay: time.Millisecond}
+	resp, err := c.Chat(context.Background(), agentloop.ChatRequest{Model: "m"})
+	if err != nil {
+		t.Fatalf("Chat error: %v", err)
+	}
+	if resp.Message.Content != "" {
+		t.Errorf("Content = %q, want empty for null", resp.Message.Content)
+	}
+	if len(resp.Message.ToolCalls) != 1 || resp.Message.ToolCalls[0].ArgsError != "" {
+		t.Errorf("tool calls = %+v", resp.Message.ToolCalls)
+	}
+}
+
+func TestChat_MissingUsage(t *testing.T) {
+	// Ollama sometimes omits usage entirely; must decode to zero values.
+	noUsage := `{"choices": [{"message": {"role": "assistant", "content": "hi"}}]}`
+	srv := chatServer(t, 200, noUsage, nil, nil)
+	defer srv.Close()
+
+	c := &Client{BaseURL: srv.URL + "/v1", RetryDelay: time.Millisecond}
+	resp, err := c.Chat(context.Background(), agentloop.ChatRequest{Model: "m"})
+	if err != nil {
+		t.Fatalf("Chat error: %v", err)
+	}
+	if resp.Usage.PromptTokens != 0 || resp.Usage.CompletionTokens != 0 {
+		t.Errorf("usage = %+v, want zero values", resp.Usage)
+	}
+	if resp.Message.Content != "hi" {
+		t.Errorf("Content = %q", resp.Message.Content)
+	}
+}

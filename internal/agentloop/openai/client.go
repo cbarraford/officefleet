@@ -75,7 +75,10 @@ func (c *Client) Chat(ctx context.Context, req agentloop.ChatRequest) (agentloop
 
 	httpClient := c.HTTP
 	if httpClient == nil {
-		httpClient = http.DefaultClient
+		// http.DefaultClient has no timeout; a hung local model server would
+		// wedge the run forever. 5 minutes accommodates slow local model
+		// loads while guaranteeing the loop eventually advances.
+		httpClient = &http.Client{Timeout: 5 * time.Minute}
 	}
 	retryDelay := c.RetryDelay
 	if retryDelay <= 0 {
@@ -159,6 +162,9 @@ func decodeResponse(body []byte) (agentloop.ChatResponse, error) {
 	msg := agentloop.Message{Role: wm.Role, Content: wm.Content}
 	for _, wtc := range wm.ToolCalls {
 		tc := agentloop.ToolCall{ID: wtc.ID, Name: wtc.Function.Name}
+		// SP2 targets string-args servers (Ollama/vLLM/llama.cpp). An empty
+		// string or object-valued arguments field is intentionally surfaced
+		// as ArgsError / a decode failure rather than silently coerced.
 		var args map[string]any
 		if err := json.Unmarshal([]byte(wtc.Function.Arguments), &args); err != nil {
 			tc.ArgsError = err.Error()
