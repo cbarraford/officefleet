@@ -14,6 +14,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cbarraford/office-fleet/internal/agentloop"
 	"github.com/cbarraford/office-fleet/internal/domain"
@@ -295,5 +296,10 @@ func (b *Bridge) truncate(s string) string {
 	if len(s) <= b.limits.MaxOutputBytes {
 		return s
 	}
-	return s[:b.limits.MaxOutputBytes] + "\n[truncated]"
+	n := b.limits.MaxOutputBytes
+	// Back up to a rune boundary so the cut never splits a UTF-8 sequence.
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n] + "\n[truncated]"
 }

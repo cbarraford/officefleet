@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cbarraford/office-fleet/internal/agentloop"
 	"github.com/cbarraford/office-fleet/internal/domain"
@@ -311,5 +312,23 @@ func TestRunCommand_ReapsOrphanedBackgroundChildren(t *testing.T) {
 	out, _ := exec.Command("pgrep", "-f", "sleep 397").Output()
 	if len(strings.TrimSpace(string(out))) > 0 {
 		t.Errorf("orphaned child survived: pgrep output %q", out)
+	}
+}
+
+func TestTruncate_RuneSafe(t *testing.T) {
+	b, _ := newTestBridge(t, Limits{MaxOutputBytes: 7})
+	// "héllo wörld" — é and ö are 2 bytes each; byte 7 lands mid-ö... construct
+	// a string where the cap falls inside a multi-byte rune.
+	s := "abéöéöéö" // 2 + 6*2 = 14 bytes
+	got := b.truncate(s)
+	if !strings.HasSuffix(got, "\n[truncated]") {
+		t.Fatalf("missing marker: %q", got)
+	}
+	body := strings.TrimSuffix(got, "\n[truncated]")
+	if !utf8.ValidString(body) {
+		t.Errorf("truncated body is not valid UTF-8: %q", body)
+	}
+	if len(body) > 7 {
+		t.Errorf("body length = %d, want <= 7", len(body))
 	}
 }
