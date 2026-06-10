@@ -98,6 +98,9 @@ func (v *VotingExecutor) firstSuccess(ch <-chan memberOutcome) (domain.LLMResult
 			win := out.result
 			win.Tokens = tokens
 			win.Cost = cost
+			// Losing goroutines may outlive this return (cancellation is
+			// advisory); their tool I/O can race the pipeline's workspace
+			// cleanup and fail harmlessly as observations.
 			return win, nil
 		}
 	}
@@ -165,6 +168,8 @@ func (v *VotingExecutor) majority(ch <-chan memberOutcome) (domain.LLMResult, er
 }
 
 // panelSummary renders one line per member: name -> status/tokens.
+// It requires the COMPLETE outcome set (all panel members drained), so only
+// majority may call it — firstSuccess returns with partial outcomes.
 func (v *VotingExecutor) panelSummary(outcomes []memberOutcome) string {
 	lines := make([]string, len(v.Panel))
 	for _, out := range outcomes {

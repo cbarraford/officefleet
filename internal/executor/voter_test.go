@@ -14,11 +14,11 @@ import (
 
 // slowFake is a FakeExecutor with a delay and cancellation awareness.
 type slowFake struct {
-	result    domain.LLMResult
-	err       error
-	delay     time.Duration
-	gotReq    LLMRequest
-	cancelled bool
+	result      domain.LLMResult
+	err         error
+	delay       time.Duration
+	gotReq      LLMRequest
+	cancelledCh chan struct{}
 }
 
 func (s *slowFake) Kind() string { return "fake" }
@@ -28,7 +28,9 @@ func (s *slowFake) Run(ctx context.Context, req LLMRequest) (domain.LLMResult, e
 	select {
 	case <-time.After(s.delay):
 	case <-ctx.Done():
-		s.cancelled = true
+		if s.cancelledCh != nil {
+			close(s.cancelledCh)
+		}
 		return domain.LLMResult{}, ctx.Err()
 	}
 	return s.result, s.err
@@ -185,6 +187,33 @@ func TestVoter_WorkspaceSubdirs(t *testing.T) {
 		if fi, err := os.Stat(filepath.Join(ws, sub)); err != nil || !fi.IsDir() {
 			t.Errorf("workspace subdir %s missing: %v", sub, err)
 		}
+	}
+}
+
+func TestVoter_FirstSuccess_CancelsLosers(t *testing.T) {
+	slowCancelled := make(chan struct{})
+	slow := &slowFake{
+		result:      domain.LLMResult{Status: 0, Summary: "slow"},
+		delay:       10 * time.Second, // far longer than the test; must be cancelled
+		cancelledCh: slowCancelled,
+	}
+	fast := &slowFake{result: domain.LLMResult{Status: 0, Summary: "fast"}, delay: time.Millisecond}
+	v := &VotingExecutor{
+		Strategy: "first_success",
+		Panel:    []PanelMember{{Name: "slow", Exec: slow}, {Name: "fast", Exec: fast}},
+	}
+	res, err := v.Run(context.Background(), LLMRequest{Prompt: "p"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Summary != "fast" {
+		t.Errorf("Summary = %q", res.Summary)
+	}
+	select {
+	case <-slowCancelled:
+		// the losing member observed cancellation
+	case <-time.After(2 * time.Second):
+		t.Fatal("losing panel member was not cancelled after a winner completed")
 	}
 }
 
