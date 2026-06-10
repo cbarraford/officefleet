@@ -73,7 +73,7 @@ func (v *VotingExecutor) Run(ctx context.Context, req LLMRequest) (domain.LLMRes
 	switch v.Strategy {
 	case "first_success":
 		return v.firstSuccess(ch)
-	default: // "majority" — config validation guarantees the strategy is valid
+	default: // "majority" — FromBackend rejects unknown strategies at construction
 		return v.majority(ch)
 	}
 }

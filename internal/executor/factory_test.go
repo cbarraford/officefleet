@@ -93,3 +93,17 @@ func TestFromBackend_VoterUnknownMember(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestFromBackend_VoterBadStrategy(t *testing.T) {
+	cfg := &config.Config{
+		Backends: []config.Backend{
+			{Name: "c", Kind: "claude", Auth: config.BackendAuth{Mode: "subscription"}},
+		},
+	}
+	_, err := FromBackend(cfg, &config.Backend{
+		Name: "panel", Kind: "voter", Strategy: "consensus", Panel: []string{"c"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "consensus") {
+		t.Fatalf("err = %v, want unknown-strategy error", err)
+	}
+}

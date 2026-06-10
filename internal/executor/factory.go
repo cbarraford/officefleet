@@ -19,6 +19,9 @@ func FromBackend(cfg *config.Config, b *config.Backend) (Executor, error) {
 	case "openai-compatible":
 		return NewEndpointExecutor(b)
 	case "voter":
+		if b.Strategy != "first_success" && b.Strategy != "majority" {
+			return nil, fmt.Errorf("voter %q: unknown strategy %q (want first_success or majority)", b.Name, b.Strategy)
+		}
 		panel := make([]PanelMember, 0, len(b.Panel))
 		for _, name := range b.Panel {
 			mb := findBackend(cfg, name)
