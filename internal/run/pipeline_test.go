@@ -2,6 +2,7 @@ package run
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -1238,5 +1239,48 @@ func TestPipelineExecute_ZeroStatusStillSucceeds(t *testing.T) {
 	}
 	if run.Status != domain.RunStatusSucceeded {
 		t.Errorf("status = %q, want succeeded", run.Status)
+	}
+}
+
+func TestPipelineExecute_ExecutorErrorPreservesPartialResult(t *testing.T) {
+	ctx := context.Background()
+	fakeExec := &executor.FakeExecutor{
+		Result: domain.LLMResult{Status: 1, Summary: "transport died", Transcript: "PARTIAL_TRANSCRIPT", Tokens: 7},
+		Err:    fmt.Errorf("chat: connection refused"),
+	}
+	store := state.NewMemStore()
+	backendName := "partial-backend"
+	cfg := &config.Config{Backends: []config.Backend{{
+		Name: backendName, Kind: "claude", Model: "claude-3-5-sonnet",
+		DefaultEffort: "normal", Auth: config.BackendAuth{Mode: "subscription"},
+	}}}
+	rr := newFakeRunRepo()
+	pipeline := &Pipeline{cfg: cfg, runRepo: rr, store: store, plugins: map[string]plugin.Plugin{}}
+
+	agentID, dutyID := uuid.New(), uuid.New()
+	run, err := pipeline.Execute(ctx, ExecuteRequest{
+		Assignment: &domain.Assignment{
+			ID: uuid.New(), AgentID: agentID, DutyID: dutyID, Enabled: true,
+			Backend: &domain.BackendRef{Name: backendName}, Config: map[string]any{},
+		},
+		Agent:       &domain.Agent{ID: agentID, Name: "p-agent", Role: "t", SystemPrompt: "s", Enabled: true},
+		Duty:        &domain.Duty{ID: dutyID, Name: "p-duty", Role: "t", Description: "d", Prompt: "p"},
+		TriggerKind: "manual", EventParams: map[string]any{}, Executor: fakeExec,
+	})
+	if err == nil {
+		t.Fatal("expected executor error to propagate")
+	}
+	if run == nil {
+		t.Fatal("expected run to be returned alongside the error")
+	}
+	if run.Status != domain.RunStatusFailed {
+		t.Errorf("status = %q", run.Status)
+	}
+	stored := rr.runs[run.ID]
+	if stored == nil || stored.LLMResult == nil || stored.LLMResult.Transcript != "PARTIAL_TRANSCRIPT" {
+		t.Errorf("stored run = %+v, want partial transcript preserved", stored)
+	}
+	if stored.Error == nil || !strings.Contains(*stored.Error, "connection refused") {
+		t.Errorf("stored error = %v", stored.Error)
 	}
 }

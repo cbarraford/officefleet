@@ -205,10 +205,21 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 	}
 	llmResult, llmErr := req.Executor.Run(ctx, llmReq)
 	if llmErr != nil {
+		// The executor also returns a partial result (transcript, tokens
+		// accumulated before the failure); record it for audit alongside the
+		// error. Outputs and dedup marking are skipped, as on every failure.
 		errMsg := llmErr.Error()
+		if uerr := p.runRepo.UpdateResult(ctx, run.ID, &llmResult, nil, domain.RunStatusFailed); uerr != nil {
+			return nil, fmt.Errorf("record run result: %w", uerr)
+		}
 		_ = p.runRepo.UpdateStatus(ctx, run.ID, domain.RunStatusFailed, &errMsg)
+		run.LLMResult = &llmResult
+		run.Tokens = llmResult.Tokens
+		run.Cost = llmResult.Cost
 		run.Status = domain.RunStatusFailed
 		run.Error = &errMsg
+		finished := time.Now()
+		run.FinishedAt = &finished
 		return run, fmt.Errorf("executor: %w", llmErr)
 	}
 
