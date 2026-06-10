@@ -614,7 +614,7 @@ func runCmd() *cobra.Command {
 			store := state.NewPostgresStore(pool)
 			pipeline := run.NewPipeline(cfg, runRepo, store, &dbSecretsProvider{pool: pool})
 
-			result, err := pipeline.Execute(ctx, run.ExecuteRequest{
+			result, execErr := pipeline.Execute(ctx, run.ExecuteRequest{
 				Assignment:  assignment,
 				Agent:       agent,
 				Duty:        duty,
@@ -622,28 +622,29 @@ func runCmd() *cobra.Command {
 				EventParams: eventParams,
 				Executor:    exec,
 			})
-			if err != nil {
-				return fmt.Errorf("execute: %w", err)
-			}
-
-			fmt.Printf("Run ID:   %s\n", result.ID)
-			fmt.Printf("Status:   %s\n", result.Status)
-			if result.Error != nil {
-				fmt.Printf("Error:    %s\n", *result.Error)
-			}
-			if result.LLMResult != nil {
-				fmt.Printf("Summary:  %s\n", result.LLMResult.Summary)
-				fmt.Printf("Tokens:   %d\n", result.LLMResult.Tokens)
-				fmt.Printf("Cost:     $%.6f\n", result.LLMResult.Cost)
-			}
-			if len(result.OutputsDelivered) > 0 {
-				fmt.Println("Outputs:")
-				for _, od := range result.OutputsDelivered {
-					fmt.Printf("  %s/%s: %s\n", od.Plugin, od.Action, od.Status)
-					if od.Error != "" {
-						fmt.Printf("    error: %s\n", od.Error)
+			if result != nil {
+				fmt.Printf("Run ID:   %s\n", result.ID)
+				fmt.Printf("Status:   %s\n", result.Status)
+				if result.Error != nil {
+					fmt.Printf("Error:    %s\n", *result.Error)
+				}
+				if result.LLMResult != nil {
+					fmt.Printf("Summary:  %s\n", result.LLMResult.Summary)
+					fmt.Printf("Tokens:   %d\n", result.LLMResult.Tokens)
+					fmt.Printf("Cost:     $%.6f\n", result.LLMResult.Cost)
+				}
+				if len(result.OutputsDelivered) > 0 {
+					fmt.Println("Outputs:")
+					for _, od := range result.OutputsDelivered {
+						fmt.Printf("  %s/%s: %s\n", od.Plugin, od.Action, od.Status)
+						if od.Error != "" {
+							fmt.Printf("    error: %s\n", od.Error)
+						}
 					}
 				}
+			}
+			if execErr != nil {
+				return fmt.Errorf("execute: %w", execErr)
 			}
 			if result.Status == domain.RunStatusFailed {
 				return fmt.Errorf("run %s failed", result.ID)
