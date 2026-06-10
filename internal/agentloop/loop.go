@@ -59,6 +59,9 @@ func Run(ctx context.Context, client ChatClient, bridge ToolBridge, proto ToolPr
 	nudged := false
 
 	for i := 0; i < maxIter; i++ {
+		if err := ctx.Err(); err != nil {
+			return failResult("cancelled: "+err.Error(), &transcript, tokens), err
+		}
 		resp, err := client.Chat(ctx, ChatRequest{
 			Model:    opts.Model,
 			Messages: messages,
@@ -66,13 +69,7 @@ func Run(ctx context.Context, client ChatClient, bridge ToolBridge, proto ToolPr
 			Params:   opts.Params,
 		})
 		if err != nil {
-			return domain.LLMResult{
-				Status:     1,
-				Summary:    "chat transport error: " + err.Error(),
-				Output:     map[string]any{},
-				Transcript: transcript.String(),
-				Tokens:     tokens,
-			}, fmt.Errorf("chat: %w", err)
+			return failResult("chat transport error: "+err.Error(), &transcript, tokens), fmt.Errorf("chat: %w", err)
 		}
 		tokens += resp.Usage.PromptTokens + resp.Usage.CompletionTokens
 		writeTranscript(&transcript, resp.Message)
@@ -83,14 +80,10 @@ func Run(ctx context.Context, client ChatClient, bridge ToolBridge, proto ToolPr
 				// The model was already told to call submit_result and still
 				// produced plain text: finalize as a model-level failure,
 				// preserving its last words and the transcript.
-				return domain.LLMResult{
-					Status:     1,
-					Summary:    resp.Message.Content,
-					Output:     map[string]any{},
-					Transcript: transcript.String(),
-					Tokens:     tokens,
-				}, nil
+				return failResult(resp.Message.Content, &transcript, tokens), nil
 			}
+			// One nudge per run: a later no-tool-call turn finalizes as
+			// failure rather than nudging again (anti-loop policy).
 			nudged = true
 			messages = append(messages, resp.Message)
 			nudge := Message{Role: "user", Content: nudgeMessage}
@@ -100,6 +93,8 @@ func Run(ctx context.Context, client ChatClient, bridge ToolBridge, proto ToolPr
 		}
 
 		messages = append(messages, resp.Message)
+		// Calls execute in order. A submit_result terminates the run immediately,
+		// short-circuiting any remaining calls in the same turn.
 		for _, call := range calls {
 			var obs string
 			if call.ArgsError != "" {
@@ -110,13 +105,7 @@ func Run(ctx context.Context, client ChatClient, bridge ToolBridge, proto ToolPr
 				var bridgeErr error
 				obs, done, result, bridgeErr = bridge.Execute(ctx, call)
 				if bridgeErr != nil {
-					return domain.LLMResult{
-						Status:     1,
-						Summary:    "tool bridge error: " + bridgeErr.Error(),
-						Output:     map[string]any{},
-						Transcript: transcript.String(),
-						Tokens:     tokens,
-					}, fmt.Errorf("tool bridge: %w", bridgeErr)
+					return failResult("tool bridge error: "+bridgeErr.Error(), &transcript, tokens), fmt.Errorf("tool bridge: %w", bridgeErr)
 				}
 				if done {
 					result.Transcript = transcript.String()
@@ -133,13 +122,19 @@ func Run(ctx context.Context, client ChatClient, bridge ToolBridge, proto ToolPr
 		}
 	}
 
+	return failResult(fmt.Sprintf("max iterations (%d) reached without submit_result", maxIter), &transcript, tokens), nil
+}
+
+// failResult builds the uniform model-level/infrastructure failure result,
+// preserving the transcript and token count accumulated so far.
+func failResult(summary string, transcript *strings.Builder, tokens int) domain.LLMResult {
 	return domain.LLMResult{
 		Status:     1,
-		Summary:    fmt.Sprintf("max iterations (%d) reached without submit_result", maxIter),
+		Summary:    summary,
 		Output:     map[string]any{},
 		Transcript: transcript.String(),
 		Tokens:     tokens,
-	}, nil
+	}
 }
 
 // writeTranscript appends one message as a JSON line.

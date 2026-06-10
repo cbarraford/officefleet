@@ -281,6 +281,59 @@ func TestRun_BridgeInternalErrorFailsRun(t *testing.T) {
 	}
 }
 
+func TestRun_MultiCallTurnSubmitResultShortCircuits(t *testing.T) {
+	// One assistant turn carries [run_command, submit_result, run_command]:
+	// the first call executes, submit_result terminates, the third is dropped.
+	client := &scriptedClient{responses: []ChatResponse{
+		{
+			Message: Message{Role: "assistant", ToolCalls: []ToolCall{
+				{ID: "c1", Name: "run_command", Args: map[string]any{"cmd": "ls"}},
+				{ID: "c2", Name: "submit_result", Args: map[string]any{"summary": "done early", "status": float64(0)}},
+				{ID: "c3", Name: "run_command", Args: map[string]any{"cmd": "never"}},
+			}},
+			Usage: Usage{PromptTokens: 10, CompletionTokens: 5},
+		},
+	}}
+	bridge := &recordingBridge{}
+
+	res, err := Run(context.Background(), client, bridge, Native,
+		"s", "u", nil, Opts{Model: "m"})
+	if err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	if res.Summary != "done early" || res.Status != 0 {
+		t.Errorf("result = %+v", res)
+	}
+	if len(client.requests) != 1 {
+		t.Errorf("chat calls = %d, want 1 (terminated mid-turn)", len(client.requests))
+	}
+	// c1 executed, c2 terminated, c3 never dispatched.
+	if len(bridge.calls) != 2 {
+		t.Fatalf("bridge calls = %d, want 2 (c1 + c2)", len(bridge.calls))
+	}
+	if bridge.calls[0].ID != "c1" || bridge.calls[1].ID != "c2" {
+		t.Errorf("bridge call order = %+v", bridge.calls)
+	}
+}
+
+func TestRun_ContextCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // pre-cancelled: the loop must fail before any chat call
+	client := &scriptedClient{}
+	bridge := &recordingBridge{}
+
+	res, err := Run(ctx, client, bridge, Native, "s", "u", nil, Opts{Model: "m"})
+	if err == nil {
+		t.Fatal("expected error for cancelled context")
+	}
+	if res.Status == 0 {
+		t.Error("expected nonzero Status")
+	}
+	if len(client.requests) != 0 {
+		t.Errorf("chat calls = %d, want 0", len(client.requests))
+	}
+}
+
 type failingBridge struct{ recordingBridge }
 
 func (f *failingBridge) Execute(_ context.Context, _ ToolCall) (string, bool, *domain.LLMResult, error) {
