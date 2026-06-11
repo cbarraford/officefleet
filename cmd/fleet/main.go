@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
 
+	"github.com/cbarraford/office-fleet/internal/auth"
 	"github.com/cbarraford/office-fleet/internal/config"
 	"github.com/cbarraford/office-fleet/internal/db"
 	"github.com/cbarraford/office-fleet/internal/domain"
@@ -65,6 +67,7 @@ func main() {
 	root.AddCommand(eventsCmd())
 	root.AddCommand(seedCmd())
 	root.AddCommand(secretsCmd())
+	root.AddCommand(usersCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -151,7 +154,10 @@ func buildSecretLookup(ctx context.Context, pool *pgxpool.Pool, cipher *secrets.
 }
 
 // dbSecretsProvider implements run.SecretsProvider by loading all secrets from
-// the DB and decrypting FSEC1 values transparently.
+// the DB and decrypting FSEC1 values transparently. A single undecryptable
+// secret fails the entire Load (blast radius: all runs), which is deliberate
+// fail-loud behaviour per the SP4a spec — a corrupt or missing key must not
+// silently render templates with empty values.
 type dbSecretsProvider struct {
 	pool   *pgxpool.Pool
 	cipher *secrets.Cipher
@@ -847,6 +853,8 @@ func serveCmd() *cobra.Command {
 							len(unenc), strings.Join(unenc, ", "))
 					}
 				}
+			} else {
+				fmt.Fprintf(os.Stderr, "warning: could not check secret encryption status: %v\n", listErr)
 			}
 
 			inv := buildInvoker(cfg, pool, cipher)
@@ -1208,6 +1216,131 @@ func secretsEncryptExistingCmd() *cobra.Command {
 				count++
 			}
 			fmt.Printf("done: %d secret(s) encrypted\n", count)
+			return nil
+		},
+	}
+}
+
+// usersCmd returns the "users" group of subcommands.
+func usersCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "users",
+		Short: "Operator account commands",
+	}
+	cmd.AddCommand(usersCreateCmd(), usersListCmd(), usersDeleteCmd())
+	return cmd
+}
+
+func usersCreateCmd() *cobra.Command {
+	var flagRole string
+	var flagPasswordStdin bool
+	cmd := &cobra.Command{
+		Use:   "create <username>",
+		Short: "Create an operator account",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := context.Background()
+			if flagRole != domain.RoleAdmin && flagRole != domain.RoleViewer {
+				return fmt.Errorf("--role must be admin or viewer")
+			}
+			var password string
+			if flagPasswordStdin {
+				data, err := io.ReadAll(os.Stdin)
+				if err != nil {
+					return fmt.Errorf("read password from stdin: %w", err)
+				}
+				password = strings.TrimRight(string(data), "\r\n")
+			} else {
+				fmt.Print("Password: ")
+				reader := bufio.NewReader(os.Stdin)
+				line, err := reader.ReadString('\n')
+				if err != nil {
+					return fmt.Errorf("read password: %w", err)
+				}
+				password = strings.TrimRight(line, "\r\n")
+			}
+			hash, err := auth.HashPassword(password)
+			if err != nil {
+				return err
+			}
+			cfg, _ := loadConfig()
+			dsn, err := mustDSN(cfg)
+			if err != nil {
+				return err
+			}
+			pool, err := db.New(ctx, dsn)
+			if err != nil {
+				return fmt.Errorf("open db: %w", err)
+			}
+			defer pool.Close()
+			u := &domain.User{Username: args[0], PasswordHash: hash, Role: flagRole}
+			if err := repo.NewUserRepo(pool).Create(ctx, u); err != nil {
+				return fmt.Errorf("create user: %w", err)
+			}
+			fmt.Printf("user %q created with role %s\n", u.Username, u.Role)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&flagRole, "role", "viewer", "admin or viewer")
+	cmd.Flags().BoolVar(&flagPasswordStdin, "password-stdin", false, "read password from stdin")
+	return cmd
+}
+
+func usersListCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "List operator accounts (username, role, created; never password hashes)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := context.Background()
+			cfg, _ := loadConfig()
+			dsn, err := mustDSN(cfg)
+			if err != nil {
+				return err
+			}
+			pool, err := db.New(ctx, dsn)
+			if err != nil {
+				return fmt.Errorf("open db: %w", err)
+			}
+			defer pool.Close()
+			users, err := repo.NewUserRepo(pool).List(ctx)
+			if err != nil {
+				return fmt.Errorf("list users: %w", err)
+			}
+			if len(users) == 0 {
+				fmt.Println("(no users)")
+				return nil
+			}
+			fmt.Printf("%-30s %-10s %-25s\n", "USERNAME", "ROLE", "CREATED")
+			fmt.Println(strings.Repeat("-", 67))
+			for _, u := range users {
+				fmt.Printf("%-30s %-10s %-25s\n", u.Username, u.Role, u.CreatedAt.Format(time.RFC3339))
+			}
+			return nil
+		},
+	}
+}
+
+func usersDeleteCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "delete <username>",
+		Short: "Delete an operator account",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := context.Background()
+			cfg, _ := loadConfig()
+			dsn, err := mustDSN(cfg)
+			if err != nil {
+				return err
+			}
+			pool, err := db.New(ctx, dsn)
+			if err != nil {
+				return fmt.Errorf("open db: %w", err)
+			}
+			defer pool.Close()
+			if err := repo.NewUserRepo(pool).Delete(ctx, args[0]); err != nil {
+				return fmt.Errorf("delete user: %w", err)
+			}
+			fmt.Printf("user %q deleted\n", args[0])
 			return nil
 		},
 	}
