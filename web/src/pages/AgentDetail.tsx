@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useSession } from '../App'
 import { ApiError, api } from '../api/client'
@@ -199,6 +199,39 @@ export default function AgentDetail() {
     }
   }
 
+  const fileInput = useRef<HTMLInputElement>(null)
+
+  const regenerateAvatar = async () => {
+    if (!detail) return
+    try {
+      await api.post(`/api/v1/agents/${detail.agent.id}/avatar/regenerate`)
+      toast('info', 'avatar generating — refreshing shortly…')
+      window.setTimeout(load, 5000) // §6.1: async generation; poll once after ~5s
+    } catch (err) {
+      toast('error', err instanceof ApiError ? err.message : 'regenerate failed')
+    }
+  }
+
+  const uploadAvatar = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = '' // allow re-selecting the same file later
+    if (!file || !detail) return
+    if (file.type !== 'image/png') {
+      toast('error', 'avatar must be a PNG')
+      return
+    }
+    if (file.size > 1024 * 1024) {
+      toast('error', 'avatar must be at most 1 MiB')
+      return
+    }
+    try {
+      await api.putRaw(`/api/v1/agents/${detail.agent.id}/avatar`, file, 'image/png')
+      load()
+    } catch (err) {
+      toast('error', err instanceof ApiError ? err.message : 'upload failed')
+    }
+  }
+
   if (!detail) return <h1 className="dim">Loading…</h1>
   const { agent, stats } = detail
 
@@ -215,9 +248,18 @@ export default function AgentDetail() {
         <div className="spacer" />
         {!agent.enabled && <Badge text="Paused" kind="warn" />}
         {isAdmin && (
-          <button className="small" onClick={toggleAgent}>
-            {agent.enabled ? 'Pause' : 'Resume'}
-          </button>
+          <>
+            <button className="small" onClick={regenerateAvatar}>
+              Regenerate avatar
+            </button>
+            <button className="small" onClick={() => fileInput.current?.click()}>
+              Upload avatar
+            </button>
+            <input ref={fileInput} type="file" accept="image/png" style={{ display: 'none' }} onChange={uploadAvatar} />
+            <button className="small" onClick={toggleAgent}>
+              {agent.enabled ? 'Pause' : 'Resume'}
+            </button>
+          </>
         )}
       </div>
 

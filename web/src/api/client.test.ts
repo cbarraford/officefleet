@@ -85,4 +85,28 @@ describe('api client', () => {
     expect((err as ApiError).message).toBe('invalid credentials')
     expect(onUnauthorized).toHaveBeenCalledOnce()
   })
+
+  it('putRaw sends the body verbatim with the given content type', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { ok: true }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const blob = new Uint8Array([0x89, 0x50, 0x4e, 0x47])
+    await api.putRaw('/api/v1/agents/x/avatar', blob, 'image/png')
+    const init = fetchMock.mock.calls[0][1] as RequestInit
+    expect(init.method).toBe('PUT')
+    expect((init.headers as Record<string, string>)['Content-Type']).toBe('image/png')
+    expect(init.body).toBe(blob)
+    expect(init.credentials).toBe('same-origin')
+  })
+
+  it('putRaw surfaces error envelopes like JSON requests', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(400, { error: 'body must be a PNG image' })))
+
+    const err = await api.putRaw('/api/v1/agents/x/avatar', new Uint8Array([1]), 'image/png').then(
+      () => null,
+      (e: unknown) => e,
+    )
+    expect(err).toBeInstanceOf(ApiError)
+    expect((err as ApiError).message).toBe('body must be a PNG image')
+  })
 })
