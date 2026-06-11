@@ -286,9 +286,13 @@ Startup order: load **validated** config → DB pool → init plugins → start 
    implementation.
 
 Graceful shutdown: signal-cancelled context stops pollers/scheduler/workers and
-`http.Server.Shutdown` drains the listener. In-flight runs complete (matching the pause
-semantics' "in-flight runs complete normally" philosophy); an event whose runs were cut off
-mid-flight remains `pending` and redelivers safely on restart.
+`http.Server.Shutdown` drains the listener. In-flight runs are **cancelled** by the shared
+context (their executors stop; the runs record as failed where the cancelled context still
+permits the write); the event they belonged to remains `pending` — the mark-after-attempt rule
+means a cut-off event redelivers safely on restart, with already-completed assignments
+recording dedup-skips. *(Amended during implementation review: an earlier draft said in-flight
+runs "complete normally," which the shared-context design does not deliver; the durable
+redelivery guarantee is the real contract.)*
 
 ### 7.3 Config (`fleet.yaml`)
 
