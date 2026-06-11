@@ -105,6 +105,9 @@ func (e *EmailPlugin) Do(ctx context.Context, action string, params map[string]a
 }
 
 func (e *EmailPlugin) sendEmail(_ context.Context, params map[string]any) (map[string]any, error) {
+	if e.send == nil {
+		return nil, fmt.Errorf("email: plugin not initialized (check smtp_host/from in the email plugin config)")
+	}
 	toRaw, _ := params["to"].(string)
 	subject, _ := params["subject"].(string)
 	body, _ := params["body"].(string)

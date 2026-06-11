@@ -286,3 +286,19 @@ func TestInit_PortAcceptsIntAndString(t *testing.T) {
 		}
 	}
 }
+
+func TestSendEmail_UninitializedPluginErrorsNotPanics(t *testing.T) {
+	// initPlugins logs-and-continues on Init failure, leaving a
+	// half-initialized plugin in the registry; Do must error, never panic
+	// (a panic in a dispatcher worker would crash the whole daemon).
+	p := &EmailPlugin{}
+	lookup := func(string) (string, error) { return "", nil }
+	if err := p.Init(context.Background(), map[string]any{}, lookup); err == nil {
+		t.Fatal("expected Init failure without smtp_host")
+	}
+	_, err := p.Do(context.Background(), "send_email",
+		map[string]any{"to": "a@x.com", "subject": "s", "body": "b"})
+	if err == nil || !strings.Contains(err.Error(), "not initialized") {
+		t.Fatalf("err = %v, want not-initialized error", err)
+	}
+}
