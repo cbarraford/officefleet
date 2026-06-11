@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
 
+	"github.com/cbarraford/office-fleet/internal/api"
 	"github.com/cbarraford/office-fleet/internal/auth"
 	"github.com/cbarraford/office-fleet/internal/config"
 	"github.com/cbarraford/office-fleet/internal/db"
@@ -756,17 +757,20 @@ func scheduleCmd() *cobra.Command {
 				return err
 			}
 			initPlugins(ctx, cfg, pool, cipher)
-			inv := buildInvoker(cfg, pool, cipher)
+			inv, _ := buildInvoker(cfg, pool, cipher)
 			return runSchedulerLoop(ctx, pool, inv)
 		},
 	}
 }
 
 // buildInvoker wires the shared assignment-execution path.
-func buildInvoker(cfg *config.Config, pool *pgxpool.Pool, cipher *secrets.Cipher) *run.Invoker {
+// It returns both the Invoker and the underlying Pipeline so callers that need
+// to attach lifecycle hooks (e.g. serveCmd) can call SetRunUpdateHook.
+func buildInvoker(cfg *config.Config, pool *pgxpool.Pool, cipher *secrets.Cipher) (*run.Invoker, *run.Pipeline) {
 	pipeline := run.NewPipeline(cfg, repo.NewRunRepo(pool), state.NewPostgresStore(pool), &dbSecretsProvider{pool: pool, cipher: cipher})
-	return run.NewInvoker(cfg, pipeline,
+	inv := run.NewInvoker(cfg, pipeline,
 		repo.NewAssignmentRepo(pool), repo.NewAgentRepo(pool), repo.NewDutyRepo(pool))
+	return inv, pipeline
 }
 
 // runSchedulerLoop blocks running cron-triggered assignments until ctx is done.
@@ -857,7 +861,7 @@ func serveCmd() *cobra.Command {
 				fmt.Fprintf(os.Stderr, "warning: could not check secret encryption status: %v\n", listErr)
 			}
 
-			inv := buildInvoker(cfg, pool, cipher)
+			inv, pipeline := buildInvoker(cfg, pool, cipher)
 			eventRepo := repo.NewEventRepo(pool)
 			cursorRepo := repo.NewCursorRepo(pool)
 
@@ -886,7 +890,32 @@ func serveCmd() *cobra.Command {
 					func(format string, args ...any) { fmt.Fprintf(os.Stderr, format+"\n", args...) })
 			}
 
-			httpSrv := &http.Server{Addr: addr, Handler: server.New(ingestor).Handler()}
+			// Wire the REST API. Use a typed-nil-safe pattern for the Encryptor:
+			// assigning cipher (*secrets.Cipher) directly to api.Encryptor would
+			// produce a non-nil interface wrapping a nil pointer, defeating nil checks.
+			var enc api.Encryptor
+			if cipher != nil {
+				enc = cipher
+			}
+			apiSrv := api.New(api.Deps{
+				Agents:        repo.NewAgentRepo(pool),
+				Duties:        repo.NewDutyRepo(pool),
+				Assignments:   repo.NewAssignmentRepo(pool),
+				Runs:          repo.NewRunRepo(pool),
+				Events:        eventRepo,
+				Secrets:       repo.NewSecretRepo(pool),
+				Users:         repo.NewUserRepo(pool),
+				Sessions:      auth.NewSessions(repo.NewSessionRepo(pool)),
+				Invoker:       inv,
+				Encryptor:     enc,
+				IsEncrypted:   secrets.IsEncrypted,
+				Notify:        dispatcher.Notify,
+				Config:        cfg,
+				SecureCookies: cfg.Serve.SecureCookies,
+			})
+			pipeline.SetRunUpdateHook(apiSrv.RunUpdateSink())
+
+			httpSrv := &http.Server{Addr: addr, Handler: server.New(ingestor).Handler(apiSrv.Mount)}
 			go func() {
 				fmt.Printf("webhook listener on %s\n", addr)
 				if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

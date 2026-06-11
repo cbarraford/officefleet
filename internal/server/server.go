@@ -31,12 +31,17 @@ func New(ingestor Ingestor) *Server {
 	}
 }
 
-func (s *Server) Handler() http.Handler {
+// Handler builds the HTTP mux: webhooks + healthz, plus any extra mounts
+// (the /api/v1 surface in fleet serve).
+func (s *Server) Handler(mounts ...func(*http.ServeMux)) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	})
 	mux.HandleFunc("POST /webhooks/{plugin}", s.handleWebhook)
+	for _, mount := range mounts {
+		mount(mux)
+	}
 	return mux
 }
 

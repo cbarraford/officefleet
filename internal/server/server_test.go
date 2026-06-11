@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -88,6 +89,24 @@ func TestWebhook_Accepted(t *testing.T) {
 	}
 	if len(ing.got) != 1 {
 		t.Errorf("ingested = %d", len(ing.got))
+	}
+}
+
+func TestHandlerMounts(t *testing.T) {
+	srv := httptest.NewServer(New(&fakeIngestor{}).Handler(func(mux *http.ServeMux) {
+		mux.HandleFunc("GET /api/v1/ping", func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte("pong"))
+		})
+	}))
+	defer srv.Close()
+	resp, err := http.Get(srv.URL + "/api/v1/ping")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 || string(body) != "pong" {
+		t.Errorf("mounted route: %d %q", resp.StatusCode, body)
 	}
 }
 

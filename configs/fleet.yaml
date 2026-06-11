@@ -5,6 +5,7 @@ serve:
   addr: ":8080"          # webhook listener (POST /webhooks/gitlab)
   workers: 4             # dispatcher worker pool
   rescan_interval: 30s   # pending-event redispatch period
+#  secure_cookies: true  # set when serving behind TLS
 
 backends:
   - name: claude-default

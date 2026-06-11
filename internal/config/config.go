@@ -93,6 +93,7 @@ type ServeConfig struct {
 	Addr           string `yaml:"addr,omitempty"`            // webhook listener; default ":8080"
 	Workers        int    `yaml:"workers,omitempty"`         // dispatcher pool; default 4
 	RescanInterval string `yaml:"rescan_interval,omitempty"` // Go duration; default "30s"
+	SecureCookies  bool   `yaml:"secure_cookies,omitempty"`  // set true when serving behind TLS
 }
 
 // Config is the root fleet.yaml configuration.

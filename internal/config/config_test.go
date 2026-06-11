@@ -713,7 +713,7 @@ func TestValidate_ServeBlock(t *testing.T) {
 	errorsContain(t, config.Validate(cfg), "rescan_interval")
 
 	cfg = eventSubConfig()
-	cfg.Serve = config.ServeConfig{Addr: ":9090", Workers: 8, RescanInterval: "45s"}
+	cfg.Serve = config.ServeConfig{Addr: ":9090", Workers: 8, RescanInterval: "45s", SecureCookies: true}
 	if errs := config.Validate(cfg); len(errs) != 0 {
 		t.Errorf("valid serve block rejected: %v", errs)
 	}
