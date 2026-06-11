@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -18,8 +19,11 @@ import (
 )
 
 // deliveryRecorder is a plugin that records the params it was called with.
+// mu guards params so that the dispatcher worker goroutine and test goroutine
+// can access it concurrently without a data race.
 type deliveryRecorder struct {
 	name   string
+	mu     sync.Mutex
 	params map[string]any
 }
 
@@ -31,8 +35,17 @@ func (d *deliveryRecorder) Init(_ context.Context, _ map[string]any, _ plugin.Se
 	return nil
 }
 func (d *deliveryRecorder) Do(_ context.Context, _ string, params map[string]any) (map[string]any, error) {
+	d.mu.Lock()
 	d.params = params
+	d.mu.Unlock()
 	return map[string]any{}, nil
+}
+
+// getParams returns a copy of the recorded params under the mutex.
+func (d *deliveryRecorder) getParams() map[string]any {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.params
 }
 
 func TestPipelineExecute_EndpointBackendEndToEnd(t *testing.T) {
@@ -155,10 +168,11 @@ func TestPipelineExecute_EndpointBackendEndToEnd(t *testing.T) {
 	if len(run.OutputsDelivered) != 1 || run.OutputsDelivered[0].Status != "delivered" {
 		t.Fatalf("OutputsDelivered = %+v", run.OutputsDelivered)
 	}
-	if recorder.params["body"] != "review complete" {
-		t.Errorf("delivered body = %v", recorder.params["body"])
+	rparams := recorder.getParams()
+	if rparams["body"] != "review complete" {
+		t.Errorf("delivered body = %v", rparams["body"])
 	}
-	outJSON, _ := recorder.params["output"].(string)
+	outJSON, _ := rparams["output"].(string)
 	if !strings.Contains(outJSON, `"verdict":"approve"`) {
 		t.Errorf("delivered output = %q, want submit_result output JSON", outJSON)
 	}

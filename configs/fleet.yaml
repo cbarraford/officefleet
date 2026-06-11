@@ -148,9 +148,59 @@ assignments:
           mr_iid: "{{.Event.mr_iid}}"
           body: "{{.Event.llm_summary}}"
 
+# Example (SP3b): review GitHub PRs on open, notify Slack when done.
+#  - agent: dev-1
+#    duty: mr-reviewer
+#    enabled: true
+#    trigger:
+#      kind: event-subscription
+#      filter:
+#        source: github
+#        event_type: pr_opened
+#        repo: "owner/repo"
+#    config:
+#      project: "owner/repo"
+#    outputs:
+#      - plugin: github
+#        action: post_pr_comment
+#        params:
+#          repo: "{{.Event.repo}}"
+#          pr_number: "{{.Event.pr_number}}"
+#          body: "{{.Event.llm_summary}}"
+#      - plugin: slack
+#        action: send_message
+#        params:
+#          channel: "#code-reviews"
+#          text: "Reviewed {{.Event.url}}"
+
 plugins:
   - name: gitlab
     config:
       base_url: "https://gitlab.com"
 #      poll_interval: 60s
 #      poll_projects: ["myorg/myrepo"]
+
+# Example: GitHub integration (SP3b) — pr_events source + post_pr_comment action.
+# Secrets: github_token, github_webhook_secret. Webhook path: /webhooks/github
+#  - name: github
+#    config:
+#      base_url: "https://api.github.com"
+#      poll_interval: 60s
+#      poll_repos: ["owner/repo"]
+
+# Example: Slack notifications (SP3b) — send_message action. Secret: slack_bot_token
+#  - name: slack
+#    config:
+#      base_url: "https://slack.com/api"
+
+# Example: Discord notifications (SP3b) — send_message action.
+# Secret discord_webhook_url holds the incoming-webhook URL (param 'webhook'
+# can name an alternative secret per channel).
+#  - name: discord
+
+# Example: Email notifications (SP3b) — send_email action. Secret: smtp_password (optional)
+#  - name: email
+#    config:
+#      smtp_host: smtp.example.com
+#      smtp_port: "587"
+#      from: fleet@example.com

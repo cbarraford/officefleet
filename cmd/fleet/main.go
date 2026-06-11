@@ -30,7 +30,11 @@ import (
 	"github.com/cbarraford/office-fleet/internal/trigger"
 
 	// Register all plugins via init().
+	_ "github.com/cbarraford/office-fleet/internal/plugins/discord"
+	_ "github.com/cbarraford/office-fleet/internal/plugins/email"
+	_ "github.com/cbarraford/office-fleet/internal/plugins/github"
 	_ "github.com/cbarraford/office-fleet/internal/plugins/gitlab"
+	_ "github.com/cbarraford/office-fleet/internal/plugins/slack"
 )
 
 var (

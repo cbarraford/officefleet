@@ -154,8 +154,9 @@ func TestEventVertical_WebhookToRun(t *testing.T) {
 	if !strings.Contains(run.RenderedPrompt, "!7") || !strings.Contains(run.RenderedPrompt, "alice") {
 		t.Errorf("rendered prompt = %q, want event fields", run.RenderedPrompt)
 	}
-	if recorder.params["body"] != "auto-reviewed" || recorder.params["mr"] != "7" {
-		t.Errorf("delivered params = %v", recorder.params)
+	rparams := recorder.getParams()
+	if rparams["body"] != "auto-reviewed" || rparams["mr"] != "7" {
+		t.Errorf("delivered params = %v", rparams)
 	}
 
 	// --- event marked dispatched ---
