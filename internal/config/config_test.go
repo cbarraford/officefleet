@@ -776,6 +776,38 @@ func TestValidateImageBackends(t *testing.T) {
 	})
 }
 
+// TestValidateForEach (SP5 Task 5): for_each must be a bare output key —
+// letters, digits, underscore — never a template expression or path.
+func TestValidateForEach(t *testing.T) {
+	base := func(forEach string) *config.Config {
+		return &config.Config{
+			Backends: []config.Backend{{Name: "b", Kind: "claude", Auth: config.BackendAuth{Mode: "subscription"}}},
+			Agents:   []config.AgentConfig{{Name: "a", Enabled: true, DefaultBackend: domain.BackendRef{Name: "b"}}},
+			Duties:   []config.DutyConfig{{Name: "d", TriggerKinds: []string{"manual"}}},
+			Assignments: []config.AssignmentConfig{{
+				Agent: "a", Duty: "d",
+				Trigger: domain.TriggerConfig{Kind: "manual"},
+				Outputs: []domain.OutputBinding{{Plugin: "gitlab", Action: "create_issue", ForEach: forEach}},
+			}},
+		}
+	}
+	if errs := config.Validate(base("issues")); len(errs) != 0 {
+		t.Fatalf("bare key must validate: %v", errs)
+	}
+	for _, bad := range []string{"{{.Event.x}}", "issues[0]", "a b"} {
+		errs := config.Validate(base(bad))
+		found := false
+		for _, e := range errs {
+			if strings.Contains(e.Error(), "for_each") {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("for_each %q: expected a validation error, got %v", bad, errs)
+		}
+	}
+}
+
 func TestValidate_ServeBlock(t *testing.T) {
 	cfg := eventSubConfig()
 	cfg.Serve = config.ServeConfig{Workers: -1}
