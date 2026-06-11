@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 
 	"github.com/cbarraford/office-fleet/internal/domain"
@@ -107,6 +108,18 @@ func parseClaudeOutput(data []byte) (domain.LLMResult, error) {
 	if v, ok := raw["result"].(string); ok {
 		result.Summary = v
 		result.Output["raw"] = v
+		// SP5 structured-result contract: when the final text carries a JSON
+		// object (whole text or the last fenced ```json block), expose it as
+		// the structured Output so output fan-out can iterate its lists —
+		// parity with what submit_result gives endpoint backends.
+		if obj := extractJSONObject(v); obj != nil {
+			for k, val := range obj {
+				result.Output[k] = val
+			}
+			if s, ok := obj["summary"].(string); ok && s != "" {
+				result.Summary = s
+			}
+		}
 	}
 	if v, ok := raw["cost_usd"].(float64); ok {
 		result.Cost = v
@@ -128,6 +141,30 @@ func verifyTools(tools []string) error {
 	for _, tool := range tools {
 		if _, err := exec.LookPath(tool); err != nil {
 			return fmt.Errorf("required tool %q not found on PATH", tool)
+		}
+	}
+	return nil
+}
+
+// jsonFenceRe captures the contents of ```json ... ``` blocks.
+var jsonFenceRe = regexp.MustCompile("(?s)```json\\s*(.*?)```")
+
+// extractJSONObject pulls a structured result object from the model's final
+// text: the whole text when it is a JSON object, else the LAST fenced
+// ```json block that parses to an object. Returns nil when there is none.
+func extractJSONObject(text string) map[string]any {
+	trimmed := strings.TrimSpace(text)
+	if strings.HasPrefix(trimmed, "{") {
+		var obj map[string]any
+		if err := json.Unmarshal([]byte(trimmed), &obj); err == nil {
+			return obj
+		}
+	}
+	matches := jsonFenceRe.FindAllStringSubmatch(text, -1)
+	for i := len(matches) - 1; i >= 0; i-- {
+		var obj map[string]any
+		if err := json.Unmarshal([]byte(strings.TrimSpace(matches[i][1])), &obj); err == nil {
+			return obj
 		}
 	}
 	return nil

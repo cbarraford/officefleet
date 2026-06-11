@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -91,5 +92,96 @@ func TestBuildClaudePrompt_NoSystem(t *testing.T) {
 	}
 	if got != "Do the task." {
 		t.Errorf("prompt = %q, want %q", got, "Do the task.")
+	}
+}
+
+func TestParseClaudeOutputExtractsFencedJSON(t *testing.T) {
+	resultText := "I reviewed the MR.\n\n```json\n{\"summary\": \"2 issues found\", \"comments\": [{\"path\": \"a.go\", \"line\": 7, \"body\": \"nil deref\"}]}\n```"
+	wrapper, _ := json.Marshal(map[string]any{"type": "result", "result": resultText})
+
+	got, err := parseClaudeOutput(wrapper)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Summary != "2 issues found" {
+		t.Errorf("Summary = %q, want the lifted output.summary", got.Summary)
+	}
+	comments, ok := got.Output["comments"].([]any)
+	if !ok || len(comments) != 1 {
+		t.Fatalf("Output[comments] = %#v, want 1-element array", got.Output["comments"])
+	}
+	first, _ := comments[0].(map[string]any)
+	if first["path"] != "a.go" {
+		t.Errorf("comment path = %v", first["path"])
+	}
+	if got.Output["raw"] != resultText {
+		t.Errorf("raw text must still be preserved alongside the parsed object")
+	}
+}
+
+func TestParseClaudeOutputWholeTextJSON(t *testing.T) {
+	resultText := `{"summary": "all clear", "issues": []}`
+	wrapper, _ := json.Marshal(map[string]any{"type": "result", "result": resultText})
+
+	got, err := parseClaudeOutput(wrapper)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Summary != "all clear" {
+		t.Errorf("Summary = %q", got.Summary)
+	}
+	if _, ok := got.Output["issues"]; !ok {
+		t.Error("Output missing issues key")
+	}
+}
+
+func TestParseClaudeOutputPlainTextUnchanged(t *testing.T) {
+	resultText := "Just prose, no JSON contract here."
+	wrapper, _ := json.Marshal(map[string]any{"type": "result", "result": resultText})
+
+	got, err := parseClaudeOutput(wrapper)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Summary != resultText {
+		t.Errorf("Summary = %q, want the raw text", got.Summary)
+	}
+	if got.Output["raw"] != resultText {
+		t.Errorf("Output[raw] = %v", got.Output["raw"])
+	}
+	if len(got.Output) != 1 {
+		t.Errorf("plain text must not grow Output keys: %#v", got.Output)
+	}
+}
+
+func TestParseClaudeOutputMalformedFenceFallsBack(t *testing.T) {
+	resultText := "Findings:\n```json\n{not valid json]\n```"
+	wrapper, _ := json.Marshal(map[string]any{"type": "result", "result": resultText})
+
+	got, err := parseClaudeOutput(wrapper)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Summary != resultText {
+		t.Errorf("malformed fence must leave Summary as raw text")
+	}
+	if len(got.Output) != 1 {
+		t.Errorf("malformed fence must not grow Output: %#v", got.Output)
+	}
+}
+
+func TestParseClaudeOutputJSONWithoutSummaryKeepsTextSummary(t *testing.T) {
+	resultText := "Done.\n```json\n{\"comments\": []}\n```"
+	wrapper, _ := json.Marshal(map[string]any{"type": "result", "result": resultText})
+
+	got, err := parseClaudeOutput(wrapper)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Summary != resultText {
+		t.Errorf("without output.summary the full text stays the summary, got %q", got.Summary)
+	}
+	if _, ok := got.Output["comments"]; !ok {
+		t.Error("parsed object must still land in Output")
 	}
 }
