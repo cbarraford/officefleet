@@ -6,17 +6,52 @@ import (
 
 	"github.com/cbarraford/office-fleet/internal/config"
 	"github.com/cbarraford/office-fleet/internal/domain"
-	"github.com/cbarraford/office-fleet/internal/repo"
 	"github.com/google/uuid"
 )
 
-// FromConfig upserts all agents, duties, and assignments defined in cfg into the DB.
-// Uses INSERT ... ON CONFLICT DO UPDATE to be idempotent across repeated runs.
+// AgentSeeder, DutySeeder, AssignmentSeeder are the repo capabilities seeding
+// needs; the concrete repos satisfy them.
+type AgentSeeder interface {
+	UpsertByName(ctx context.Context, a *domain.Agent) error
+	List(ctx context.Context) ([]*domain.Agent, error)
+}
+
+type DutySeeder interface {
+	UpsertByName(ctx context.Context, d *domain.Duty) error
+	List(ctx context.Context) ([]*domain.Duty, error)
+}
+
+type AssignmentSeeder interface {
+	UpsertByAgentAndDuty(ctx context.Context, a *domain.Assignment) error
+	List(ctx context.Context) ([]*domain.Assignment, error)
+}
+
+// FromConfig seeds agents/duties/assignments from cfg. The DB is the source
+// of truth once populated: without force, seeding is skipped unless ALL three
+// entity tables are empty (first boot). force re-seeds unconditionally,
+// overwriting same-named entities (UI edits included).
 func FromConfig(ctx context.Context, cfg *config.Config,
-	agentRepo *repo.AgentRepo,
-	dutyRepo *repo.DutyRepo,
-	assignRepo *repo.AssignmentRepo,
+	agentRepo AgentSeeder, dutyRepo DutySeeder, assignRepo AssignmentSeeder, force bool,
 ) error {
+	if !force {
+		agents, err := agentRepo.List(ctx)
+		if err != nil {
+			return fmt.Errorf("seed precheck (agents): %w", err)
+		}
+		duties, err := dutyRepo.List(ctx)
+		if err != nil {
+			return fmt.Errorf("seed precheck (duties): %w", err)
+		}
+		assignments, err := assignRepo.List(ctx)
+		if err != nil {
+			return fmt.Errorf("seed precheck (assignments): %w", err)
+		}
+		if len(agents) > 0 || len(duties) > 0 || len(assignments) > 0 {
+			fmt.Println("DB already populated; skipping config seed (use 'fleet seed --force' to overwrite)")
+			return nil
+		}
+	}
+
 	// Upsert agents and build a name→id map using the persisted id returned by RETURNING.
 	agentIDs := make(map[string]uuid.UUID, len(cfg.Agents))
 	for i := range cfg.Agents {

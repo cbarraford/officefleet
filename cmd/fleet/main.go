@@ -61,6 +61,7 @@ func main() {
 	root.AddCommand(scheduleCmd())
 	root.AddCommand(serveCmd())
 	root.AddCommand(eventsCmd())
+	root.AddCommand(seedCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -177,7 +178,7 @@ func migrateCmd() *cobra.Command {
 				agentRepo := repo.NewAgentRepo(pool)
 				dutyRepo := repo.NewDutyRepo(pool)
 				assignmentRepo := repo.NewAssignmentRepo(pool)
-				if err := seed.FromConfig(ctx, cfg, agentRepo, dutyRepo, assignmentRepo); err != nil {
+				if err := seed.FromConfig(ctx, cfg, agentRepo, dutyRepo, assignmentRepo, false); err != nil {
 					return fmt.Errorf("seed: %w", err)
 				}
 			}
@@ -932,4 +933,41 @@ func eventsReplayCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// seedCmd returns the "seed" command (DB is the source of truth; this is the
+// explicit override).
+func seedCmd() *cobra.Command {
+	var flagForce bool
+	cmd := &cobra.Command{
+		Use:   "seed",
+		Short: "Seed entities from fleet.yaml (no-op unless DB is empty; --force overwrites)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := context.Background()
+			cfg, err := loadValidatedConfig()
+			if err != nil {
+				return fmt.Errorf("load config: %w", err)
+			}
+			dsn := resolveDSN(cfg)
+			if dsn == "" {
+				return fmt.Errorf("no database DSN configured")
+			}
+			pool, err := db.New(ctx, dsn)
+			if err != nil {
+				return fmt.Errorf("open db: %w", err)
+			}
+			defer pool.Close()
+			if flagForce {
+				fmt.Println("WARNING: --force overwrites same-named entities, including UI edits")
+			}
+			if err := seed.FromConfig(ctx, cfg,
+				repo.NewAgentRepo(pool), repo.NewDutyRepo(pool), repo.NewAssignmentRepo(pool), flagForce); err != nil {
+				return fmt.Errorf("seed: %w", err)
+			}
+			fmt.Println("seed complete")
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&flagForce, "force", false, "overwrite existing entities from fleet.yaml")
+	return cmd
 }
