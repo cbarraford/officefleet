@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -56,8 +57,11 @@ func (m *memSessionStore) DeleteExpired(_ context.Context) error { return nil }
 func authedAPI(t *testing.T, role string) (*API, string) {
 	t.Helper()
 	sessions := auth.NewSessions(newMemSessionStore(role))
-	a := New(Deps{Sessions: sessions})
-	token, err := sessions.Start(context.Background(), uuid.New())
+	users := newFakeUserStore()
+	me := &domain.User{ID: uuid.New(), Username: "tester-" + role, Role: role}
+	users.add(me)
+	a := New(Deps{Sessions: sessions, Users: users})
+	token, err := sessions.Start(context.Background(), me.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,5 +131,25 @@ func TestMiddleware_AdminMutationPasses(t *testing.T) {
 	resp := doReq(t, mountedMux(a), http.MethodPost, "/api/v1/logout", token)
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 		t.Errorf("admin POST blocked by middleware: %d", resp.StatusCode)
+	}
+}
+
+func TestMeReturnsUsernameAndRole(t *testing.T) {
+	a, token := authedAPI(t, domain.RoleAdmin)
+	mux := http.NewServeMux()
+	a.Mount(mux)
+	resp := doReq(t, mux, http.MethodGet, "/api/v1/me", token)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	var body map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body["username"] != "tester-admin" {
+		t.Errorf("username = %q, want tester-admin", body["username"])
+	}
+	if body["role"] != domain.RoleAdmin {
+		t.Errorf("role = %q, want admin", body["role"])
 	}
 }

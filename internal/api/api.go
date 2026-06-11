@@ -62,6 +62,10 @@ type SecretStore interface {
 
 type UserStore interface {
 	GetByUsername(ctx context.Context, username string) (*domain.User, error)
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error)
+	Create(ctx context.Context, u *domain.User) error
+	List(ctx context.Context) ([]*domain.User, error)
+	Delete(ctx context.Context, username string) error
 }
 
 type Invoker interface {

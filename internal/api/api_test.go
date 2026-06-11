@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -156,11 +157,22 @@ func (f *fakeSecretStore) Delete(_ context.Context, name string) error {
 
 type fakeUserStore struct {
 	mu    sync.Mutex
-	users map[string]*domain.User
+	users map[string]*domain.User // keyed by username
 }
 
 func newFakeUserStore() *fakeUserStore {
 	return &fakeUserStore{users: map[string]*domain.User{}}
+}
+
+// add seeds a user, assigning an ID when unset.
+func (f *fakeUserStore) add(u *domain.User) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if u.ID == uuid.Nil {
+		u.ID = uuid.New()
+	}
+	cp := *u
+	f.users[u.Username] = &cp
 }
 
 func (f *fakeUserStore) GetByUsername(_ context.Context, username string) (*domain.User, error) {
@@ -172,6 +184,59 @@ func (f *fakeUserStore) GetByUsername(_ context.Context, username string) (*doma
 	}
 	cp := *u
 	return &cp, nil
+}
+
+func (f *fakeUserStore) GetByID(_ context.Context, id uuid.UUID) (*domain.User, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, u := range f.users {
+		if u.ID == id {
+			cp := *u
+			return &cp, nil
+		}
+	}
+	return nil, nil
+}
+
+func (f *fakeUserStore) Create(_ context.Context, u *domain.User) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.users[u.Username]; ok {
+		// mirror the Postgres error text isUniqueViolation matches on
+		return fmt.Errorf("duplicate key value violates unique constraint (SQLSTATE 23505)")
+	}
+	if u.ID == uuid.Nil {
+		u.ID = uuid.New()
+	}
+	cp := *u
+	f.users[u.Username] = &cp
+	return nil
+}
+
+func (f *fakeUserStore) List(_ context.Context) ([]*domain.User, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	names := make([]string, 0, len(f.users))
+	for n := range f.users {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	out := make([]*domain.User, 0, len(names))
+	for _, n := range names {
+		cp := *f.users[n]
+		out = append(out, &cp)
+	}
+	return out, nil
+}
+
+func (f *fakeUserStore) Delete(_ context.Context, username string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.users[username]; !ok {
+		return fmt.Errorf("user %q not found", username)
+	}
+	delete(f.users, username)
+	return nil
 }
 
 type fakeInvoker struct {

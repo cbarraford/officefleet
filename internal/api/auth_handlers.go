@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/cbarraford/office-fleet/internal/auth"
+	"github.com/google/uuid"
 )
 
 func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -55,5 +56,17 @@ func (a *API) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) handleMe(w http.ResponseWriter, r *http.Request) {
 	role, _ := r.Context().Value(ctxKeyRole).(string)
-	writeJSON(w, http.StatusOK, map[string]string{"role": role})
+	userID, _ := r.Context().Value(ctxKeyUserID).(uuid.UUID)
+	user, err := a.users.GetByID(r.Context(), userID)
+	if err != nil {
+		a.logf("api: me lookup: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if user == nil {
+		// The session outlived the account (user deleted): treat as unauthenticated.
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"username": user.Username, "role": role})
 }

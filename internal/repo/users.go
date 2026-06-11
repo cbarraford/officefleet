@@ -41,6 +41,21 @@ func (r *UserRepo) GetByUsername(ctx context.Context, username string) (*domain.
 	return &u, nil
 }
 
+// GetByID returns (nil, nil) when no user has the id.
+func (r *UserRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error) {
+	var u domain.User
+	err := r.db.QueryRow(ctx,
+		"SELECT id, username, password_hash, role, created_at, updated_at FROM users WHERE id=$1",
+		id).Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.CreatedAt, &u.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
 func (r *UserRepo) List(ctx context.Context) ([]*domain.User, error) {
 	rows, err := r.db.Query(ctx,
 		"SELECT id, username, password_hash, role, created_at, updated_at FROM users ORDER BY username")

@@ -12,7 +12,7 @@ type ctxKey int
 
 const (
 	ctxKeyRole ctxKey = iota
-	ctxKeyUsername
+	ctxKeyUserID
 )
 
 // route serves authenticated requests via the inner mux (built once per API
@@ -36,12 +36,12 @@ func (a *API) requireAuth(next http.Handler) http.Handler {
 			writeError(w, http.StatusUnauthorized, "authentication required")
 			return
 		}
-		_ = userID
 		if role != domain.RoleAdmin && r.Method != http.MethodGet {
 			writeError(w, http.StatusForbidden, "viewer role is read-only")
 			return
 		}
 		ctx := context.WithValue(r.Context(), ctxKeyRole, role)
+		ctx = context.WithValue(ctx, ctxKeyUserID, userID)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
