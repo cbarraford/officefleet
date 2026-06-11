@@ -36,6 +36,20 @@ type Pipeline struct {
 	runRepo runRepo
 	store   state.Store
 	secrets SecretsProvider
+
+	// onRunUpdate, when set, fires after a run is first recorded and after
+	// each terminal record (succeeded/failed/skipped). Used by the API's SSE
+	// feed; nil-safe; must not block (callers fan out non-blocking).
+	onRunUpdate func(*domain.Run)
+}
+
+// SetRunUpdateHook registers fn to receive run lifecycle updates.
+func (p *Pipeline) SetRunUpdateHook(fn func(*domain.Run)) { p.onRunUpdate = fn }
+
+func (p *Pipeline) emitRunUpdate(run *domain.Run) {
+	if p.onRunUpdate != nil {
+		p.onRunUpdate(run)
+	}
 }
 
 func NewPipeline(cfg *config.Config, rr *repo.RunRepo, store state.Store, sp SecretsProvider) *Pipeline {
@@ -85,6 +99,7 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 		// Insert does not persist the error column; UpdateStatus records the
 		// skip reason and finished_at.
 		_ = p.runRepo.UpdateStatus(ctx, run.ID, domain.RunStatusSkipped, &reason)
+		p.emitRunUpdate(run)
 		return run, nil
 	}
 
@@ -173,6 +188,7 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 	if err := p.runRepo.Insert(ctx, run); err != nil {
 		return nil, fmt.Errorf("record run start: %w", err)
 	}
+	p.emitRunUpdate(run)
 
 	// Dedup: skip if this event has already been processed for this assignment.
 	// NOTE: Insert is intentionally called before this check so that every
@@ -187,6 +203,7 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 		if already {
 			_ = p.runRepo.UpdateStatus(ctx, run.ID, domain.RunStatusSkipped, nil)
 			run.Status = domain.RunStatusSkipped
+			p.emitRunUpdate(run)
 			return run, nil
 		}
 	}
@@ -217,6 +234,7 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 		run.Error = &errMsg
 		finished := time.Now()
 		run.FinishedAt = &finished
+		p.emitRunUpdate(run)
 		return run, fmt.Errorf("executor: %w", llmErr)
 	}
 
@@ -238,6 +256,7 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 		run.Error = &errMsg
 		finished := time.Now()
 		run.FinishedAt = &finished
+		p.emitRunUpdate(run)
 		return run, nil
 	}
 
@@ -266,6 +285,7 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 	run.Status = status
 	finished := time.Now()
 	run.FinishedAt = &finished
+	p.emitRunUpdate(run)
 	return run, nil
 }
 

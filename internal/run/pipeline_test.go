@@ -1354,6 +1354,60 @@ func TestPipelineExecute_EventIDStampedOnPausedSkip(t *testing.T) {
 	_ = rr
 }
 
+func TestPipelineExecute_RunUpdateHook(t *testing.T) {
+	ctx := context.Background()
+	fakeExec := executor.NewFakeExecutor(domain.LLMResult{Status: 0, Summary: "ok"})
+	backendName := "hook-backend"
+	cfg := &config.Config{Backends: []config.Backend{{
+		Name: backendName, Kind: "claude", Model: "claude-3-5-sonnet",
+		DefaultEffort: "normal", Auth: config.BackendAuth{Mode: "subscription"},
+	}}}
+	pipeline := &Pipeline{cfg: cfg, runRepo: newFakeRunRepo(), store: state.NewMemStore()}
+
+	var mu sync.Mutex
+	var statuses []domain.RunStatus
+	pipeline.SetRunUpdateHook(func(r *domain.Run) {
+		mu.Lock()
+		statuses = append(statuses, r.Status)
+		mu.Unlock()
+	})
+
+	agentID, dutyID := uuid.New(), uuid.New()
+	_, err := pipeline.Execute(ctx, ExecuteRequest{
+		Assignment: &domain.Assignment{ID: uuid.New(), AgentID: agentID, DutyID: dutyID,
+			Enabled: true, Backend: &domain.BackendRef{Name: backendName}, Config: map[string]any{}},
+		Agent:       &domain.Agent{ID: agentID, Name: "hook-agent", Role: "t", SystemPrompt: "s", Enabled: true},
+		Duty:        &domain.Duty{ID: dutyID, Name: "hook-duty", Role: "t", Description: "d", Prompt: "p"},
+		TriggerKind: "manual", EventParams: map[string]any{}, Executor: fakeExec,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(statuses) != 2 {
+		t.Fatalf("hook fired %d times, want 2 (started + terminal): %v", len(statuses), statuses)
+	}
+	if statuses[0] != domain.RunStatusRunning {
+		t.Errorf("first hook status = %q, want running", statuses[0])
+	}
+	if statuses[1] != domain.RunStatusSucceeded {
+		t.Errorf("second hook status = %q, want succeeded", statuses[1])
+	}
+}
+
+func TestPipelineExecute_RunUpdateHookOnPauseSkip(t *testing.T) {
+	pipeline, req, _, _ := pausedTestFixture(false, true)
+	fired := 0
+	pipeline.SetRunUpdateHook(func(r *domain.Run) { fired++ })
+	if _, err := pipeline.Execute(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	if fired != 1 {
+		t.Errorf("hook fired %d times on pause-skip, want 1", fired)
+	}
+}
+
 func TestDeriveDedupKey_ExplicitKeyWins(t *testing.T) {
 	// An explicit dedup_key (event envelope) must beat inferred keys: a
 	// re-pushed MR has a new dedup_key but the same mr_iid, and must NOT be
