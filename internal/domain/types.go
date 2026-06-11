@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -105,6 +106,30 @@ type OutputDelivery struct {
 	Params map[string]any `json:"params"`
 	Status string         `json:"status"`
 	Error  string         `json:"error,omitempty"`
+}
+
+// EventStatus is the dispatch lifecycle state of an Event.
+type EventStatus string
+
+const (
+	EventStatusPending    EventStatus = "pending"
+	EventStatusDispatched EventStatus = "dispatched"
+)
+
+// Event is the normalized envelope for one inbound occurrence from a plugin
+// event source. Persisted for durability and replay; dispatch is
+// at-least-once (per-assignment dedup makes redelivery a recorded skip).
+type Event struct {
+	ID           uuid.UUID       `db:"id"`
+	SourcePlugin string          `db:"source_plugin"` // e.g. "gitlab"
+	EventType    string          `db:"event_type"`    // e.g. "mr_opened"
+	PayloadRaw   json.RawMessage `db:"payload_raw"`   // verbatim from the source
+	PayloadNorm  map[string]any  `db:"payload_norm"`  // plugin-normalized, template-friendly
+	Identity     string          `db:"identity"`      // who triggered it (author/sender)
+	DedupKey     string          `db:"dedup_key"`     // stable "already processed" key
+	Status       EventStatus     `db:"status"`
+	ReceivedAt   time.Time       `db:"received_at"`
+	DispatchedAt *time.Time      `db:"dispatched_at"`
 }
 
 // Run is one execution of an Assignment; the audit and metrics record.
