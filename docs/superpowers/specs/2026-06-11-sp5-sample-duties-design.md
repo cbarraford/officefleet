@@ -128,7 +128,9 @@ are ignored. Normalized envelope:
 
 - `event_type`: `mr_note`
 - `payload_norm`: `project` (path with namespace), `mr_iid`, `mr_title`, `note_id`,
-  `discussion_id`, `note_body`, `author` (username), `mr_author`, `mr_source_branch`, `url`
+  `discussion_id`, `note_body`, `author` (username), `mr_source_branch`, `url`.
+  (`mr_author` was dropped at implementation: GitLab's Note Hook carries only the MR author's
+  numeric `author_id`, not a username — resolving it would cost an API call nothing consumes.)
 - `identity`: note author username
 - `dedup_key`: `note:{project}:{note_id}`
 
