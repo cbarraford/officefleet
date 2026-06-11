@@ -59,6 +59,9 @@ func (e *EmailPlugin) Init(_ context.Context, cfg map[string]any, secrets plugin
 	if from == "" {
 		return fmt.Errorf("email: from is required")
 	}
+	if strings.ContainsAny(from, "\r\n") {
+		return fmt.Errorf("email: from must not contain CR/LF")
+	}
 	e.host = host
 	e.from = from
 	e.port = "587"
@@ -104,6 +107,17 @@ func (e *EmailPlugin) sendEmail(_ context.Context, params map[string]any) (map[s
 	}
 	if len(recipients) == 0 {
 		return nil, fmt.Errorf("email send_email: no valid recipients in %q", toRaw)
+	}
+
+	// Header-injection guard: subject and addresses are template-rendered
+	// from event payloads (attacker-influenced); CR/LF would inject headers.
+	if strings.ContainsAny(subject, "\r\n") {
+		return nil, fmt.Errorf("email send_email: subject must not contain CR/LF")
+	}
+	for _, r := range recipients {
+		if strings.ContainsAny(r, "\r\n") {
+			return nil, fmt.Errorf("email send_email: recipient %q must not contain CR/LF", r)
+		}
 	}
 
 	var auth smtp.Auth

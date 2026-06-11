@@ -239,3 +239,36 @@ func TestSendEmail_RealSMTPPath(t *testing.T) {
 		t.Errorf("DATA = %q", fake.data)
 	}
 }
+
+func TestSendEmail_HeaderInjectionRejected(t *testing.T) {
+	p := initPlugin(t, baseCfg(), "")
+	sent := false
+	p.send = func(string, smtp.Auth, string, []string, []byte) error {
+		sent = true
+		return nil
+	}
+	cases := []map[string]any{
+		{"to": "a@x.com", "subject": "Hi\r\nBcc: evil@e.vil", "body": "b"},
+		{"to": "a@x.com\r\nBcc: evil@e.vil", "subject": "s", "body": "b"},
+		{"to": "a@x.com", "subject": "Hi\nX-Inject: 1", "body": "b"},
+	}
+	for i, params := range cases {
+		if _, err := p.Do(context.Background(), "send_email", params); err == nil {
+			t.Errorf("case %d: expected header-injection rejection for %v", i, params)
+		}
+	}
+	if sent {
+		t.Error("send must never be called for injection attempts")
+	}
+}
+
+func TestInit_FromInjectionRejected(t *testing.T) {
+	p := &EmailPlugin{}
+	lookup := func(string) (string, error) { return "", nil }
+	err := p.Init(context.Background(), map[string]any{
+		"smtp_host": "h", "from": "a@x.com\r\nBcc: evil@e.vil",
+	}, lookup)
+	if err == nil {
+		t.Error("expected Init rejection for CR/LF in from")
+	}
+}
