@@ -38,8 +38,10 @@ type Pipeline struct {
 	secrets SecretsProvider
 
 	// onRunUpdate, when set, fires after a run is first recorded and after
-	// each terminal record (succeeded/failed/skipped). Used by the API's SSE
-	// feed; nil-safe; must not block (callers fan out non-blocking).
+	// each terminal record (succeeded/failed/skipped). The same *domain.Run
+	// pointer is reused and mutated between calls, so the callback MUST
+	// read/marshal it synchronously and MUST NOT block or retain the pointer.
+	// Used by the API's SSE feed; nil-safe.
 	onRunUpdate func(*domain.Run)
 }
 

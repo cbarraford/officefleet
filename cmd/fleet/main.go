@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -24,6 +25,7 @@ import (
 	"github.com/cbarraford/office-fleet/internal/plugin"
 	"github.com/cbarraford/office-fleet/internal/repo"
 	"github.com/cbarraford/office-fleet/internal/run"
+	"github.com/cbarraford/office-fleet/internal/secrets"
 	"github.com/cbarraford/office-fleet/internal/seed"
 	"github.com/cbarraford/office-fleet/internal/server"
 	"github.com/cbarraford/office-fleet/internal/state"
@@ -62,6 +64,7 @@ func main() {
 	root.AddCommand(serveCmd())
 	root.AddCommand(eventsCmd())
 	root.AddCommand(seedCmd())
+	root.AddCommand(secretsCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -98,22 +101,60 @@ func resolveDSN(cfg *config.Config) string {
 	return os.Getenv("FLEET_DATABASE_DSN")
 }
 
-// buildSecretLookup returns a SecretLookup that queries the secrets table.
-// Missing secrets return ("", nil) so --fake runs remain usable without seeded secrets.
-func buildSecretLookup(ctx context.Context, pool *pgxpool.Pool) plugin.SecretLookup {
+// mustDSN returns the DSN or an error when none is configured.
+func mustDSN(cfg *config.Config) (string, error) {
+	dsn := resolveDSN(cfg)
+	if dsn == "" {
+		return "", fmt.Errorf("no database DSN configured (set --db, database.dsn in fleet.yaml, or FLEET_DATABASE_DSN env)")
+	}
+	return dsn, nil
+}
+
+// loadCipher returns the secrets cipher, or nil when FLEET_MASTER_KEY is unset
+// (legacy-plaintext-only mode). An invalid key is a hard error.
+func loadCipher() (*secrets.Cipher, error) {
+	keyB64 := os.Getenv(secrets.MasterKeyEnv)
+	if keyB64 == "" {
+		return nil, nil
+	}
+	return secrets.NewCipher(keyB64)
+}
+
+// decryptSecret resolves a stored value: FSEC1 → decrypt (cipher required);
+// legacy plaintext → returned as-is.
+func decryptSecret(c *secrets.Cipher, name string, stored []byte) (string, error) {
+	if !secrets.IsEncrypted(stored) {
+		return string(stored), nil
+	}
+	if c == nil {
+		return "", fmt.Errorf("secret %q is encrypted but %s is not set", name, secrets.MasterKeyEnv)
+	}
+	plain, err := c.Decrypt(stored)
+	if err != nil {
+		return "", fmt.Errorf("secret %q: %w", name, err)
+	}
+	return string(plain), nil
+}
+
+// buildSecretLookup returns a SecretLookup that queries the secrets table and
+// decrypts FSEC1 values transparently. Missing secrets return ("", nil) so
+// --fake runs remain usable without seeded secrets.
+func buildSecretLookup(ctx context.Context, pool *pgxpool.Pool, cipher *secrets.Cipher) plugin.SecretLookup {
 	return func(name string) (string, error) {
 		var val []byte
 		err := pool.QueryRow(ctx, "SELECT encrypted_value FROM secrets WHERE name=$1", name).Scan(&val)
 		if err != nil {
 			return "", nil
 		}
-		return string(val), nil
+		return decryptSecret(cipher, name, val)
 	}
 }
 
-// dbSecretsProvider implements run.SecretsProvider by loading all secrets from the DB.
+// dbSecretsProvider implements run.SecretsProvider by loading all secrets from
+// the DB and decrypting FSEC1 values transparently.
 type dbSecretsProvider struct {
-	pool *pgxpool.Pool
+	pool   *pgxpool.Pool
+	cipher *secrets.Cipher
 }
 
 func (d *dbSecretsProvider) Load(ctx context.Context) (map[string]string, error) {
@@ -129,14 +170,18 @@ func (d *dbSecretsProvider) Load(ctx context.Context) (map[string]string, error)
 		if err := rows.Scan(&name, &val); err != nil {
 			return nil, fmt.Errorf("scan secret row: %w", err)
 		}
-		m[name] = string(val)
+		plain, err := decryptSecret(d.cipher, name, val)
+		if err != nil {
+			return nil, fmt.Errorf("decrypt secret %q: %w", name, err)
+		}
+		m[name] = plain
 	}
 	return m, rows.Err()
 }
 
 // initPlugins initialises all registered plugins using config and DB secrets.
-func initPlugins(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool) {
-	secretLookup := buildSecretLookup(ctx, pool)
+func initPlugins(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, cipher *secrets.Cipher) {
+	secretLookup := buildSecretLookup(ctx, pool, cipher)
 	for _, p := range plugin.All() {
 		var pluginCfg map[string]any
 		for _, pc := range cfg.Plugins {
@@ -589,7 +634,11 @@ func runCmd() *cobra.Command {
 			}
 
 			// Initialize plugins.
-			initPlugins(ctx, cfg, pool)
+			cipher, err := loadCipher()
+			if err != nil {
+				return err
+			}
+			initPlugins(ctx, cfg, pool, cipher)
 
 			// Resolve executor.
 			var exec executor.Executor
@@ -624,7 +673,7 @@ func runCmd() *cobra.Command {
 			}
 
 			store := state.NewPostgresStore(pool)
-			pipeline := run.NewPipeline(cfg, runRepo, store, &dbSecretsProvider{pool: pool})
+			pipeline := run.NewPipeline(cfg, runRepo, store, &dbSecretsProvider{pool: pool, cipher: cipher})
 
 			result, execErr := pipeline.Execute(ctx, run.ExecuteRequest{
 				Assignment:  assignment,
@@ -696,16 +745,20 @@ func scheduleCmd() *cobra.Command {
 				return fmt.Errorf("open db: %w", err)
 			}
 			defer pool.Close()
-			initPlugins(ctx, cfg, pool)
-			inv := buildInvoker(cfg, pool)
+			cipher, err := loadCipher()
+			if err != nil {
+				return err
+			}
+			initPlugins(ctx, cfg, pool, cipher)
+			inv := buildInvoker(cfg, pool, cipher)
 			return runSchedulerLoop(ctx, pool, inv)
 		},
 	}
 }
 
 // buildInvoker wires the shared assignment-execution path.
-func buildInvoker(cfg *config.Config, pool *pgxpool.Pool) *run.Invoker {
-	pipeline := run.NewPipeline(cfg, repo.NewRunRepo(pool), state.NewPostgresStore(pool), &dbSecretsProvider{pool: pool})
+func buildInvoker(cfg *config.Config, pool *pgxpool.Pool, cipher *secrets.Cipher) *run.Invoker {
+	pipeline := run.NewPipeline(cfg, repo.NewRunRepo(pool), state.NewPostgresStore(pool), &dbSecretsProvider{pool: pool, cipher: cipher})
 	return run.NewInvoker(cfg, pipeline,
 		repo.NewAssignmentRepo(pool), repo.NewAgentRepo(pool), repo.NewDutyRepo(pool))
 }
@@ -771,9 +824,32 @@ func serveCmd() *cobra.Command {
 				return fmt.Errorf("open db: %w", err)
 			}
 			defer pool.Close()
-			initPlugins(ctx, cfg, pool)
+			cipher, err := loadCipher()
+			if err != nil {
+				return err
+			}
+			initPlugins(ctx, cfg, pool, cipher)
 
-			inv := buildInvoker(cfg, pool)
+			// Warn about unencrypted secrets at startup.
+			if allSecrets, listErr := repo.NewSecretRepo(pool).List(ctx); listErr == nil {
+				var unenc []string
+				for name, val := range allSecrets {
+					if !secrets.IsEncrypted(val) {
+						unenc = append(unenc, name)
+					}
+				}
+				if len(unenc) > 0 {
+					if cipher == nil {
+						fmt.Fprintf(os.Stderr, "warning: %s is not set; %d secret(s) are stored as plaintext: %s\n",
+							secrets.MasterKeyEnv, len(unenc), strings.Join(unenc, ", "))
+					} else {
+						fmt.Fprintf(os.Stderr, "warning: %d secret(s) are stored as plaintext (run 'fleet secrets encrypt-existing' to migrate): %s\n",
+							len(unenc), strings.Join(unenc, ", "))
+					}
+				}
+			}
+
+			inv := buildInvoker(cfg, pool, cipher)
 			eventRepo := repo.NewEventRepo(pool)
 			cursorRepo := repo.NewCursorRepo(pool)
 
@@ -970,4 +1046,169 @@ func seedCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&flagForce, "force", false, "overwrite existing entities from fleet.yaml")
 	return cmd
+}
+
+// secretsCmd returns the "secrets" group of subcommands.
+func secretsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "secrets",
+		Short: "Secret management commands",
+	}
+	cmd.AddCommand(secretsSetCmd(), secretsListCmd(), secretsDeleteCmd(), secretsEncryptExistingCmd())
+	return cmd
+}
+
+func secretsSetCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "set <name>",
+		Short: "Set a secret (value read from stdin)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := context.Background()
+			cipher, err := loadCipher()
+			if err != nil {
+				return err
+			}
+			if cipher == nil {
+				return fmt.Errorf("%s is not set; refusing to store a plaintext secret", secrets.MasterKeyEnv)
+			}
+			data, err := io.ReadAll(os.Stdin)
+			if err != nil {
+				return fmt.Errorf("read value from stdin: %w", err)
+			}
+			value := strings.TrimRight(string(data), "\r\n")
+			if value == "" {
+				return fmt.Errorf("empty secret value")
+			}
+			cfg, _ := loadConfig()
+			dsn, err := mustDSN(cfg)
+			if err != nil {
+				return err
+			}
+			pool, err := db.New(ctx, dsn)
+			if err != nil {
+				return fmt.Errorf("open db: %w", err)
+			}
+			defer pool.Close()
+			enc, err := cipher.Encrypt([]byte(value))
+			if err != nil {
+				return err
+			}
+			if err := repo.NewSecretRepo(pool).Upsert(ctx, args[0], enc); err != nil {
+				return fmt.Errorf("store secret: %w", err)
+			}
+			fmt.Printf("secret %q stored (encrypted)\n", args[0])
+			return nil
+		},
+	}
+}
+
+func secretsListCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "List secrets (names and encryption status; values never shown)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := context.Background()
+			cfg, _ := loadConfig()
+			dsn, err := mustDSN(cfg)
+			if err != nil {
+				return err
+			}
+			pool, err := db.New(ctx, dsn)
+			if err != nil {
+				return fmt.Errorf("open db: %w", err)
+			}
+			defer pool.Close()
+			all, err := repo.NewSecretRepo(pool).List(ctx)
+			if err != nil {
+				return fmt.Errorf("list secrets: %w", err)
+			}
+			if len(all) == 0 {
+				fmt.Println("(no secrets)")
+				return nil
+			}
+			fmt.Printf("%-40s %-10s\n", "NAME", "ENCRYPTED")
+			fmt.Println(strings.Repeat("-", 52))
+			for name, val := range all {
+				enc := secrets.IsEncrypted(val)
+				fmt.Printf("%-40s %-10v\n", name, enc)
+			}
+			return nil
+		},
+	}
+}
+
+func secretsDeleteCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "delete <name>",
+		Short: "Delete a secret",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := context.Background()
+			cfg, _ := loadConfig()
+			dsn, err := mustDSN(cfg)
+			if err != nil {
+				return err
+			}
+			pool, err := db.New(ctx, dsn)
+			if err != nil {
+				return fmt.Errorf("open db: %w", err)
+			}
+			defer pool.Close()
+			if err := repo.NewSecretRepo(pool).Delete(ctx, args[0]); err != nil {
+				return fmt.Errorf("delete secret: %w", err)
+			}
+			fmt.Printf("secret %q deleted\n", args[0])
+			return nil
+		},
+	}
+}
+
+func secretsEncryptExistingCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "encrypt-existing",
+		Short: "Encrypt all plaintext secrets in the DB (idempotent; requires FLEET_MASTER_KEY)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := context.Background()
+			cipher, err := loadCipher()
+			if err != nil {
+				return err
+			}
+			if cipher == nil {
+				return fmt.Errorf("%s is not set; cannot encrypt existing secrets", secrets.MasterKeyEnv)
+			}
+			cfg, _ := loadConfig()
+			dsn, err := mustDSN(cfg)
+			if err != nil {
+				return err
+			}
+			pool, err := db.New(ctx, dsn)
+			if err != nil {
+				return fmt.Errorf("open db: %w", err)
+			}
+			defer pool.Close()
+			secretRepo := repo.NewSecretRepo(pool)
+			all, err := secretRepo.List(ctx)
+			if err != nil {
+				return fmt.Errorf("list secrets: %w", err)
+			}
+			count := 0
+			for name, val := range all {
+				if secrets.IsEncrypted(val) {
+					continue
+				}
+				enc, err := cipher.Encrypt(val)
+				if err != nil {
+					return fmt.Errorf("encrypt secret %q: %w", name, err)
+				}
+				if err := secretRepo.Upsert(ctx, name, enc); err != nil {
+					return fmt.Errorf("store secret %q: %w", name, err)
+				}
+				fmt.Printf("encrypted secret %q\n", name)
+				count++
+			}
+			fmt.Printf("done: %d secret(s) encrypted\n", count)
+			return nil
+		},
+	}
 }
