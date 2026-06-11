@@ -73,6 +73,9 @@ type ExecuteRequest struct {
 const (
 	SkipReasonAgentPaused      = "agent_paused"
 	SkipReasonAssignmentPaused = "assignment_paused"
+	// SkipReasonDuplicateEvent marks redeliveries collapsed by per-assignment
+	// dedup (dogfood finding: a reason-less skipped run is unreadable in the UI).
+	SkipReasonDuplicateEvent = "duplicate_event"
 )
 
 // Execute runs the full pipeline for one assignment and records the result.
@@ -203,8 +206,10 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 			return nil, fmt.Errorf("dedup check: %w", err)
 		}
 		if already {
-			_ = p.runRepo.UpdateStatus(ctx, run.ID, domain.RunStatusSkipped, nil)
+			reason := SkipReasonDuplicateEvent
+			_ = p.runRepo.UpdateStatus(ctx, run.ID, domain.RunStatusSkipped, &reason)
 			run.Status = domain.RunStatusSkipped
+			run.Error = &reason
 			p.emitRunUpdate(run)
 			return run, nil
 		}
