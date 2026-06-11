@@ -14,6 +14,11 @@ import (
 	"github.com/cbarraford/office-fleet/internal/plugin"
 )
 
+var (
+	_ plugin.WebhookSource = (*GitLabPlugin)(nil)
+	_ plugin.PollSource    = (*GitLabPlugin)(nil)
+)
+
 const maxWebhookBody = 1 << 20 // 1 MiB
 
 // actionToEventType maps GitLab MR webhook actions to envelope event types.
@@ -160,13 +165,19 @@ func (g *GitLabPlugin) Poll(ctx context.Context, cursor string) ([]domain.Event,
 		return nil, cursor, fmt.Errorf("gitlab poll: all %d projects failed", failures)
 	}
 	newCursor := cursor
-	if allOK {
+	// Guard: never rewrite the cursor from a zero maxUpdated (possible only if
+	// an externally-corrupted cursor failed to parse AND the page was empty) —
+	// that would force a full-history re-scan.
+	if allOK && !maxUpdated.IsZero() {
 		newCursor = maxUpdated.UTC().Format(time.RFC3339)
 	}
 	return events, newCursor, nil
 }
 
 func (g *GitLabPlugin) fetchUpdatedMRs(ctx context.Context, project, since string) ([]pollMR, error) {
+	// No pagination: only the first page (GitLab default 20) is read per tick.
+	// sort=asc makes this self-healing — the cursor advances only to the last
+	// RETURNED item's updated_at, so later items are picked up next tick.
 	endpoint := fmt.Sprintf("%s/api/v4/projects/%s/merge_requests?state=opened&order_by=updated_at&sort=asc&updated_after=%s",
 		g.baseURL, url.PathEscape(project), url.QueryEscape(since))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
