@@ -33,6 +33,7 @@ import (
 	"github.com/cbarraford/office-fleet/internal/server"
 	"github.com/cbarraford/office-fleet/internal/state"
 	"github.com/cbarraford/office-fleet/internal/trigger"
+	"github.com/cbarraford/office-fleet/internal/web"
 
 	// Register all plugins via init().
 	_ "github.com/cbarraford/office-fleet/internal/plugins/discord"
@@ -915,7 +916,7 @@ func serveCmd() *cobra.Command {
 			})
 			pipeline.SetRunUpdateHook(apiSrv.RunUpdateSink())
 
-			httpSrv := &http.Server{Addr: addr, Handler: server.New(ingestor).Handler(apiSrv.Mount)}
+			httpSrv := &http.Server{Addr: addr, Handler: server.New(ingestor).Handler(apiSrv.Mount, web.Mount)}
 			go func() {
 				fmt.Printf("webhook listener on %s\n", addr)
 				if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
