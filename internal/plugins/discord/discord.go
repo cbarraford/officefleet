@@ -7,9 +7,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 
 	"github.com/cbarraford/office-fleet/internal/plugin"
 )
@@ -70,24 +72,32 @@ func (d *DiscordPlugin) sendMessage(ctx context.Context, params map[string]any) 
 	if d.secrets == nil {
 		return nil, fmt.Errorf("discord: plugin not initialized")
 	}
-	url, err := d.secrets(secretName)
+	webhookURL, err := d.secrets(secretName)
 	if err != nil {
 		return nil, fmt.Errorf("discord: resolve secret %q: %w", secretName, err)
 	}
-	if url == "" {
+	if webhookURL == "" {
 		return nil, fmt.Errorf("discord send_message: secret %q is not configured", secretName)
 	}
 
 	payload, _ := json.Marshal(map[string]string{"content": content})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhookURL, bytes.NewReader(payload))
 	if err != nil {
-		return nil, fmt.Errorf("discord: create request: %w", err)
+		// Never echo the URL: it is a secret (contains the webhook token).
+		return nil, fmt.Errorf("discord: invalid webhook URL in secret %q", secretName)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("discord: post message: %w", err)
+		// *url.Error embeds the full URL; unwrap to the cause so the secret
+		// webhook token never reaches run records.
+		cause := err
+		var uerr *url.Error
+		if errors.As(err, &uerr) {
+			cause = uerr.Err
+		}
+		return nil, fmt.Errorf("discord: post message via secret %q: %v", secretName, cause)
 	}
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))

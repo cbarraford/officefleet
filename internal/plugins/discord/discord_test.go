@@ -107,3 +107,34 @@ func TestShape(t *testing.T) {
 		t.Errorf("Actions = %v", p.Actions())
 	}
 }
+
+func TestSendMessage_TransportErrorDoesNotLeakURL(t *testing.T) {
+	// The webhook URL is a secret (it embeds the token); transport errors
+	// must never echo it into run records.
+	secretURL := "http://127.0.0.1:1/api/webhooks/123/SECRETTOKEN"
+	p := initPlugin(t, map[string]string{"discord_webhook_url": secretURL})
+	_, err := p.Do(context.Background(), "send_message", map[string]any{"content": "x"})
+	if err == nil {
+		t.Fatal("expected transport error")
+	}
+	if strings.Contains(err.Error(), "SECRETTOKEN") || strings.Contains(err.Error(), secretURL) {
+		t.Fatalf("error leaks the webhook URL: %v", err)
+	}
+	if !strings.Contains(err.Error(), "discord_webhook_url") {
+		t.Errorf("error should name the secret: %v", err)
+	}
+}
+
+func TestSendMessage_BadURLDoesNotLeak(t *testing.T) {
+	// "://not-a-url-SECRETPART" causes http.NewRequestWithContext to return a
+	// parse error; the fix must not echo the URL (and thus the SECRETPART) back.
+	bad := "://not-a-url-SECRETPART"
+	p := initPlugin(t, map[string]string{"discord_webhook_url": bad})
+	_, err := p.Do(context.Background(), "send_message", map[string]any{"content": "x"})
+	if err == nil {
+		t.Fatal("expected error for malformed URL")
+	}
+	if strings.Contains(err.Error(), "SECRETPART") {
+		t.Fatalf("error leaks the malformed URL: %v", err)
+	}
+}
