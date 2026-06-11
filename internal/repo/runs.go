@@ -60,6 +60,88 @@ func (r *RunRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Run, error
 	return scanRun(row)
 }
 
+// ListFiltered returns run summaries newest-first. status/agentID filter when
+// non-zero. Summaries exclude llm_result (transcripts can be large).
+func (r *RunRepo) ListFiltered(ctx context.Context, status string, agentID uuid.UUID, limit int) ([]*domain.Run, error) {
+	q := `SELECT id, assignment_id, agent_id, duty_id, trigger_kind, event_id,
+	        '' AS rendered_system_prompt, '' AS rendered_prompt, NULL AS llm_result,
+	        outputs_delivered, status, tokens, cost, started_at, finished_at, error
+	      FROM runs WHERE 1=1`
+	args := []any{}
+	n := 1
+	if status != "" {
+		q += fmt.Sprintf(" AND status=$%d", n)
+		args = append(args, status)
+		n++
+	}
+	if agentID != uuid.Nil {
+		q += fmt.Sprintf(" AND agent_id=$%d", n)
+		args = append(args, agentID)
+		n++
+	}
+	q += fmt.Sprintf(" ORDER BY started_at DESC LIMIT $%d", n)
+	args = append(args, limit)
+
+	rows, err := r.db.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*domain.Run
+	for rows.Next() {
+		run, err := scanRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, run)
+	}
+	return out, rows.Err()
+}
+
+// AgentStats computes the spec.md §6 derived metrics for one agent.
+func (r *RunRepo) AgentStats(ctx context.Context, agentID uuid.UUID) (*domain.AgentStats, error) {
+	st := &domain.AgentStats{AgentID: agentID}
+	var ok30, fail30, skip30, total30 int
+	err := r.db.QueryRow(ctx, `
+		SELECT COUNT(*),
+		       COUNT(*) FILTER (WHERE started_at > NOW() - INTERVAL '30 days'),
+		       COUNT(*) FILTER (WHERE status='succeeded' AND started_at > NOW() - INTERVAL '30 days'),
+		       COUNT(*) FILTER (WHERE status='failed'    AND started_at > NOW() - INTERVAL '30 days'),
+		       COUNT(*) FILTER (WHERE status='skipped'   AND started_at > NOW() - INTERVAL '30 days'),
+		       COALESCE(SUM(tokens),0), COALESCE(SUM(cost),0),
+		       COALESCE(SUM(tokens) FILTER (WHERE started_at > NOW() - INTERVAL '30 days'),0),
+		       COALESCE(SUM(cost)   FILTER (WHERE started_at > NOW() - INTERVAL '30 days'),0),
+		       COALESCE(AVG(EXTRACT(EPOCH FROM (finished_at - started_at))) FILTER (WHERE finished_at IS NOT NULL),0),
+		       MAX(started_at)
+		FROM runs WHERE agent_id=$1`, agentID).Scan(
+		&st.TotalRuns, &total30, &ok30, &fail30, &skip30,
+		&st.TotalTokens, &st.TotalCostUSD, &st.TokensLast30d, &st.CostLast30dUSD,
+		&st.AvgRunDurationS, &st.LastRunAt)
+	if err != nil {
+		return nil, fmt.Errorf("agent stats: %w", err)
+	}
+	st.RunsLast30d = total30
+	if ok30+fail30 > 0 {
+		st.SuccessRate = float64(ok30) / float64(ok30+fail30)
+	}
+	if total30 > 0 {
+		st.SkipRate = float64(skip30) / float64(total30)
+	}
+	// Guard: outputs_delivered may hold JSON null for old rows;
+	// jsonb_array_elements(null) errors, so skip non-array values.
+	err = r.db.QueryRow(ctx, `
+		SELECT COUNT(*),
+		       COUNT(*) FILTER (WHERE r.started_at > NOW() - INTERVAL '30 days')
+		FROM runs r, jsonb_array_elements(r.outputs_delivered) o
+		WHERE r.agent_id=$1 AND jsonb_typeof(r.outputs_delivered)='array'
+		  AND o->>'status'='delivered'`, agentID).Scan(
+		&st.OutputsDelivered, &st.OutputsLast30d)
+	if err != nil {
+		return nil, fmt.Errorf("agent output stats: %w", err)
+	}
+	return st, nil
+}
+
 func scanRun(s scanner) (*domain.Run, error) {
 	var run domain.Run
 	var llmResultJSON, outputsJSON []byte

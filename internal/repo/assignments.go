@@ -91,6 +91,39 @@ func (r *AssignmentRepo) List(ctx context.Context) ([]*domain.Assignment, error)
 	return out, rows.Err()
 }
 
+func (r *AssignmentRepo) Update(ctx context.Context, a *domain.Assignment) error {
+	triggerJSON, _ := json.Marshal(a.Trigger)
+	outputsJSON, _ := json.Marshal(a.Outputs)
+	configJSON, _ := json.Marshal(a.Config)
+	var backendJSON []byte
+	if a.Backend != nil {
+		backendJSON, _ = json.Marshal(a.Backend)
+	}
+	tag, err := r.db.Exec(ctx,
+		`UPDATE assignments SET enabled=$2, trigger=$3, outputs=$4, config=$5, backend=$6,
+		   task_prompt_override=$7, extra_instructions=$8, updated_at=NOW() WHERE id=$1`,
+		a.ID, a.Enabled, triggerJSON, outputsJSON, configJSON, backendJSON,
+		a.TaskPromptOverride, a.ExtraInstructions)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("assignment %s not found", a.ID)
+	}
+	return nil
+}
+
+func (r *AssignmentRepo) Delete(ctx context.Context, id uuid.UUID) error {
+	tag, err := r.db.Exec(ctx, "DELETE FROM assignments WHERE id=$1", id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("assignment %s not found", id)
+	}
+	return nil
+}
+
 func scanAssignment(s scanner) (*domain.Assignment, error) {
 	var a domain.Assignment
 	var triggerJSON, outputsJSON, configJSON, backendJSON []byte
