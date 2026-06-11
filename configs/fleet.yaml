@@ -63,86 +63,156 @@ agents:
     default_backend:
       name: claude-default
     system_prompt: |
-      You are dev-1, a senior software engineer and code reviewer with deep expertise in
-      Go, distributed systems, and security best practices.
-
-      When reviewing merge requests you will:
-      - Identify correctness bugs, race conditions, and error-handling gaps
-      - Flag security vulnerabilities and unsafe patterns
-      - Suggest simplifications that reduce cognitive load without sacrificing clarity
-      - Keep all review comments terse and actionable — one concern per comment
-      - Prioritise concurrency issues and proper resource cleanup above style nits
-
-      You communicate in plain English. Avoid filler phrases such as "Great work!" or
-      "Looks good to me." Get straight to the point.
+      You are dev-1, a senior software engineer. You review code and triage
+      findings with the discipline of a staff engineer:
+      - Real bugs, security holes, and correctness gaps over style nits.
+      - Every claim verified against the actual code before you report it —
+        if you cannot point at the line that proves the problem, drop it.
+      - Terse, actionable comments: one concern per comment, no filler,
+        no "Great work!" padding.
+      - When unsure, say so briefly rather than inventing certainty.
 
 duties:
-  - name: mr-reviewer
+  # ── 1. MR review: inline comments + a verdict summary ──────────────────
+  - name: mr-review
     role: developer
-    description: Review an open merge request and post structured feedback as a comment.
+    description: Review a merge request; post inline comments and a verdict summary.
+    trigger_kinds:
+      - manual
+      - event-subscription
+    required_tools:
+      - git
+      - glab
+    prompt: |
+      Review merge request !{{.Event.mr_iid}} ({{.Event.title}}) in
+      {{.Assignment.project}}.
+
+      Workspace setup:
+        git clone --depth 50 https://oauth2:{{secret "gitlab_token"}}@gitlab.com/{{.Assignment.project}}.git repo
+        cd repo
+        git fetch origin {{.Event.source_branch}} {{.Event.target_branch}}
+        git checkout {{.Event.source_branch}}
+      Review the change: `git diff origin/{{.Event.target_branch}}...HEAD`.
+      Read surrounding code wherever the diff alone is ambiguous.
+
+      Review discipline:
+      - Look for correctness bugs, unhandled errors, race conditions,
+        security problems (injection, credential leaks, unsafe deserialization),
+        and resource leaks. Style nits only when they hide a real risk.
+      - Verify every finding against the code. Re-read the exact lines before
+        reporting; drop anything speculative.
+      - At most 10 comments; severity one of high|medium|low; `line` is the
+        line number in the NEW file version.
+      - If the change is clean, return zero comments and say so in the verdict.
+
+      Report your result as a single JSON object:
+        {"summary": "<one-paragraph verdict posted as the review summary>",
+         "comments": [{"path": "<file>", "line": <int>, "severity": "high|medium|low",
+                       "body": "<severity-tagged, actionable comment>"}]}
+      If you have a submit_result tool, call it with this object as the
+      `output` parameter (and the verdict as `summary`). Otherwise end your
+      final message with exactly one fenced ```json code block containing it.
+    output_actions:
+      - plugin: gitlab
+        action: post_inline_comment
+      - plugin: gitlab
+        action: post_mr_comment
+
+  # ── 2. Code audit: scheduled category scan → GitLab issues ─────────────
+  - name: code-audit
+    role: developer
+    description: Audit the codebase for one category of defects; file an issue per verified finding.
     trigger_kinds:
       - manual
       - cron
-      - event-subscription
     required_tools:
+      - git
       - glab
+    config_schema:
+      type: object
+      properties:
+        project:
+          type: string
+          description: GitLab project path (namespace/repo)
+        category:
+          type: string
+          enum: [security, correctness, performance]
+      required: [project, category]
     prompt: |
-      Review merge request !{{.Event.mr_iid}} in project {{.Assignment.project}}.
+      Audit {{.Assignment.project}} for {{.Assignment.category}} defects.
 
-      You are acting as {{.Agent.name}}. Use the `glab` CLI to fetch the diff and any
-      existing comments, then produce a concise review covering:
+      Workspace setup:
+        git clone --depth 1 https://oauth2:{{secret "gitlab_token"}}@gitlab.com/{{.Assignment.project}}.git repo
+        cd repo
+      Load existing findings first so you never duplicate them:
+        GITLAB_TOKEN={{secret "gitlab_token"}} glab issue list --label code-audit --repo {{.Assignment.project}} --per-page 100
 
-      1. Correctness — are there logic errors, unhandled errors, or data races?
-      2. Security — injection risks, credential leakage, unsafe deserialization?
-      3. Clarity — confusing variable names, missing context, over-engineering?
+      Audit discipline (category: {{.Assignment.category}}):
+      - security: injection, authn/authz gaps, secret handling, unsafe
+        deserialization, SSRF, path traversal.
+      - correctness: logic errors, unhandled errors, race conditions,
+        off-by-one and boundary bugs, broken invariants.
+      - performance: O(n^2) hot paths, unbounded memory growth, missing
+        indexes/caps, chatty I/O in loops.
+      - Verify every candidate against the code: re-read the lines, trace the
+        callers, and drop anything you cannot prove. Report only findings a
+        staff engineer would file. Skip anything already covered by an open
+        code-audit issue.
 
-      Before reviewing, check the current MR head SHA. If it matches
-      {{.State.last_reviewed_sha}}, respond with exactly: SKIP
-      This prevents duplicate reviews when the MR has not changed.
-
-      Output your review as Markdown suitable for a GitLab MR comment.
-      End your response with a line: REVIEWED_SHA=<sha>
-      where <sha> is the current head SHA of the MR, so the pipeline can store it.
+      Report your result as a single JSON object:
+        {"summary": "<one-paragraph audit summary>",
+         "issues": [{"title": "<specific, file-scoped title>",
+                     "description": "<evidence: file:line refs, why it's real, suggested fix>",
+                     "labels": "code-audit,{{.Assignment.category}}"}]}
+      If you have a submit_result tool, call it with this object as the
+      `output` parameter (and the summary as `summary`). Otherwise end your
+      final message with exactly one fenced ```json code block containing it.
     output_actions:
       - plugin: gitlab
-        action: post_mr_comment
+        action: create_issue
+
+  # ── 3. MR feedback: reply to review comments ───────────────────────────
+  - name: mr-feedback
+    role: developer
+    description: Reply to a comment on a merge request (zero or one reply).
+    trigger_kinds:
+      - event-subscription
+    required_tools:
+      - git
+    prompt: |
+      A comment arrived on merge request !{{.Event.mr_iid}}
+      ({{.Event.mr_title}}) in {{.Assignment.project}}:
+
+        {{.Event.author}} wrote: {{.Event.note_body}}
+
+      Decide whether a reply from you is warranted:
+      - Questions about the code or the review: answer concretely. If the
+        answer needs code context, clone and inspect:
+          git clone --depth 50 https://oauth2:{{secret "gitlab_token"}}@gitlab.com/{{.Assignment.project}}.git repo
+          cd repo && git fetch origin {{.Event.mr_source_branch}} && git checkout {{.Event.mr_source_branch}}
+      - Requests for changes: describe precisely what should change and where
+        (you cannot push commits).
+      - Thanks, acknowledgements, bot chatter, or anything not addressed to
+        the reviewer: do NOT reply.
+      Never reply to your own comments.
+
+      Report your result as a single JSON object:
+        {"summary": "<one line: replied or skipped, and why>",
+         "replies": []}            <- empty when no reply is warranted
+        or
+        {"summary": "...", "replies": [{"body": "<the reply>"}]}
+      If you have a submit_result tool, call it with this object as the
+      `output` parameter. Otherwise end your final message with exactly one
+      fenced ```json code block containing it.
+    output_actions:
+      - plugin: gitlab
+        action: reply_to_discussion
 
 assignments:
+  # MR review on every newly-opened MR. (Add a second assignment with
+  # event_type: mr_updated to also re-review on new pushes.)
   - agent: dev-1
-    duty: mr-reviewer
-    enabled: true
-    trigger:
-      kind: manual
-    config:
-      project: "myorg/myrepo"
-    extra_instructions: "Focus on concurrency and error handling. Keep comments terse."
-    outputs:
-      - plugin: gitlab
-        action: post_mr_comment
-        params:
-          project: "{{.Assignment.project}}"
-          mr_iid: "{{.Event.mr_iid}}"
-          body: "{{.Event.llm_summary}}"
-
-  - agent: dev-1
-    duty: mr-reviewer
-    enabled: true
-    trigger:
-      kind: cron
-      schedule: "0 9 * * 1-5"
-    config:
-      project: "myorg/myrepo"
-    extra_instructions: "Review all open MRs needing attention. Focus on security and correctness."
-    outputs:
-      - plugin: gitlab
-        action: post_mr_comment
-        params:
-          project: "{{.Assignment.project}}"
-          mr_iid: "{{.Event.mr_iid}}"
-          body: "{{.Event.llm_summary}}"
-
-  - agent: dev-1
-    duty: mr-reviewer
+    duty: mr-review
     enabled: true
     trigger:
       kind: event-subscription
@@ -152,8 +222,16 @@ assignments:
         project: "myorg/myrepo"
     config:
       project: "myorg/myrepo"
-    extra_instructions: "A new MR just opened; review it promptly. Keep comments terse."
     outputs:
+      - plugin: gitlab
+        action: post_inline_comment
+        for_each: comments
+        params:
+          project: "{{.Assignment.project}}"
+          mr_iid: "{{.Event.mr_iid}}"
+          path: "{{.Item.path}}"
+          line: "{{.Item.line}}"
+          body: "**{{.Item.severity}}** — {{.Item.body}}"
       - plugin: gitlab
         action: post_mr_comment
         params:
@@ -161,9 +239,53 @@ assignments:
           mr_iid: "{{.Event.mr_iid}}"
           body: "{{.Event.llm_summary}}"
 
+  # Weekly security audit (Mondays 06:00). Duplicate this assignment with
+  # category: correctness / performance for broader coverage.
+  - agent: dev-1
+    duty: code-audit
+    enabled: true
+    trigger:
+      kind: cron
+      schedule: "0 6 * * 1"
+    config:
+      project: "myorg/myrepo"
+      category: "security"
+    outputs:
+      - plugin: gitlab
+        action: create_issue
+        for_each: issues
+        params:
+          project: "{{.Assignment.project}}"
+          title: "{{.Item.title}}"
+          description: "{{.Item.description}}"
+          labels: "{{.Item.labels}}"
+
+  # Reply to MR comments (the bot's own notes are dropped at ingestion via
+  # plugins.gitlab.bot_username — set it to the fleet's GitLab username).
+  - agent: dev-1
+    duty: mr-feedback
+    enabled: true
+    trigger:
+      kind: event-subscription
+      filter:
+        source: gitlab
+        event_type: mr_note
+        project: "myorg/myrepo"
+    config:
+      project: "myorg/myrepo"
+    outputs:
+      - plugin: gitlab
+        action: reply_to_discussion
+        for_each: replies
+        params:
+          project: "{{.Assignment.project}}"
+          mr_iid: "{{.Event.mr_iid}}"
+          discussion_id: "{{.Event.discussion_id}}"
+          body: "{{.Item.body}}"
+
 # Example (SP3b): review GitHub PRs on open, notify Slack when done.
 #  - agent: dev-1
-#    duty: mr-reviewer
+#    duty: mr-review
 #    enabled: true
 #    trigger:
 #      kind: event-subscription
@@ -190,6 +312,7 @@ plugins:
   - name: gitlab
     config:
       base_url: "https://gitlab.com"
+      bot_username: "fleet-bot"
 #      poll_interval: 60s
 #      poll_projects: ["myorg/myrepo"]
 
