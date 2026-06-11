@@ -1273,3 +1273,79 @@ func TestPipelineExecute_ExecutorErrorPreservesPartialResult(t *testing.T) {
 		t.Errorf("stored error = %v", stored.Error)
 	}
 }
+
+func TestPipelineExecute_EventIDStamped(t *testing.T) {
+	ctx := context.Background()
+	fakeExec := executor.NewFakeExecutor(domain.LLMResult{Status: 0, Summary: "ok"})
+	store := state.NewMemStore()
+	backendName := "eventid-backend"
+	cfg := &config.Config{Backends: []config.Backend{{
+		Name: backendName, Kind: "claude", Model: "claude-3-5-sonnet",
+		DefaultEffort: "normal", Auth: config.BackendAuth{Mode: "subscription"},
+	}}}
+	rr := newFakeRunRepo()
+	pipeline := &Pipeline{cfg: cfg, runRepo: rr, store: store}
+
+	agentID, dutyID := uuid.New(), uuid.New()
+	eventID := "11111111-2222-3333-4444-555555555555"
+	run, err := pipeline.Execute(ctx, ExecuteRequest{
+		Assignment: &domain.Assignment{
+			ID: uuid.New(), AgentID: agentID, DutyID: dutyID, Enabled: true,
+			Backend: &domain.BackendRef{Name: backendName}, Config: map[string]any{},
+		},
+		Agent:       &domain.Agent{ID: agentID, Name: "ev-agent", Role: "t", SystemPrompt: "s", Enabled: true},
+		Duty:        &domain.Duty{ID: dutyID, Name: "ev-duty", Role: "t", Description: "d", Prompt: "p"},
+		TriggerKind: "event-subscription",
+		EventID:     &eventID,
+		EventParams: map[string]any{},
+		Executor:    fakeExec,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.EventID == nil || *run.EventID != eventID {
+		t.Errorf("run.EventID = %v, want %q", run.EventID, eventID)
+	}
+	if stored := rr.runs[run.ID]; stored.EventID == nil || *stored.EventID != eventID {
+		t.Errorf("stored EventID = %v", stored.EventID)
+	}
+}
+
+func TestPipelineExecute_EventIDStampedOnPausedSkip(t *testing.T) {
+	pipeline, req, rr, _ := pausedTestFixture(false, true)
+	eventID := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	req.EventID = &eventID
+
+	run, err := pipeline.Execute(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.EventID == nil || *run.EventID != eventID {
+		t.Errorf("skip-run EventID = %v, want %q", run.EventID, eventID)
+	}
+	_ = rr
+}
+
+func TestDeriveDedupKey_ExplicitKeyWins(t *testing.T) {
+	// An explicit dedup_key (event envelope) must beat inferred keys: a
+	// re-pushed MR has a new dedup_key but the same mr_iid, and must NOT be
+	// collapsed onto the mr_iid-derived key.
+	cases := []struct {
+		name   string
+		params map[string]any
+		want   string
+	}{
+		{"explicit beats mr_iid", map[string]any{"mr_iid": 7, "dedup_key": "mr:org/repo:7:sha2"},
+			"dedup_key:mr:org/repo:7:sha2"},
+		{"mr_iid alone (SP1 manual run)", map[string]any{"mr_iid": "7"}, "mr_iid:7"},
+		{"commit_sha alone", map[string]any{"commit_sha": "abc"}, "sha:abc"},
+		{"nothing", map[string]any{"foo": "bar"}, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := deriveDedupKey(c.params); got != c.want {
+				t.Errorf("deriveDedupKey(%v) = %q, want %q", c.params, got, c.want)
+			}
+		})
+	}
+}

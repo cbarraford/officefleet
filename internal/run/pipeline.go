@@ -48,6 +48,7 @@ type ExecuteRequest struct {
 	Agent       *domain.Agent
 	Duty        *domain.Duty
 	TriggerKind string
+	EventID     *string        // id of the triggering event, if any (event-subscription)
 	EventParams map[string]any // operator params for manual; event payload for event-subscription
 	Executor    executor.Executor
 }
@@ -73,6 +74,7 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 			AgentID:      req.Agent.ID,
 			DutyID:       req.Duty.ID,
 			TriggerKind:  req.TriggerKind,
+			EventID:      req.EventID,
 			Status:       domain.RunStatusSkipped,
 			StartedAt:    time.Now(),
 			Error:        &reason,
@@ -162,6 +164,7 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 		AgentID:              req.Agent.ID,
 		DutyID:               req.Duty.ID,
 		TriggerKind:          req.TriggerKind,
+		EventID:              req.EventID,
 		RenderedSystemPrompt: systemPrompt,
 		RenderedPrompt:       taskPrompt,
 		Status:               domain.RunStatusRunning,
@@ -283,16 +286,19 @@ func findAssignmentConfig(cfg *config.Config, a *domain.Assignment, agentName, d
 	return ac
 }
 
-// deriveDedupKey extracts a deduplication key from event params.
+// deriveDedupKey extracts a deduplication key from event params. An explicit
+// dedup_key (set by the event envelope) takes precedence over inferred keys:
+// a re-pushed MR carries a NEW dedup_key but the SAME mr_iid, and must not be
+// collapsed onto the mr_iid-derived key.
 func deriveDedupKey(params map[string]any) string {
+	if v, ok := params["dedup_key"]; ok {
+		return fmt.Sprintf("dedup_key:%v", v)
+	}
 	if v, ok := params["mr_iid"]; ok {
 		return fmt.Sprintf("mr_iid:%v", v)
 	}
 	if v, ok := params["commit_sha"]; ok {
 		return fmt.Sprintf("sha:%v", v)
-	}
-	if v, ok := params["dedup_key"]; ok {
-		return fmt.Sprintf("dedup_key:%v", v)
 	}
 	return ""
 }
