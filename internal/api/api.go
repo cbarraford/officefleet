@@ -174,6 +174,9 @@ func (a *API) authedMux() *http.ServeMux {
 	m.HandleFunc("GET /api/v1/secrets", a.handleListSecrets)
 	m.HandleFunc("PUT /api/v1/secrets/{name}", a.handlePutSecret)
 	m.HandleFunc("DELETE /api/v1/secrets/{name}", a.handleDeleteSecret)
+	m.HandleFunc("GET /api/v1/users", a.handleListUsers)
+	m.HandleFunc("POST /api/v1/users", a.handleCreateUser)
+	m.HandleFunc("DELETE /api/v1/users/{username}", a.handleDeleteUser)
 	m.HandleFunc("GET /api/v1/stream", a.handleStream)
 	return m
 }
