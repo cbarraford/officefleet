@@ -94,6 +94,13 @@ type OutputBinding struct {
 in fan-out bindings reference `{{.Item.path}}`, `{{.Item.line}}`, etc. (rendered with the same
 engine and `{{secret ...}}` helpers as today).
 
+**Enabling work (added at planning):** endpoint backends already populate `LLMResult.Output`
+via `submit_result`, but the claude CLI executor stores only raw text (`Output["raw"]`). SP5
+extends `parseClaudeOutput` to extract a structured object from the final text — the whole text
+when it is a JSON object, else the last fenced ```json block — into `LLMResult.Output` (lifting
+`output.summary` into `Summary` when present). Duty prompts carry a shared result-contract
+paragraph that works on both paths.
+
 Config validation (`internal/config`): `for_each`, when set, must be a non-empty string; sample
 validation parity with the API's duty/assignment validation (the field flows through YAML seed,
 API CRUD, and the SPA's assignment JSON unchanged — it is part of `OutputBinding`, which all
