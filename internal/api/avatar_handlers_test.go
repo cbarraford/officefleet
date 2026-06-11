@@ -171,3 +171,21 @@ func TestCreateAgentNilAvatarServiceIsSafe(t *testing.T) {
 		t.Fatalf("status = %d, want 201", resp.StatusCode)
 	}
 }
+
+func TestAvatarHandlersNilServiceReturn500(t *testing.T) {
+	sessions := auth.NewSessions(newMemSessionStore(domain.RoleAdmin))
+	agents := newFakeAgentStore()
+	a := New(Deps{Sessions: sessions, Agents: agents}) // no Avatars wired
+	token, err := sessions.Start(context.Background(), uuid.New())
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent := seedAgentForAvatar(t, agents)
+
+	if resp := avatarReq(t, a, http.MethodPost, "/api/v1/agents/"+agent.ID.String()+"/avatar/regenerate", token, "", nil); resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("regenerate with nil service = %d, want 500", resp.StatusCode)
+	}
+	if resp := avatarReq(t, a, http.MethodPut, "/api/v1/agents/"+agent.ID.String()+"/avatar", token, "image/png", testPNG); resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("upload with nil service = %d, want 500", resp.StatusCode)
+	}
+}
