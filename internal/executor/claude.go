@@ -34,10 +34,12 @@ func (c *ClaudeExecutor) Run(ctx context.Context, req LLMRequest) (domain.LLMRes
 		return domain.LLMResult{}, err
 	}
 
+	// The system prompt travels inside stdin via buildClaudePrompt's
+	// <system> envelope — NOT as a CLI flag. (Dogfood finding: the previous
+	// `--system` flag does not exist on the claude CLI — the real flag is
+	// `--system-prompt` — so every run carrying a persona died on an unknown
+	// option; the stdin envelope works across CLI versions.)
 	args := []string{"--print", "--output-format", "json"}
-	if req.SystemPrompt != "" {
-		args = append(args, "--system", req.SystemPrompt)
-	}
 	if req.Model != "" {
 		args = append(args, "--model", req.Model)
 	}
