@@ -130,7 +130,7 @@ both.
   the existing BYTEA column. **Rows lacking the magic are legacy plaintext** — detectable
   without schema changes (the magic is improbable as a secret prefix; `encrypt-existing`
   makes the window moot).
-- `internal/secrets`: `NewCipher(keyB64) (*Cipher, error)`, `Encrypt(plain []byte) []byte`,
+- `internal/secrets`: `NewCipher(keyB64) (*Cipher, error)`, `Encrypt(plain []byte) ([]byte, error)`,
   `Decrypt(stored []byte) ([]byte, error)`, `IsEncrypted(stored []byte) bool`.
 
 ### 5.2 Read path (compatibility)
