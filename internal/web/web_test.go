@@ -45,9 +45,9 @@ func body(t *testing.T, rec *httptest.ResponseRecorder) string {
 	return string(b)
 }
 
-func TestNotBuiltServesFallbackPage(t *testing.T) {
-	// The real embedded FS holds only .gitkeep in a fresh clone — Mount must
-	// serve the inline "UI not built" page, never error.
+func TestEmbeddedMountServes(t *testing.T) {
+	// Works in BOTH repo states: fresh clone (dist has only .gitkeep — the
+	// inline not-built page) and after `make web` (the real index.html).
 	mux := http.NewServeMux()
 	Mount(mux)
 	rec := httptest.NewRecorder()
@@ -55,8 +55,9 @@ func TestNotBuiltServesFallbackPage(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
-	if got := body(t, rec); !strings.Contains(got, "UI not built") {
-		t.Errorf("body = %q, want the not-built page", got)
+	got := body(t, rec)
+	if !strings.Contains(got, "UI not built") && !strings.Contains(got, "<div id=\"root\">") {
+		t.Errorf("body = %q, want either the not-built page or the built index", got)
 	}
 }
 
