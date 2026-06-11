@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -43,7 +44,10 @@ func (m *mockPlugin) Do(_ context.Context, _ string, _ map[string]any) (map[stri
 }
 
 // fakeRunRepo is an in-memory implementation of runRepo for tests.
+// mu guards runs so that the dispatcher's worker goroutines (integration test)
+// and the test goroutine can access the map concurrently without a race.
 type fakeRunRepo struct {
+	mu   sync.Mutex
 	runs map[uuid.UUID]*domain.Run
 }
 
@@ -52,11 +56,18 @@ func newFakeRunRepo() *fakeRunRepo {
 }
 
 func (f *fakeRunRepo) Insert(_ context.Context, run *domain.Run) error {
-	f.runs[run.ID] = run
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	// Store a copy so that pipeline.Execute's continued in-place modifications
+	// of the same run pointer do not race with snapshot() reads.
+	cp := *run
+	f.runs[run.ID] = &cp
 	return nil
 }
 
 func (f *fakeRunRepo) UpdateStatus(_ context.Context, id uuid.UUID, status domain.RunStatus, errMsg *string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if r, ok := f.runs[id]; ok {
 		r.Status = status
 		r.Error = errMsg
@@ -65,6 +76,8 @@ func (f *fakeRunRepo) UpdateStatus(_ context.Context, id uuid.UUID, status domai
 }
 
 func (f *fakeRunRepo) UpdateResult(_ context.Context, id uuid.UUID, result *domain.LLMResult, outputs []domain.OutputDelivery, status domain.RunStatus) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if r, ok := f.runs[id]; ok {
 		r.LLMResult = result
 		r.OutputsDelivered = outputs
@@ -73,6 +86,21 @@ func (f *fakeRunRepo) UpdateResult(_ context.Context, id uuid.UUID, result *doma
 		r.FinishedAt = &finished
 	}
 	return nil
+}
+
+// snapshot returns a map of Run copies for concurrent polling.
+// Each value is a value copy of the stored Run, so the caller does not race
+// with in-place field updates made by UpdateStatus / UpdateResult.
+// Use this instead of direct map access when the dispatcher may be writing
+// concurrently (integration tests).
+func (f *fakeRunRepo) snapshot() map[uuid.UUID]domain.Run {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	cp := make(map[uuid.UUID]domain.Run, len(f.runs))
+	for k, v := range f.runs {
+		cp[k] = *v
+	}
+	return cp
 }
 
 func TestPipelineExecute(t *testing.T) {
