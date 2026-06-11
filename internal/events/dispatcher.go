@@ -125,6 +125,9 @@ func (d *Dispatcher) dispatch(ctx context.Context, id uuid.UUID) {
 	sem := make(chan struct{}, d.workers)
 	var wg sync.WaitGroup
 	eventIDStr := ev.ID.String()
+	// params is shared READ-ONLY by all matched-run goroutines; everything
+	// downstream (pipeline, template render, output delivery) must not write
+	// to it — outputs.renderParams builds its own enriched copy.
 	params := buildEventParams(ev)
 	matched := 0
 	for _, a := range all {
