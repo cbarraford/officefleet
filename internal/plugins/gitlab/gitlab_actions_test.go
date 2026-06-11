@@ -19,7 +19,7 @@ func TestPostInlineComment(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v4/projects/{proj}/merge_requests/42/versions", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode([]map[string]any{{
-			"head_committed_sha": "h", "base_commit_sha": "b", "start_commit_sha": "s",
+			"head_commit_sha": "h", "base_commit_sha": "b", "start_commit_sha": "s",
 		}})
 	})
 	mux.HandleFunc("POST /api/v4/projects/{proj}/merge_requests/42/discussions", func(w http.ResponseWriter, r *http.Request) {
@@ -59,7 +59,7 @@ func TestPostInlineCommentFallsBackToNote(t *testing.T) {
 	var noteBody map[string]any
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v4/projects/{proj}/merge_requests/42/versions", func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode([]map[string]any{{"head_committed_sha": "h", "base_commit_sha": "b", "start_commit_sha": "s"}})
+		_ = json.NewEncoder(w).Encode([]map[string]any{{"head_commit_sha": "h", "base_commit_sha": "b", "start_commit_sha": "s"}})
 	})
 	mux.HandleFunc("POST /api/v4/projects/{proj}/merge_requests/42/discussions", func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, `{"message": "line_code not found"}`, http.StatusBadRequest) // stale position
@@ -91,7 +91,7 @@ func TestPostInlineCommentFallsBackToNote(t *testing.T) {
 func TestPostInlineCommentBothFail(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v4/projects/{proj}/merge_requests/42/versions", func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode([]map[string]any{{"head_committed_sha": "h", "base_commit_sha": "b", "start_commit_sha": "s"}})
+		_ = json.NewEncoder(w).Encode([]map[string]any{{"head_commit_sha": "h", "base_commit_sha": "b", "start_commit_sha": "s"}})
 	})
 	mux.HandleFunc("POST /", func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "boom", http.StatusInternalServerError)

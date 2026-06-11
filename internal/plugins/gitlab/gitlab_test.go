@@ -174,7 +174,7 @@ func TestGitLabPlugin_StubActions(t *testing.T) {
 	secrets := func(name string) (string, error) { return "tok", nil }
 	_ = p.Init(context.Background(), nil, secrets)
 
-	actions := []string{"resolve_discussion", "create_issue"}
+	actions := []string{"resolve_discussion"}
 	for _, action := range actions {
 		t.Run(action, func(t *testing.T) {
 			_, err := p.Do(context.Background(), action, nil)

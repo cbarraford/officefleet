@@ -212,7 +212,7 @@ func (g *GitLabPlugin) postInlineComment(ctx context.Context, params map[string]
 		return nil, fmt.Errorf("gitlab: versions returned %d: %s", resp.StatusCode, truncateForErr(vBody))
 	}
 	var versions []struct {
-		HeadSHA  string `json:"head_committed_sha"`
+		HeadSHA  string `json:"head_commit_sha"`
 		BaseSHA  string `json:"base_commit_sha"`
 		StartSHA string `json:"start_commit_sha"`
 	}
