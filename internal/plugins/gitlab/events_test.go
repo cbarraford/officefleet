@@ -2,6 +2,7 @@ package gitlab
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -281,4 +282,75 @@ func asAuthError(err error, target **plugin.AuthError) bool {
 		*target = ae
 	}
 	return ok
+}
+
+const noteWebhookFixture = `{
+  "object_kind": "note",
+  "user": {"username": "alice"},
+  "project": {"path_with_namespace": "org/repo"},
+  "merge_request": {"iid": 42, "title": "Add rate limiter", "author_id": 7, "source_branch": "feat/limiter"},
+  "object_attributes": {
+    "id": 9001,
+    "discussion_id": "abc123",
+    "note": "Should this handle burst traffic?",
+    "noteable_type": "MergeRequest",
+    "url": "https://gitlab.com/org/repo/-/merge_requests/42#note_9001"
+  }
+}`
+
+func TestHandleWebhookMRNote(t *testing.T) {
+	g := &GitLabPlugin{webhookSecret: "s3cret"}
+	req := webhookReq(noteWebhookFixture, "s3cret")
+	events, err := g.HandleWebhook(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("events = %d, want 1", len(events))
+	}
+	ev := events[0]
+	if ev.EventType != "mr_note" {
+		t.Errorf("event_type = %s", ev.EventType)
+	}
+	if ev.DedupKey != "note:org/repo:9001" {
+		t.Errorf("dedup key = %s", ev.DedupKey)
+	}
+	if ev.Identity != "alice" {
+		t.Errorf("identity = %s", ev.Identity)
+	}
+	for k, want := range map[string]any{
+		"project": "org/repo", "mr_iid": 42, "note_id": 9001,
+		"discussion_id": "abc123", "note_body": "Should this handle burst traffic?",
+		"author": "alice", "mr_title": "Add rate limiter", "mr_source_branch": "feat/limiter",
+	} {
+		if fmt.Sprint(ev.PayloadNorm[k]) != fmt.Sprint(want) {
+			t.Errorf("payload_norm[%s] = %v, want %v", k, ev.PayloadNorm[k], want)
+		}
+	}
+}
+
+func TestHandleWebhookNoteFromBotDropped(t *testing.T) {
+	g := &GitLabPlugin{webhookSecret: "s3cret", botUsername: "fleet-bot"}
+	fixture := strings.Replace(noteWebhookFixture, `"username": "alice"`, `"username": "fleet-bot"`, 1)
+	req := webhookReq(fixture, "s3cret")
+	events, err := g.HandleWebhook(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("bot's own note must be dropped, got %d events", len(events))
+	}
+}
+
+func TestHandleWebhookNonMRNoteIgnored(t *testing.T) {
+	g := &GitLabPlugin{webhookSecret: "s3cret"}
+	fixture := strings.Replace(noteWebhookFixture, `"noteable_type": "MergeRequest"`, `"noteable_type": "Issue"`, 1)
+	req := webhookReq(fixture, "s3cret")
+	events, err := g.HandleWebhook(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("issue notes are out of scope, got %d events", len(events))
+	}
 }

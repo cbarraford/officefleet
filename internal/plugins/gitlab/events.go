@@ -58,6 +58,27 @@ type webhookMRPayload struct {
 	} `json:"object_attributes"`
 }
 
+type webhookNotePayload struct {
+	User struct {
+		Username string `json:"username"`
+	} `json:"user"`
+	Project struct {
+		PathWithNamespace string `json:"path_with_namespace"`
+	} `json:"project"`
+	MergeRequest struct {
+		IID          int    `json:"iid"`
+		Title        string `json:"title"`
+		SourceBranch string `json:"source_branch"`
+	} `json:"merge_request"`
+	ObjectAttributes struct {
+		ID           int    `json:"id"`
+		DiscussionID string `json:"discussion_id"`
+		Note         string `json:"note"`
+		NoteableType string `json:"noteable_type"`
+		URL          string `json:"url"`
+	} `json:"object_attributes"`
+}
+
 // HandleWebhook implements plugin.WebhookSource for GitLab webhooks.
 func (g *GitLabPlugin) HandleWebhook(_ context.Context, r *http.Request) ([]domain.Event, error) {
 	if g.webhookSecret == "" {
@@ -72,22 +93,67 @@ func (g *GitLabPlugin) HandleWebhook(_ context.Context, r *http.Request) ([]doma
 	if err != nil {
 		return nil, fmt.Errorf("gitlab: read webhook body: %w", err)
 	}
-	var payload webhookMRPayload
-	if err := json.Unmarshal(body, &payload); err != nil {
+
+	var kindProbe struct {
+		ObjectKind string `json:"object_kind"`
+	}
+	if err := json.Unmarshal(body, &kindProbe); err != nil {
 		return nil, fmt.Errorf("gitlab: parse webhook: %w", err)
 	}
-	if payload.ObjectKind != "merge_request" {
-		return nil, nil // not an MR event; acknowledged and ignored
+	switch kindProbe.ObjectKind {
+	case "merge_request":
+		var payload webhookMRPayload
+		if err := json.Unmarshal(body, &payload); err != nil {
+			return nil, fmt.Errorf("gitlab: parse webhook: %w", err)
+		}
+		eventType, ok := actionToEventType(payload.ObjectAttributes.Action)
+		if !ok {
+			return nil, nil // unhandled action; acknowledged and ignored
+		}
+		a := payload.ObjectAttributes
+		ev := normalizeMR(eventType, payload.Project.PathWithNamespace, a.IID, a.Title, a.Action,
+			a.SourceBranch, a.TargetBranch, a.LastCommit.ID, payload.User.Username, a.URL, body)
+		return []domain.Event{ev}, nil
+	case "note":
+		return g.handleNoteWebhook(body)
+	default:
+		return nil, nil // not an event kind we ingest; acknowledged and ignored
 	}
-	eventType, ok := actionToEventType(payload.ObjectAttributes.Action)
-	if !ok {
-		return nil, nil // unhandled action; acknowledged and ignored
-	}
+}
 
+// handleNoteWebhook ingests MR comments as mr_note events. Notes by the
+// configured bot_username are dropped here so the mr-feedback duty can never
+// be triggered by its own replies (reply-loop protection).
+func (g *GitLabPlugin) handleNoteWebhook(body []byte) ([]domain.Event, error) {
+	var payload webhookNotePayload
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, fmt.Errorf("gitlab: parse note webhook: %w", err)
+	}
+	if payload.ObjectAttributes.NoteableType != "MergeRequest" {
+		return nil, nil // issue/commit/snippet notes are out of scope
+	}
+	if g.botUsername != "" && payload.User.Username == g.botUsername {
+		return nil, nil // our own note: drop to prevent reply loops
+	}
 	a := payload.ObjectAttributes
-	ev := normalizeMR(eventType, payload.Project.PathWithNamespace, a.IID, a.Title, a.Action,
-		a.SourceBranch, a.TargetBranch, a.LastCommit.ID, payload.User.Username, a.URL, body)
-	return []domain.Event{ev}, nil
+	return []domain.Event{{
+		SourcePlugin: "gitlab",
+		EventType:    "mr_note",
+		PayloadRaw:   json.RawMessage(body),
+		PayloadNorm: map[string]any{
+			"project":          payload.Project.PathWithNamespace,
+			"mr_iid":           payload.MergeRequest.IID,
+			"mr_title":         payload.MergeRequest.Title,
+			"mr_source_branch": payload.MergeRequest.SourceBranch,
+			"note_id":          a.ID,
+			"discussion_id":    a.DiscussionID,
+			"note_body":        a.Note,
+			"author":           payload.User.Username,
+			"url":              a.URL,
+		},
+		Identity: payload.User.Username,
+		DedupKey: fmt.Sprintf("note:%s:%d", payload.Project.PathWithNamespace, a.ID),
+	}}, nil
 }
 
 // normalizeMR builds the shared envelope both ingestion surfaces emit.
