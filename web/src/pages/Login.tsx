@@ -3,9 +3,11 @@ import { useSearchParams } from 'react-router-dom'
 import { ApiError, api } from '../api/client'
 import Card from '../components/Card'
 
-// Only same-site relative paths are honored as return-to targets.
+// Only same-site relative paths are honored as return-to targets. Reject
+// protocol-relative (`//`) and backslash forms (browsers normalize `\` to
+// `/`, so `/\evil.com` would become `//evil.com`).
 function safeNext(raw: string | null): string {
-  if (raw && raw.startsWith('/') && !raw.startsWith('//')) return raw
+  if (raw && raw.startsWith('/') && !raw.startsWith('//') && !raw.includes('\\')) return raw
   return '/'
 }
 
