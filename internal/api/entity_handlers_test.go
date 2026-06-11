@@ -186,6 +186,12 @@ func (f *fakeAssignmentStore) GetByID(_ context.Context, id uuid.UUID) (*domain.
 func (f *fakeAssignmentStore) Insert(_ context.Context, a *domain.Assignment) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	// Simulate unique (agent_id, duty_id) violation
+	for _, existing := range f.rows {
+		if existing.AgentID == a.AgentID && existing.DutyID == a.DutyID {
+			return fmt.Errorf("duplicate: 23505 unique constraint violation")
+		}
+	}
 	if a.ID == uuid.Nil {
 		a.ID = uuid.New()
 	}
@@ -649,6 +655,88 @@ func TestAssignment_EventSubscription_Valid_201(t *testing.T) {
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("valid event-subscription assignment: status = %d, want 201", resp.StatusCode)
+	}
+}
+
+// TestAssignment_Duplicate_409 verifies that creating the same (agent_id,
+// duty_id) pair twice returns 409 Conflict.
+func TestAssignment_Duplicate_409(t *testing.T) {
+	f := newEntityFixture(t)
+
+	dutyResp := f.do(t, "POST", "/api/v1/duties", map[string]any{
+		"name":          "DupDuty",
+		"trigger_kinds": []string{"manual"},
+	})
+	var duty map[string]any
+	decodeBody(t, dutyResp, &duty)
+	dutyID := duty["id"].(string)
+
+	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentDup"})
+	var agent map[string]any
+	decodeBody(t, agentResp, &agent)
+	agentID := agent["id"].(string)
+
+	body := map[string]any{
+		"agent_id": agentID,
+		"duty_id":  dutyID,
+	}
+	first := f.do(t, "POST", "/api/v1/assignments", body)
+	if first.StatusCode != http.StatusCreated {
+		t.Fatalf("first create: status = %d, want 201", first.StatusCode)
+	}
+
+	second := f.do(t, "POST", "/api/v1/assignments", body)
+	if second.StatusCode != http.StatusConflict {
+		t.Fatalf("duplicate create: status = %d, want 409", second.StatusCode)
+	}
+}
+
+// TestAssignment_UnknownDutyID_400 verifies that a random duty_id returns 400.
+func TestAssignment_UnknownDutyID_400(t *testing.T) {
+	f := newEntityFixture(t)
+
+	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentUnkDuty"})
+	var agent map[string]any
+	decodeBody(t, agentResp, &agent)
+	agentID := agent["id"].(string)
+
+	resp := f.do(t, "POST", "/api/v1/assignments", map[string]any{
+		"agent_id": agentID,
+		"duty_id":  uuid.New().String(),
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("unknown duty_id: status = %d, want 400", resp.StatusCode)
+	}
+	var body map[string]any
+	decodeBody(t, resp, &body)
+	if !strings.Contains(body["error"].(string), "duty_id") {
+		t.Errorf("error should mention 'duty_id': %v", body["error"])
+	}
+}
+
+// TestAssignment_UnknownAgentID_400 verifies that a random agent_id returns 400.
+func TestAssignment_UnknownAgentID_400(t *testing.T) {
+	f := newEntityFixture(t)
+
+	dutyResp := f.do(t, "POST", "/api/v1/duties", map[string]any{
+		"name":          "UnkAgentDuty",
+		"trigger_kinds": []string{"manual"},
+	})
+	var duty map[string]any
+	decodeBody(t, dutyResp, &duty)
+	dutyID := duty["id"].(string)
+
+	resp := f.do(t, "POST", "/api/v1/assignments", map[string]any{
+		"agent_id": uuid.New().String(),
+		"duty_id":  dutyID,
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("unknown agent_id: status = %d, want 400", resp.StatusCode)
+	}
+	var body map[string]any
+	decodeBody(t, resp, &body)
+	if !strings.Contains(body["error"].(string), "agent_id") {
+		t.Errorf("error should mention 'agent_id': %v", body["error"])
 	}
 }
 

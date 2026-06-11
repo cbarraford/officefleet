@@ -441,7 +441,19 @@ func (a *API) handleCreateAssignment(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if _, err := a.duties.GetByID(r.Context(), asg.DutyID); err != nil {
+		writeError(w, http.StatusBadRequest, "unknown duty_id")
+		return
+	}
+	if _, err := a.agents.GetByID(r.Context(), asg.AgentID); err != nil {
+		writeError(w, http.StatusBadRequest, "unknown agent_id")
+		return
+	}
 	if err := a.assignments.Insert(r.Context(), asg); err != nil {
+		if isUniqueViolation(err) {
+			writeError(w, http.StatusConflict, "an assignment for that agent and duty already exists")
+			return
+		}
 		a.logf("api: create assignment: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
