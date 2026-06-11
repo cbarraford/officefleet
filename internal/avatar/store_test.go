@@ -104,6 +104,9 @@ func TestMountHTTPServing(t *testing.T) {
 	if csp := resp.Header.Get("Content-Security-Policy"); !strings.Contains(csp, "sandbox") {
 		t.Errorf("svg response CSP = %q, want a sandbox policy", csp)
 	}
+	if xcto := resp.Header.Get("X-Content-Type-Options"); xcto != "nosniff" {
+		t.Errorf("X-Content-Type-Options = %q, want nosniff", xcto)
+	}
 
 	// Missing file → 404.
 	resp, _ = http.Get(srv.URL + "/avatars/nope.png")

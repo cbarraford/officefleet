@@ -31,7 +31,9 @@ func NewStore(dir string) (*Store, error) {
 }
 
 // Save writes <agentID>.<ext> atomically and returns the public URL path
-// (/avatars/<file>, no cache-bust — the Service appends ?v=).
+// (/avatars/<file>, no cache-bust — the Service appends ?v=). Callers must
+// validate content before calling (the API layer magic-sniffs uploads);
+// Save only constrains the extension.
 func (s *Store) Save(id uuid.UUID, ext string, data []byte) (string, error) {
 	if ext != "png" && ext != "svg" {
 		return "", fmt.Errorf("unsupported avatar extension %q", ext)
@@ -74,6 +76,7 @@ func MountHTTP(mux *http.ServeMux, dir string) {
 			http.NotFound(w, r)
 			return
 		}
+		w.Header().Set("X-Content-Type-Options", "nosniff")
 		if strings.HasSuffix(name, ".svg") {
 			// SVGs can carry scripts; sandbox them when fetched directly so
 			// /avatars/* can never run code in the app's origin. <img> usage
