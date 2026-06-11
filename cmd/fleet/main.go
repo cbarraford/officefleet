@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,11 +19,13 @@ import (
 	"github.com/cbarraford/office-fleet/internal/config"
 	"github.com/cbarraford/office-fleet/internal/db"
 	"github.com/cbarraford/office-fleet/internal/domain"
+	"github.com/cbarraford/office-fleet/internal/events"
 	"github.com/cbarraford/office-fleet/internal/executor"
 	"github.com/cbarraford/office-fleet/internal/plugin"
 	"github.com/cbarraford/office-fleet/internal/repo"
 	"github.com/cbarraford/office-fleet/internal/run"
 	"github.com/cbarraford/office-fleet/internal/seed"
+	"github.com/cbarraford/office-fleet/internal/server"
 	"github.com/cbarraford/office-fleet/internal/state"
 	"github.com/cbarraford/office-fleet/internal/trigger"
 
@@ -50,6 +55,8 @@ func main() {
 	root.AddCommand(assignmentsCmd())
 	root.AddCommand(runCmd())
 	root.AddCommand(scheduleCmd())
+	root.AddCommand(serveCmd())
+	root.AddCommand(eventsCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -662,19 +669,193 @@ func runCmd() *cobra.Command {
 	return cmd
 }
 
-// scheduleCmd returns the "schedule" daemon subcommand.
+// scheduleCmd returns the "schedule" daemon subcommand (cron only).
+// Deprecated in favor of fleet serve, which also hosts webhooks, polling,
+// and the event dispatcher.
 func scheduleCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "schedule",
-		Short: "Run the cron scheduler daemon",
+		Short: "Run the cron scheduler daemon (deprecated: use fleet serve)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
+			cfg, err := loadValidatedConfig()
+			if err != nil {
+				return fmt.Errorf("load config: %w", err)
+			}
+			dsn := resolveDSN(cfg)
+			if dsn == "" {
+				return fmt.Errorf("no database DSN configured")
+			}
+			pool, err := db.New(ctx, dsn)
+			if err != nil {
+				return fmt.Errorf("open db: %w", err)
+			}
+			defer pool.Close()
+			initPlugins(ctx, cfg, pool)
+			inv := buildInvoker(cfg, pool)
+			return runSchedulerLoop(ctx, pool, inv)
+		},
+	}
+}
+
+// buildInvoker wires the shared assignment-execution path.
+func buildInvoker(cfg *config.Config, pool *pgxpool.Pool) *run.Invoker {
+	pipeline := run.NewPipeline(cfg, repo.NewRunRepo(pool), state.NewPostgresStore(pool), &dbSecretsProvider{pool: pool})
+	return run.NewInvoker(cfg, pipeline,
+		repo.NewAssignmentRepo(pool), repo.NewAgentRepo(pool), repo.NewDutyRepo(pool))
+}
+
+// runSchedulerLoop blocks running cron-triggered assignments until ctx is done.
+func runSchedulerLoop(ctx context.Context, pool *pgxpool.Pool, inv *run.Invoker) error {
+	assignments, err := repo.NewAssignmentRepo(pool).List(ctx)
+	if err != nil {
+		return fmt.Errorf("list assignments: %w", err)
+	}
+	sched := trigger.NewScheduler()
+	for _, a := range assignments {
+		if !a.Enabled || a.Trigger.Kind != "cron" {
+			continue
+		}
+		t := trigger.NewCron(a.Trigger.Schedule)
+		if err := sched.Add(a.ID.String(), t, time.Now()); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: skipping assignment %s: bad cron schedule: %v\n", a.ID, err)
+			continue
+		}
+		fmt.Printf("scheduled assignment %s (schedule: %s)\n", a.ID, a.Trigger.Schedule)
+	}
+	fmt.Println("scheduler running...")
+	sched.Run(ctx, func(runCtx context.Context, assignmentID string) {
+		id, err := uuid.Parse(assignmentID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "scheduler: invalid assignment id %s: %v\n", assignmentID, err)
+			return
+		}
+		result, err := inv.Invoke(runCtx, id, "cron", nil, map[string]any{})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "scheduler: execute assignment %s: %v\n", assignmentID, err)
+			return
+		}
+		if result.Error != nil {
+			fmt.Printf("scheduler: assignment %s completed with status %s (error: %s)\n", assignmentID, result.Status, *result.Error)
+		} else {
+			fmt.Printf("scheduler: assignment %s completed with status %s\n", assignmentID, result.Status)
+		}
+	})
+	return nil
+}
+
+// serveCmd returns the "serve" daemon: webhooks, polling, dispatcher, cron.
+func serveCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "serve",
+		Short: "Run the OfficeFleet daemon (webhooks, polling, event dispatch, cron)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
 
 			cfg, err := loadValidatedConfig()
 			if err != nil {
 				return fmt.Errorf("load config: %w", err)
 			}
+			dsn := resolveDSN(cfg)
+			if dsn == "" {
+				return fmt.Errorf("no database DSN configured")
+			}
+			pool, err := db.New(ctx, dsn)
+			if err != nil {
+				return fmt.Errorf("open db: %w", err)
+			}
+			defer pool.Close()
+			initPlugins(ctx, cfg, pool)
 
+			inv := buildInvoker(cfg, pool)
+			eventRepo := repo.NewEventRepo(pool)
+			cursorRepo := repo.NewCursorRepo(pool)
+
+			addr := cfg.Serve.Addr
+			if addr == "" {
+				addr = ":8080"
+			}
+			rescan := 30 * time.Second
+			if cfg.Serve.RescanInterval != "" {
+				rescan, _ = time.ParseDuration(cfg.Serve.RescanInterval) // validated at load
+			}
+
+			dispatcher := events.NewDispatcher(eventRepo, repo.NewAssignmentRepo(pool), inv, cfg.Serve.Workers, rescan)
+			ingestor := events.NewIngestor(eventRepo, dispatcher.Notify)
+			go dispatcher.Run(ctx)
+
+			// Poll loops: one per plugin that implements PollSource.
+			for _, p := range plugin.All() {
+				src, ok := p.(plugin.PollSource)
+				if !ok {
+					continue
+				}
+				interval := pollInterval(cfg, p.Name())
+				fmt.Printf("polling %s every %s\n", p.Name(), interval)
+				go events.RunPoller(ctx, p.Name(), src, interval, cursorRepo, ingestor.Ingest,
+					func(format string, args ...any) { fmt.Fprintf(os.Stderr, format+"\n", args...) })
+			}
+
+			httpSrv := &http.Server{Addr: addr, Handler: server.New(ingestor).Handler()}
+			go func() {
+				fmt.Printf("webhook listener on %s\n", addr)
+				if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+					fmt.Fprintf(os.Stderr, "serve: http: %v\n", err)
+				}
+			}()
+
+			go func() {
+				if err := runSchedulerLoop(ctx, pool, inv); err != nil {
+					fmt.Fprintf(os.Stderr, "serve: scheduler: %v\n", err)
+				}
+			}()
+
+			<-ctx.Done()
+			fmt.Println("shutting down...")
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			_ = httpSrv.Shutdown(shutdownCtx)
+			return nil
+		},
+	}
+}
+
+// pollInterval reads poll_interval from a plugin's config block (default 60s).
+func pollInterval(cfg *config.Config, pluginName string) time.Duration {
+	for _, pc := range cfg.Plugins {
+		if pc.Name != pluginName {
+			continue
+		}
+		if v, ok := pc.Config["poll_interval"].(string); ok && v != "" {
+			if d, err := time.ParseDuration(v); err == nil {
+				return d
+			}
+		}
+	}
+	return time.Minute
+}
+
+// eventsCmd returns the "events" group of subcommands.
+func eventsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "events",
+		Short: "Event management commands",
+	}
+	cmd.AddCommand(eventsListCmd())
+	cmd.AddCommand(eventsReplayCmd())
+	return cmd
+}
+
+func eventsListCmd() *cobra.Command {
+	var flagStatus string
+	var flagLimit int
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List recent events",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := context.Background()
+			cfg, _ := loadConfig()
 			dsn := resolveDSN(cfg)
 			if dsn == "" {
 				return fmt.Errorf("no database DSN configured")
@@ -685,121 +866,65 @@ func scheduleCmd() *cobra.Command {
 			}
 			defer pool.Close()
 
-			initPlugins(ctx, cfg, pool)
-
-			assignments, err := repo.NewAssignmentRepo(pool).List(ctx)
+			evs, err := repo.NewEventRepo(pool).ListRecent(ctx, flagStatus, flagLimit)
 			if err != nil {
-				return fmt.Errorf("list assignments: %w", err)
+				return fmt.Errorf("list events: %w", err)
 			}
-
-			sched := trigger.NewScheduler()
-			for _, a := range assignments {
-				if !a.Enabled || a.Trigger.Kind != "cron" {
-					continue
-				}
-				t := trigger.NewCron(a.Trigger.Schedule)
-				if err := sched.Add(a.ID.String(), t, time.Now()); err != nil {
-					fmt.Fprintf(os.Stderr, "warning: skipping assignment %s: bad cron schedule: %v\n", a.ID, err)
-					continue
-				}
-				fmt.Printf("scheduled assignment %s (schedule: %s)\n", a.ID, a.Trigger.Schedule)
+			if len(evs) == 0 {
+				fmt.Println("(no events)")
+				return nil
 			}
+			fmt.Printf("%-36s %-10s %-14s %-11s %-25s %s\n", "ID", "SOURCE", "TYPE", "STATUS", "RECEIVED", "DEDUP_KEY")
+			fmt.Println(strings.Repeat("-", 130))
+			for _, ev := range evs {
+				fmt.Printf("%-36s %-10s %-14s %-11s %-25s %s\n",
+					ev.ID, ev.SourcePlugin, ev.EventType, ev.Status,
+					ev.ReceivedAt.Format(time.RFC3339), ev.DedupKey)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&flagStatus, "status", "", "filter by status (pending|dispatched)")
+	cmd.Flags().IntVar(&flagLimit, "limit", 50, "max events to show")
+	return cmd
+}
 
-			agentRepo := repo.NewAgentRepo(pool)
-			dutyRepo := repo.NewDutyRepo(pool)
-			assignmentRepo := repo.NewAssignmentRepo(pool)
-			runRepo := repo.NewRunRepo(pool)
-			store := state.NewPostgresStore(pool)
-			pipeline := run.NewPipeline(cfg, runRepo, store, &dbSecretsProvider{pool: pool})
+func eventsReplayCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "replay <event-id>",
+		Short: "Re-queue a dispatched event (picked up by fleet serve's rescan)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := context.Background()
+			id, err := uuid.Parse(args[0])
+			if err != nil {
+				return fmt.Errorf("invalid event id: %w", err)
+			}
+			cfg, _ := loadConfig()
+			dsn := resolveDSN(cfg)
+			if dsn == "" {
+				return fmt.Errorf("no database DSN configured")
+			}
+			pool, err := db.New(ctx, dsn)
+			if err != nil {
+				return fmt.Errorf("open db: %w", err)
+			}
+			defer pool.Close()
 
-			fmt.Println("scheduler running...")
-
-			sched.Run(ctx, func(runCtx context.Context, assignmentID string) {
-				id, err := uuid.Parse(assignmentID)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "scheduler: invalid assignment id %s: %v\n", assignmentID, err)
-					return
-				}
-				assignment, err := assignmentRepo.GetByID(runCtx, id)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "scheduler: get assignment %s: %v\n", assignmentID, err)
-					return
-				}
-
-				allAgents, err := agentRepo.List(runCtx)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "scheduler: list agents: %v\n", err)
-					return
-				}
-				var agent *domain.Agent
-				for _, a := range allAgents {
-					if a.ID == assignment.AgentID {
-						agent = a
-						break
-					}
-				}
-				if agent == nil {
-					fmt.Fprintf(os.Stderr, "scheduler: agent %s not found\n", assignment.AgentID)
-					return
-				}
-
-				allDuties, err := dutyRepo.List(runCtx)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "scheduler: list duties: %v\n", err)
-					return
-				}
-				var duty *domain.Duty
-				for _, d := range allDuties {
-					if d.ID == assignment.DutyID {
-						duty = d
-						break
-					}
-				}
-				if duty == nil {
-					fmt.Fprintf(os.Stderr, "scheduler: duty %s not found\n", assignment.DutyID)
-					return
-				}
-
-				var resolvedBackend *config.Backend
-				for _, ac := range cfg.Assignments {
-					if ac.Agent == agent.Name && ac.Duty == duty.Name {
-						b, _, berr := config.ResolveBackend(cfg, ac)
-						if berr == nil {
-							resolvedBackend = b
-						}
-						break
-					}
-				}
-				var exec executor.Executor
-				if resolvedBackend == nil {
-					exec = executor.NewClaudeExecutor("")
-				} else {
-					var eerr error
-					exec, eerr = executor.FromBackend(cfg, resolvedBackend)
-					if eerr != nil {
-						fmt.Fprintf(os.Stderr, "scheduler: build executor for assignment %s: %v\n", assignmentID, eerr)
-						return
-					}
-				}
-				result, err := pipeline.Execute(runCtx, run.ExecuteRequest{
-					Assignment:  assignment,
-					Agent:       agent,
-					Duty:        duty,
-					TriggerKind: "cron",
-					EventParams: map[string]any{},
-					Executor:    exec,
-				})
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "scheduler: execute assignment %s: %v\n", assignmentID, err)
-					return
-				}
-				if result.Error != nil {
-					fmt.Printf("scheduler: assignment %s completed with status %s (error: %s)\n", assignmentID, result.Status, *result.Error)
-				} else {
-					fmt.Printf("scheduler: assignment %s completed with status %s\n", assignmentID, result.Status)
-				}
-			})
-
+			eventRepo := repo.NewEventRepo(pool)
+			ev, err := eventRepo.GetByID(ctx, id)
+			if err != nil {
+				return fmt.Errorf("get event: %w", err)
+			}
+			if ev.Status == domain.EventStatusPending {
+				fmt.Printf("event %s is already pending\n", id)
+				return nil
+			}
+			if err := eventRepo.MarkPending(ctx, id); err != nil {
+				return fmt.Errorf("mark pending: %w", err)
+			}
+			fmt.Printf("event %s re-queued; fleet serve's rescan will dispatch it within one interval\n", id)
+			fmt.Println("note: assignments that already processed this event's dedup_key will record a skipped run")
 			return nil
 		},
 	}

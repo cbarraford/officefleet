@@ -1,6 +1,11 @@
 database:
   dsn: ${env:FLEET_DATABASE_DSN}
 
+serve:
+  addr: ":8080"          # webhook listener (POST /webhooks/gitlab)
+  workers: 4             # dispatcher worker pool
+  rescan_interval: 30s   # pending-event redispatch period
+
 backends:
   - name: claude-default
     kind: claude
@@ -65,6 +70,7 @@ duties:
     trigger_kinds:
       - manual
       - cron
+      - event-subscription
     required_tools:
       - glab
     prompt: |
@@ -122,7 +128,29 @@ assignments:
           mr_iid: "{{.Event.mr_iid}}"
           body: "{{.Event.llm_summary}}"
 
+  - agent: dev-1
+    duty: mr-reviewer
+    enabled: true
+    trigger:
+      kind: event-subscription
+      filter:
+        source: gitlab
+        event_type: mr_opened
+        project: "myorg/myrepo"
+    config:
+      project: "myorg/myrepo"
+    extra_instructions: "A new MR just opened; review it promptly. Keep comments terse."
+    outputs:
+      - plugin: gitlab
+        action: post_mr_comment
+        params:
+          project: "{{.Assignment.project}}"
+          mr_iid: "{{.Event.mr_iid}}"
+          body: "{{.Event.llm_summary}}"
+
 plugins:
   - name: gitlab
     config:
       base_url: "https://gitlab.com"
+#      poll_interval: 60s
+#      poll_projects: ["myorg/myrepo"]
