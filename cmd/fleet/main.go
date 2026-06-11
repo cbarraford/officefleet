@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"text/template"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/cbarraford/office-fleet/internal/api"
 	"github.com/cbarraford/office-fleet/internal/auth"
+	"github.com/cbarraford/office-fleet/internal/avatar"
 	"github.com/cbarraford/office-fleet/internal/config"
 	"github.com/cbarraford/office-fleet/internal/db"
 	"github.com/cbarraford/office-fleet/internal/domain"
@@ -866,6 +868,41 @@ func serveCmd() *cobra.Command {
 			eventRepo := repo.NewEventRepo(pool)
 			cursorRepo := repo.NewCursorRepo(pool)
 
+			// Avatars (SP4c): store + optional image generator + async service.
+			avatarsDir := cfg.Serve.AvatarsDir
+			if avatarsDir == "" {
+				avatarsDir = "./avatars"
+			}
+			avatarStore, err := avatar.NewStore(avatarsDir)
+			if err != nil {
+				return fmt.Errorf("avatars: %w", err)
+			}
+			var avatarGen avatar.Generator
+			if cfg.Serve.AvatarBackend != "" {
+				var ib *config.ImageBackend
+				for i := range cfg.ImageBackends {
+					if cfg.ImageBackends[i].Name == cfg.Serve.AvatarBackend {
+						ib = &cfg.ImageBackends[i]
+						break
+					}
+				}
+				if ib == nil {
+					// unreachable: loadValidatedConfig enforces the reference
+					return fmt.Errorf("avatar_backend %q not defined", cfg.Serve.AvatarBackend)
+				}
+				promptText := cfg.Serve.AvatarPrompt
+				if promptText == "" {
+					promptText = avatar.DefaultPrompt
+				}
+				promptTmpl, perr := template.New("avatar").Parse(promptText)
+				if perr != nil {
+					return fmt.Errorf("avatar_prompt: %w", perr) // unreachable: validated at load
+				}
+				avatarGen = avatar.NewOpenAIImageGenerator(ib.BaseURI, ib.Model, ib.Auth.APIKey, ib.Size, promptTmpl)
+				fmt.Printf("avatar generation via image backend %q\n", ib.Name)
+			}
+			avatarSvc := avatar.NewService(avatarGen, avatarStore, repo.NewAgentRepo(pool), nil)
+
 			addr := cfg.Serve.Addr
 			if addr == "" {
 				addr = ":8080"
@@ -900,10 +937,11 @@ func serveCmd() *cobra.Command {
 			}
 			apiSrv := api.New(api.Deps{
 				Agents:        repo.NewAgentRepo(pool),
-				Duties:        repo.NewDutyRepo(pool),
 				Assignments:   repo.NewAssignmentRepo(pool),
-				Runs:          repo.NewRunRepo(pool),
+				Avatars:       avatarSvc,
+				Duties:        repo.NewDutyRepo(pool),
 				Events:        eventRepo,
+				Runs:          repo.NewRunRepo(pool),
 				Secrets:       repo.NewSecretRepo(pool),
 				Users:         repo.NewUserRepo(pool),
 				Sessions:      auth.NewSessions(repo.NewSessionRepo(pool)),
@@ -916,7 +954,11 @@ func serveCmd() *cobra.Command {
 			})
 			pipeline.SetRunUpdateHook(apiSrv.RunUpdateSink())
 
-			httpSrv := &http.Server{Addr: addr, Handler: server.New(ingestor).Handler(apiSrv.Mount, web.Mount)}
+			httpSrv := &http.Server{Addr: addr, Handler: server.New(ingestor).Handler(
+				apiSrv.Mount,
+				func(mux *http.ServeMux) { avatar.MountHTTP(mux, avatarsDir) },
+				web.Mount,
+			)}
 			go func() {
 				fmt.Printf("webhook listener on %s\n", addr)
 				if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
