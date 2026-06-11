@@ -104,7 +104,7 @@ function SecretsTab({ isAdmin }: { isAdmin: boolean }) {
           <form onSubmit={save}>
             <div className="row">
               <input placeholder="name" value={name} onChange={(e) => setName(e.target.value)} />
-              <input placeholder="value" type="password" value={value} onChange={(e) => setValue(e.target.value)} />
+              <input placeholder="value" type="password" autoComplete="new-password" value={value} onChange={(e) => setValue(e.target.value)} />
               <button className="primary" type="submit" disabled={!name || !value}>
                 Save
               </button>
@@ -186,7 +186,7 @@ function UsersTab({ isAdmin, myUsername }: { isAdmin: boolean; myUsername: strin
           <form onSubmit={create}>
             <div className="row">
               <input placeholder="username" value={username} onChange={(e) => setUsername(e.target.value)} />
-              <input placeholder="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+              <input placeholder="password" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
               <select value={role} onChange={(e) => setRole(e.target.value as 'admin' | 'viewer')} style={{ width: 130 }}>
                 <option value="viewer">viewer</option>
                 <option value="admin">admin</option>
