@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -87,9 +88,17 @@ type DatabaseConfig struct {
 	DSN string `yaml:"dsn"`
 }
 
+// ServeConfig configures the fleet serve daemon.
+type ServeConfig struct {
+	Addr           string `yaml:"addr,omitempty"`            // webhook listener; default ":8080"
+	Workers        int    `yaml:"workers,omitempty"`         // dispatcher pool; default 4
+	RescanInterval string `yaml:"rescan_interval,omitempty"` // Go duration; default "30s"
+}
+
 // Config is the root fleet.yaml configuration.
 type Config struct {
 	Database    DatabaseConfig     `yaml:"database"`
+	Serve       ServeConfig        `yaml:"serve,omitempty"`
 	Backends    []Backend          `yaml:"backends"`
 	Plugins     []PluginConfig     `yaml:"plugins"`
 	Agents      []AgentConfig      `yaml:"agents"`
@@ -198,6 +207,15 @@ func Validate(cfg *Config) []error {
 		}
 	}
 
+	if cfg.Serve.Workers < 0 {
+		errs = append(errs, fmt.Errorf("serve: workers must be >= 0, got %d", cfg.Serve.Workers))
+	}
+	if cfg.Serve.RescanInterval != "" {
+		if _, err := time.ParseDuration(cfg.Serve.RescanInterval); err != nil {
+			errs = append(errs, fmt.Errorf("serve: invalid rescan_interval %q: %v", cfg.Serve.RescanInterval, err))
+		}
+	}
+
 	// rejectVoterOverride flags model/effort overrides on refs that point at voters.
 	rejectVoterOverride := func(where string, ref domain.BackendRef) {
 		if ref.Name == "" || backendKind[ref.Name] != "voter" {
@@ -276,6 +294,22 @@ func Validate(cfg *Config) []error {
 				agent := agentByName[a.Agent]
 				if agent.DefaultBackend.Name == "" {
 					errs = append(errs, fmt.Errorf("assignment[%d] (agent=%q duty=%q): no backend resolved — assignment, duty, and agent default_backend are all unset", i, a.Agent, a.Duty))
+				}
+			}
+		}
+		if a.Trigger.Kind == "event-subscription" {
+			src, _ := a.Trigger.Filter["source"].(string)
+			typ, _ := a.Trigger.Filter["event_type"].(string)
+			if src == "" {
+				errs = append(errs, fmt.Errorf("assignment[%d]: event-subscription trigger requires a non-empty filter.source", i))
+			}
+			if typ == "" {
+				errs = append(errs, fmt.Errorf("assignment[%d]: event-subscription trigger requires a non-empty filter.event_type", i))
+			}
+			if dutyOK {
+				duty := dutyByName[a.Duty]
+				if !slices.Contains(duty.TriggerKinds, "event-subscription") {
+					errs = append(errs, fmt.Errorf("assignment[%d]: duty %q trigger_kinds does not include event-subscription", i, a.Duty))
 				}
 			}
 		}

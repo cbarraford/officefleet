@@ -659,3 +659,62 @@ func TestValidate_VoterRefOverrideOnAssignment(t *testing.T) {
 	errs := config.Validate(cfg)
 	errorsContain(t, errs, "override")
 }
+
+// --- SP3 validation tests ---
+
+func eventSubConfig() *config.Config {
+	return &config.Config{
+		Backends: []config.Backend{{Name: "b", Kind: "claude", Auth: config.BackendAuth{Mode: "subscription"}}},
+		Agents:   []config.AgentConfig{{Name: "a1", DefaultBackend: domain.BackendRef{Name: "b"}}},
+		Duties: []config.DutyConfig{{
+			Name: "d1", TriggerKinds: []string{"manual", "event-subscription"},
+		}},
+		Assignments: []config.AssignmentConfig{{
+			Agent: "a1", Duty: "d1",
+			Trigger: domain.TriggerConfig{
+				Kind:   "event-subscription",
+				Filter: map[string]any{"source": "gitlab", "event_type": "mr_opened"},
+			},
+		}},
+	}
+}
+
+func TestValidate_EventSubscriptionValid(t *testing.T) {
+	if errs := config.Validate(eventSubConfig()); len(errs) != 0 {
+		t.Errorf("expected no errors, got %v", errs)
+	}
+}
+
+func TestValidate_EventSubscriptionMissingSource(t *testing.T) {
+	cfg := eventSubConfig()
+	cfg.Assignments[0].Trigger.Filter = map[string]any{"event_type": "mr_opened"}
+	errorsContain(t, config.Validate(cfg), "source")
+}
+
+func TestValidate_EventSubscriptionMissingEventType(t *testing.T) {
+	cfg := eventSubConfig()
+	cfg.Assignments[0].Trigger.Filter = map[string]any{"source": "gitlab"}
+	errorsContain(t, config.Validate(cfg), "event_type")
+}
+
+func TestValidate_EventSubscriptionDutyKindMismatch(t *testing.T) {
+	cfg := eventSubConfig()
+	cfg.Duties[0].TriggerKinds = []string{"manual", "cron"}
+	errorsContain(t, config.Validate(cfg), "trigger_kinds")
+}
+
+func TestValidate_ServeBlock(t *testing.T) {
+	cfg := eventSubConfig()
+	cfg.Serve = config.ServeConfig{Workers: -1}
+	errorsContain(t, config.Validate(cfg), "workers")
+
+	cfg = eventSubConfig()
+	cfg.Serve = config.ServeConfig{RescanInterval: "soonish"}
+	errorsContain(t, config.Validate(cfg), "rescan_interval")
+
+	cfg = eventSubConfig()
+	cfg.Serve = config.ServeConfig{Addr: ":9090", Workers: 8, RescanInterval: "45s"}
+	if errs := config.Validate(cfg); len(errs) != 0 {
+		t.Errorf("valid serve block rejected: %v", errs)
+	}
+}
