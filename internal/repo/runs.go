@@ -127,14 +127,16 @@ func (r *RunRepo) AgentStats(ctx context.Context, agentID uuid.UUID) (*domain.Ag
 	if total30 > 0 {
 		st.SkipRate = float64(skip30) / float64(total30)
 	}
-	// Guard: outputs_delivered may hold JSON null for old rows;
-	// jsonb_array_elements(null) errors, so skip non-array values.
+	// Guard: outputs_delivered may hold JSON null for old rows (nil slice marshals
+	// to null). The subquery form guarantees jsonb_typeof='array' is evaluated
+	// before the lateral SRF jsonb_array_elements, regardless of planner choices.
 	err = r.db.QueryRow(ctx, `
 		SELECT COUNT(*),
 		       COUNT(*) FILTER (WHERE r.started_at > NOW() - INTERVAL '30 days')
-		FROM runs r, jsonb_array_elements(r.outputs_delivered) o
-		WHERE r.agent_id=$1 AND jsonb_typeof(r.outputs_delivered)='array'
-		  AND o->>'status'='delivered'`, agentID).Scan(
+		FROM (SELECT started_at, outputs_delivered FROM runs
+		      WHERE agent_id=$1 AND jsonb_typeof(outputs_delivered)='array') r,
+		     jsonb_array_elements(r.outputs_delivered) o
+		WHERE o->>'status'='delivered'`, agentID).Scan(
 		&st.OutputsDelivered, &st.OutputsLast30d)
 	if err != nil {
 		return nil, fmt.Errorf("agent output stats: %w", err)
