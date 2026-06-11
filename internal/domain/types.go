@@ -57,11 +57,14 @@ type TriggerConfig struct {
 	Filter   map[string]any `json:"filter,omitempty"`
 }
 
-// OutputBinding routes an output action to a specific target.
+// OutputBinding routes an output action to a specific target. When ForEach
+// names a key of LLMResult.Output holding a JSON array, the action is
+// delivered once per element (the element renders as {{.Item.*}}).
 type OutputBinding struct {
-	Plugin string         `json:"plugin"`
-	Action string         `json:"action"`
-	Params map[string]any `json:"params"`
+	Plugin  string         `json:"plugin" yaml:"plugin"`
+	Action  string         `json:"action" yaml:"action"`
+	Params  map[string]any `json:"params" yaml:"params"`
+	ForEach string         `json:"for_each,omitempty" yaml:"for_each,omitempty"`
 }
 
 // Assignment binds an Agent to a Duty with per-agent config.

@@ -50,6 +50,7 @@ export interface OutputBinding {
   plugin: string
   action: string
   params: Record<string, unknown> | null
+  for_each?: string
 }
 
 export interface Assignment {

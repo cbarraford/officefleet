@@ -18,6 +18,9 @@ type Context struct {
 	State      map[string]any
 	Now        time.Time
 	Secrets    map[string]string
+	// Item is the current fan-out element during for_each output delivery
+	// (nil outside fan-out rendering).
+	Item map[string]any
 }
 
 // Render executes a Go text/template with the given context.

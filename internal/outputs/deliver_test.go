@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/cbarraford/office-fleet/internal/domain"
@@ -139,6 +140,49 @@ func TestDeliver_LLMOutputRenderedAsJSON(t *testing.T) {
 	}
 }
 
+// fakePlugin is a recording plugin for fan-out tests. It is registered
+// under the name "fake" and tracks call count atomically.
+type fakePlugin struct {
+	mu    sync.Mutex
+	calls []map[string]any
+}
+
+func (f *fakePlugin) Name() string                       { return "fake" }
+func (f *fakePlugin) EventSources() []plugin.EventSource { return nil }
+func (f *fakePlugin) Actions() []plugin.Action           { return nil }
+func (f *fakePlugin) ConfigSchema() plugin.Schema        { return nil }
+func (f *fakePlugin) Init(_ context.Context, _ map[string]any, _ plugin.SecretLookup) error {
+	return nil
+}
+func (f *fakePlugin) Do(_ context.Context, _ string, params map[string]any) (map[string]any, error) {
+	f.mu.Lock()
+	f.calls = append(f.calls, params)
+	f.mu.Unlock()
+	return map[string]any{"ok": true}, nil
+}
+func (f *fakePlugin) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.calls)
+}
+
+// fakePluginHandle is returned by registerFakePlugin so tests can inspect the plugin.
+type fakePluginHandle struct {
+	name   string
+	plugin *fakePlugin
+}
+
+func (h *fakePluginHandle) callCount() int { return h.plugin.callCount() }
+
+// registerFakePlugin creates a fresh fakePlugin, registers it, and returns a handle.
+// The plugin is registered globally; t.Cleanup is NOT needed since plugin.Register
+// overwrites the previous entry under the same name.
+func registerFakePlugin(_ *testing.T) *fakePluginHandle {
+	fp := &fakePlugin{}
+	plugin.Register(fp)
+	return &fakePluginHandle{name: "fake", plugin: fp}
+}
+
 // mockPlugin2 is a second named mock for multi-binding tests.
 type mockPlugin2 struct {
 	calls []map[string]any
@@ -182,5 +226,112 @@ func TestDeliver_PartialFailure(t *testing.T) {
 	}
 	if deliveries[1].Status != "delivered" {
 		t.Fatalf("expected second delivery status=delivered, got %q: %s", deliveries[1].Status, deliveries[1].Error)
+	}
+}
+
+func TestDeliverForEachFansOut(t *testing.T) {
+	fake := registerFakePlugin(t)
+	result := domain.LLMResult{Output: map[string]any{
+		"comments": []any{
+			map[string]any{"path": "a.go", "line": float64(7), "body": "nil deref"},
+			map[string]any{"path": "b.go", "line": float64(12), "body": "unchecked err"},
+		},
+	}}
+	bindings := []domain.OutputBinding{{
+		Plugin: fake.name, Action: "post", ForEach: "comments",
+		Params: map[string]any{"path": "{{.Item.path}}", "line": "{{.Item.line}}", "note": "static"},
+	}}
+
+	deliveries := outputs.Deliver(context.Background(), bindings, result, prompt.Context{})
+	if len(deliveries) != 2 {
+		t.Fatalf("deliveries = %d, want 2 (one per item)", len(deliveries))
+	}
+	for i, want := range []string{"a.go", "b.go"} {
+		if deliveries[i].Status != "delivered" {
+			t.Errorf("delivery %d status = %s (%s)", i, deliveries[i].Status, deliveries[i].Error)
+		}
+		if deliveries[i].Params["path"] != want {
+			t.Errorf("delivery %d path = %v, want %s", i, deliveries[i].Params["path"], want)
+		}
+	}
+	if got := fake.callCount(); got != 2 {
+		t.Errorf("plugin invoked %d times, want 2", got)
+	}
+}
+
+func TestDeliverForEachEmptyOrMissingIsZeroDeliveries(t *testing.T) {
+	registerFakePlugin(t)
+	for name, output := range map[string]map[string]any{
+		"missing key": {},
+		"nil value":   {"comments": nil},
+		"empty array": {"comments": []any{}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			bindings := []domain.OutputBinding{{Plugin: "fake", Action: "post", ForEach: "comments", Params: map[string]any{}}}
+			deliveries := outputs.Deliver(context.Background(), bindings, domain.LLMResult{Output: output}, prompt.Context{})
+			if len(deliveries) != 0 {
+				t.Errorf("deliveries = %d, want 0", len(deliveries))
+			}
+		})
+	}
+}
+
+func TestDeliverForEachNonArrayFails(t *testing.T) {
+	registerFakePlugin(t)
+	bindings := []domain.OutputBinding{{Plugin: "fake", Action: "post", ForEach: "comments", Params: map[string]any{}}}
+	result := domain.LLMResult{Output: map[string]any{"comments": "not-a-list"}}
+
+	deliveries := outputs.Deliver(context.Background(), bindings, result, prompt.Context{})
+	if len(deliveries) != 1 || deliveries[0].Status != "failed" {
+		t.Fatalf("want exactly one failed delivery, got %#v", deliveries)
+	}
+	if !strings.Contains(deliveries[0].Error, "not an array") {
+		t.Errorf("error = %q", deliveries[0].Error)
+	}
+}
+
+func TestDeliverForEachNonObjectItemFailsThatItemOnly(t *testing.T) {
+	fake := registerFakePlugin(t)
+	result := domain.LLMResult{Output: map[string]any{
+		"comments": []any{"just-a-string", map[string]any{"path": "ok.go"}},
+	}}
+	bindings := []domain.OutputBinding{{Plugin: fake.name, Action: "post", ForEach: "comments", Params: map[string]any{"path": "{{.Item.path}}"}}}
+
+	deliveries := outputs.Deliver(context.Background(), bindings, result, prompt.Context{})
+	if len(deliveries) != 2 {
+		t.Fatalf("deliveries = %d, want 2", len(deliveries))
+	}
+	if deliveries[0].Status != "failed" || deliveries[1].Status != "delivered" {
+		t.Errorf("statuses = %s,%s — non-object item must fail alone", deliveries[0].Status, deliveries[1].Status)
+	}
+}
+
+func TestDeliverForEachCapsAtFifty(t *testing.T) {
+	fake := registerFakePlugin(t)
+	items := make([]any, 73)
+	for i := range items {
+		items[i] = map[string]any{"n": float64(i)}
+	}
+	bindings := []domain.OutputBinding{{Plugin: fake.name, Action: "post", ForEach: "comments", Params: map[string]any{}}}
+
+	deliveries := outputs.Deliver(context.Background(), bindings, domain.LLMResult{Output: map[string]any{"comments": items}}, prompt.Context{})
+	if len(deliveries) != 51 {
+		t.Fatalf("deliveries = %d, want 50 delivered + 1 truncation record", len(deliveries))
+	}
+	last := deliveries[50]
+	if last.Status != "failed" || !strings.Contains(last.Error, "truncated") || !strings.Contains(last.Error, "73") {
+		t.Errorf("truncation record = %#v", last)
+	}
+	if got := fake.callCount(); got != 50 {
+		t.Errorf("plugin invoked %d times, want exactly 50", got)
+	}
+}
+
+func TestDeliverWithoutForEachUnchanged(t *testing.T) {
+	fake := registerFakePlugin(t)
+	bindings := []domain.OutputBinding{{Plugin: fake.name, Action: "post", Params: map[string]any{"body": "{{.Event.llm_summary}}"}}}
+	deliveries := outputs.Deliver(context.Background(), bindings, domain.LLMResult{Summary: "hi"}, prompt.Context{})
+	if len(deliveries) != 1 || deliveries[0].Status != "delivered" || deliveries[0].Params["body"] != "hi" {
+		t.Fatalf("plain binding regression: %#v", deliveries)
 	}
 }
