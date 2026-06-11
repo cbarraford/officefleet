@@ -16,16 +16,16 @@ type BackendRef struct {
 
 // Agent is a configured employee: a persona with a name, role, system prompt, and default backend.
 type Agent struct {
-	ID             uuid.UUID  `db:"id"`
-	Name           string     `db:"name"`
-	Role           string     `db:"role"`
-	SystemPrompt   string     `db:"system_prompt"`
-	DefaultBackend BackendRef `db:"default_backend"`
-	Enabled        bool       `db:"enabled"`
-	AvatarURL      *string    `db:"avatar_url"` // generated/uploaded avatar (SP4c fills it)
-	HiredAt        *time.Time `db:"hired_at"`   // "hire date" flavour shown in the UI
-	CreatedAt      time.Time  `db:"created_at"`
-	UpdatedAt      time.Time  `db:"updated_at"`
+	ID             uuid.UUID  `db:"id" json:"id"`
+	Name           string     `db:"name" json:"name"`
+	Role           string     `db:"role" json:"role"`
+	SystemPrompt   string     `db:"system_prompt" json:"system_prompt"`
+	DefaultBackend BackendRef `db:"default_backend" json:"default_backend"`
+	Enabled        bool       `db:"enabled" json:"enabled"`
+	AvatarURL      *string    `db:"avatar_url" json:"avatar_url"` // generated/uploaded avatar (SP4c fills it)
+	HiredAt        *time.Time `db:"hired_at" json:"hired_at"`     // "hire date" flavour shown in the UI
+	CreatedAt      time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt      time.Time  `db:"updated_at" json:"updated_at"`
 }
 
 // OutputActionType declares an output action a Duty can emit.
@@ -36,18 +36,18 @@ type OutputActionType struct {
 
 // Duty is a reusable definition of work.
 type Duty struct {
-	ID            uuid.UUID          `db:"id"`
-	Name          string             `db:"name"`
-	Role          string             `db:"role"` // category tag, not operative persona
-	Description   string             `db:"description"`
-	TriggerKinds  []string           `db:"trigger_kinds"`
-	Prompt        string             `db:"prompt"`
-	RequiredTools []string           `db:"required_tools"`
-	OutputActions []OutputActionType `db:"output_actions"`
-	ConfigSchema  map[string]any     `db:"config_schema"`
-	Backend       *BackendRef        `db:"backend"`
-	CreatedAt     time.Time          `db:"created_at"`
-	UpdatedAt     time.Time          `db:"updated_at"`
+	ID            uuid.UUID          `db:"id" json:"id"`
+	Name          string             `db:"name" json:"name"`
+	Role          string             `db:"role" json:"role"` // category tag, not operative persona
+	Description   string             `db:"description" json:"description"`
+	TriggerKinds  []string           `db:"trigger_kinds" json:"trigger_kinds"`
+	Prompt        string             `db:"prompt" json:"prompt"`
+	RequiredTools []string           `db:"required_tools" json:"required_tools"`
+	OutputActions []OutputActionType `db:"output_actions" json:"output_actions"`
+	ConfigSchema  map[string]any     `db:"config_schema" json:"config_schema"`
+	Backend       *BackendRef        `db:"backend" json:"backend"`
+	CreatedAt     time.Time          `db:"created_at" json:"created_at"`
+	UpdatedAt     time.Time          `db:"updated_at" json:"updated_at"`
 }
 
 // TriggerConfig holds the chosen trigger kind and its configuration.
@@ -66,18 +66,18 @@ type OutputBinding struct {
 
 // Assignment binds an Agent to a Duty with per-agent config.
 type Assignment struct {
-	ID                 uuid.UUID       `db:"id"`
-	AgentID            uuid.UUID       `db:"agent_id"`
-	DutyID             uuid.UUID       `db:"duty_id"`
-	Enabled            bool            `db:"enabled"`
-	Trigger            TriggerConfig   `db:"trigger"`
-	Outputs            []OutputBinding `db:"outputs"`
-	Config             map[string]any  `db:"config"`
-	Backend            *BackendRef     `db:"backend"`
-	TaskPromptOverride *string         `db:"task_prompt_override"`
-	ExtraInstructions  *string         `db:"extra_instructions"`
-	CreatedAt          time.Time       `db:"created_at"`
-	UpdatedAt          time.Time       `db:"updated_at"`
+	ID                 uuid.UUID       `db:"id" json:"id"`
+	AgentID            uuid.UUID       `db:"agent_id" json:"agent_id"`
+	DutyID             uuid.UUID       `db:"duty_id" json:"duty_id"`
+	Enabled            bool            `db:"enabled" json:"enabled"`
+	Trigger            TriggerConfig   `db:"trigger" json:"trigger"`
+	Outputs            []OutputBinding `db:"outputs" json:"outputs"`
+	Config             map[string]any  `db:"config" json:"config"`
+	Backend            *BackendRef     `db:"backend" json:"backend"`
+	TaskPromptOverride *string         `db:"task_prompt_override" json:"task_prompt_override"`
+	ExtraInstructions  *string         `db:"extra_instructions" json:"extra_instructions"`
+	CreatedAt          time.Time       `db:"created_at" json:"created_at"`
+	UpdatedAt          time.Time       `db:"updated_at" json:"updated_at"`
 }
 
 // RunStatus represents the lifecycle state of a Run.
@@ -122,46 +122,46 @@ const (
 // event source. Persisted for durability and replay; dispatch is
 // at-least-once (per-assignment dedup makes redelivery a recorded skip).
 type Event struct {
-	ID           uuid.UUID       `db:"id"`
-	SourcePlugin string          `db:"source_plugin"` // e.g. "gitlab"
-	EventType    string          `db:"event_type"`    // e.g. "mr_opened"
-	PayloadRaw   json.RawMessage `db:"payload_raw"`   // verbatim from the source
-	PayloadNorm  map[string]any  `db:"payload_norm"`  // plugin-normalized, template-friendly
-	Identity     string          `db:"identity"`      // who triggered it (author/sender)
-	DedupKey     string          `db:"dedup_key"`     // stable "already processed" key
-	Status       EventStatus     `db:"status"`
-	ReceivedAt   time.Time       `db:"received_at"`
-	DispatchedAt *time.Time      `db:"dispatched_at"`
+	ID           uuid.UUID       `db:"id" json:"id"`
+	SourcePlugin string          `db:"source_plugin" json:"source_plugin"` // e.g. "gitlab"
+	EventType    string          `db:"event_type" json:"event_type"`       // e.g. "mr_opened"
+	PayloadRaw   json.RawMessage `db:"payload_raw" json:"payload_raw"`     // verbatim from the source
+	PayloadNorm  map[string]any  `db:"payload_norm" json:"payload_norm"`   // plugin-normalized, template-friendly
+	Identity     string          `db:"identity" json:"identity"`           // who triggered it (author/sender)
+	DedupKey     string          `db:"dedup_key" json:"dedup_key"`         // stable "already processed" key
+	Status       EventStatus     `db:"status" json:"status"`
+	ReceivedAt   time.Time       `db:"received_at" json:"received_at"`
+	DispatchedAt *time.Time      `db:"dispatched_at" json:"dispatched_at"`
 }
 
 // Run is one execution of an Assignment; the audit and metrics record.
 type Run struct {
-	ID                   uuid.UUID        `db:"id"`
-	AssignmentID         uuid.UUID        `db:"assignment_id"`
-	AgentID              uuid.UUID        `db:"agent_id"`
-	DutyID               uuid.UUID        `db:"duty_id"`
-	TriggerKind          string           `db:"trigger_kind"`
-	EventID              *string          `db:"event_id"`
-	RenderedSystemPrompt string           `db:"rendered_system_prompt"`
-	RenderedPrompt       string           `db:"rendered_prompt"`
-	LLMResult            *LLMResult       `db:"llm_result"`
-	OutputsDelivered     []OutputDelivery `db:"outputs_delivered"`
-	Status               RunStatus        `db:"status"`
-	Tokens               int              `db:"tokens"`
-	Cost                 float64          `db:"cost"`
-	StartedAt            time.Time        `db:"started_at"`
-	FinishedAt           *time.Time       `db:"finished_at"`
-	Error                *string          `db:"error"`
+	ID                   uuid.UUID        `db:"id" json:"id"`
+	AssignmentID         uuid.UUID        `db:"assignment_id" json:"assignment_id"`
+	AgentID              uuid.UUID        `db:"agent_id" json:"agent_id"`
+	DutyID               uuid.UUID        `db:"duty_id" json:"duty_id"`
+	TriggerKind          string           `db:"trigger_kind" json:"trigger_kind"`
+	EventID              *string          `db:"event_id" json:"event_id"`
+	RenderedSystemPrompt string           `db:"rendered_system_prompt" json:"rendered_system_prompt"`
+	RenderedPrompt       string           `db:"rendered_prompt" json:"rendered_prompt"`
+	LLMResult            *LLMResult       `db:"llm_result" json:"llm_result"`
+	OutputsDelivered     []OutputDelivery `db:"outputs_delivered" json:"outputs_delivered"`
+	Status               RunStatus        `db:"status" json:"status"`
+	Tokens               int              `db:"tokens" json:"tokens"`
+	Cost                 float64          `db:"cost" json:"cost"`
+	StartedAt            time.Time        `db:"started_at" json:"started_at"`
+	FinishedAt           *time.Time       `db:"finished_at" json:"finished_at"`
+	Error                *string          `db:"error" json:"error"`
 }
 
 // User is an operator account. Roles: admin (full control) | viewer (read-only).
 type User struct {
-	ID           uuid.UUID `db:"id"`
-	Username     string    `db:"username"`
-	PasswordHash string    `db:"password_hash"`
-	Role         string    `db:"role"`
-	CreatedAt    time.Time `db:"created_at"`
-	UpdatedAt    time.Time `db:"updated_at"`
+	ID           uuid.UUID `db:"id" json:"id"`
+	Username     string    `db:"username" json:"username"`
+	PasswordHash string    `db:"password_hash" json:"-"`
+	Role         string    `db:"role" json:"role"`
+	CreatedAt    time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt    time.Time `db:"updated_at" json:"updated_at"`
 }
 
 const (

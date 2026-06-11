@@ -340,8 +340,8 @@ func TestAgentCreate_201AndListed(t *testing.T) {
 
 	var created map[string]any
 	decodeBody(t, resp, &created)
-	if created["Name"] != "Alice" {
-		t.Errorf("created agent name = %v, want Alice", created["Name"])
+	if created["name"] != "Alice" {
+		t.Errorf("created agent name = %v, want Alice", created["name"])
 	}
 
 	listResp := f.do(t, "GET", "/api/v1/agents", nil)
@@ -353,8 +353,8 @@ func TestAgentCreate_201AndListed(t *testing.T) {
 	if len(agents) != 1 {
 		t.Fatalf("list returned %d agents, want 1", len(agents))
 	}
-	if agents[0]["Name"] != "Alice" {
-		t.Errorf("listed agent name = %v, want Alice", agents[0]["Name"])
+	if agents[0]["name"] != "Alice" {
+		t.Errorf("listed agent name = %v, want Alice", agents[0]["name"])
 	}
 }
 
@@ -381,7 +381,7 @@ func TestAgentPatch_PartialUpdate(t *testing.T) {
 	}
 	var created map[string]any
 	decodeBody(t, createResp, &created)
-	agentID := created["ID"].(string)
+	agentID := created["id"].(string)
 
 	// PATCH only enabled → other fields must remain unchanged
 	patchResp := f.do(t, "PATCH", "/api/v1/agents/"+agentID, map[string]any{
@@ -392,14 +392,14 @@ func TestAgentPatch_PartialUpdate(t *testing.T) {
 	}
 	var patched map[string]any
 	decodeBody(t, patchResp, &patched)
-	if patched["Enabled"] != false {
-		t.Errorf("patched Enabled = %v, want false", patched["Enabled"])
+	if patched["enabled"] != false {
+		t.Errorf("patched enabled = %v, want false", patched["enabled"])
 	}
-	if patched["Name"] != "Charlie" {
-		t.Errorf("name changed to %v, want Charlie", patched["Name"])
+	if patched["name"] != "Charlie" {
+		t.Errorf("name changed to %v, want Charlie", patched["name"])
 	}
-	if patched["Role"] != "engineer" {
-		t.Errorf("role changed to %v, want engineer", patched["Role"])
+	if patched["role"] != "engineer" {
+		t.Errorf("role changed to %v, want engineer", patched["role"])
 	}
 }
 
@@ -409,7 +409,7 @@ func TestAgentPatch_BadHiredAt_400(t *testing.T) {
 	createResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "Dana"})
 	var created map[string]any
 	decodeBody(t, createResp, &created)
-	agentID := created["ID"].(string)
+	agentID := created["id"].(string)
 
 	resp := f.do(t, "PATCH", "/api/v1/agents/"+agentID, map[string]any{
 		"hired_at": "not-a-date",
@@ -425,7 +425,7 @@ func TestAgentPatch_UnknownBackend_400(t *testing.T) {
 	createResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "Eve"})
 	var created map[string]any
 	decodeBody(t, createResp, &created)
-	agentID := created["ID"].(string)
+	agentID := created["id"].(string)
 
 	resp := f.do(t, "PATCH", "/api/v1/agents/"+agentID, map[string]any{
 		"default_backend": map[string]any{"name": "nonexistent-backend"},
@@ -441,7 +441,7 @@ func TestAgentGet_EmbedsStats(t *testing.T) {
 	createResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "Frank"})
 	var created map[string]any
 	decodeBody(t, createResp, &created)
-	agentID := created["ID"].(string)
+	agentID := created["id"].(string)
 
 	// Seed the fake run store with stats for this agent
 	id, _ := uuid.Parse(agentID)
@@ -478,7 +478,7 @@ func TestAgentDelete_404After(t *testing.T) {
 	createResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "Grace"})
 	var created map[string]any
 	decodeBody(t, createResp, &created)
-	agentID := created["ID"].(string)
+	agentID := created["id"].(string)
 
 	delResp := f.do(t, "DELETE", "/api/v1/agents/"+agentID, nil)
 	if delResp.StatusCode != http.StatusOK {
@@ -534,12 +534,12 @@ func TestAssignment_EventSubscription_MissingSource_400(t *testing.T) {
 	})
 	var duty map[string]any
 	decodeBody(t, dutyResp, &duty)
-	dutyID := duty["ID"].(string)
+	dutyID := duty["id"].(string)
 
 	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentH"})
 	var agent map[string]any
 	decodeBody(t, agentResp, &agent)
-	agentID := agent["ID"].(string)
+	agentID := agent["id"].(string)
 
 	// Missing source in filter
 	resp := f.do(t, "POST", "/api/v1/assignments", map[string]any{
@@ -565,12 +565,12 @@ func TestAssignment_DutyKindMismatch_400(t *testing.T) {
 	})
 	var duty map[string]any
 	decodeBody(t, dutyResp, &duty)
-	dutyID := duty["ID"].(string)
+	dutyID := duty["id"].(string)
 
 	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentI"})
 	var agent map[string]any
 	decodeBody(t, agentResp, &agent)
-	agentID := agent["ID"].(string)
+	agentID := agent["id"].(string)
 
 	// Trigger kind "cron" not in duty's trigger_kinds
 	resp := f.do(t, "POST", "/api/v1/assignments", map[string]any{
@@ -595,12 +595,12 @@ func TestAssignment_Valid_201(t *testing.T) {
 	})
 	var duty map[string]any
 	decodeBody(t, dutyResp, &duty)
-	dutyID := duty["ID"].(string)
+	dutyID := duty["id"].(string)
 
 	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentJ"})
 	var agent map[string]any
 	decodeBody(t, agentResp, &agent)
-	agentID := agent["ID"].(string)
+	agentID := agent["id"].(string)
 
 	resp := f.do(t, "POST", "/api/v1/assignments", map[string]any{
 		"agent_id": agentID,
@@ -615,7 +615,7 @@ func TestAssignment_Valid_201(t *testing.T) {
 	}
 	var body map[string]any
 	decodeBody(t, resp, &body)
-	if body["ID"] == nil {
+	if body["id"] == nil {
 		t.Fatal("response missing ID")
 	}
 }
@@ -629,12 +629,12 @@ func TestAssignment_EventSubscription_Valid_201(t *testing.T) {
 	})
 	var duty map[string]any
 	decodeBody(t, dutyResp, &duty)
-	dutyID := duty["ID"].(string)
+	dutyID := duty["id"].(string)
 
 	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentK"})
 	var agent map[string]any
 	decodeBody(t, agentResp, &agent)
-	agentID := agent["ID"].(string)
+	agentID := agent["id"].(string)
 
 	resp := f.do(t, "POST", "/api/v1/assignments", map[string]any{
 		"agent_id": agentID,
