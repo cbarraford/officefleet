@@ -25,8 +25,8 @@ export default function Table<T>({
     <table className="tbl">
       <thead>
         <tr>
-          {columns.map((c) => (
-            <th key={c.header}>{c.header}</th>
+          {columns.map((c, i) => (
+            <th key={c.header || i}>{c.header}</th>
           ))}
         </tr>
       </thead>
@@ -37,8 +37,8 @@ export default function Table<T>({
             className={`${onRowClick ? 'clickable ' : ''}${rowClass ? rowClass(row) : ''}`}
             onClick={onRowClick ? () => onRowClick(row) : undefined}
           >
-            {columns.map((c) => (
-              <td key={c.header}>{c.render(row)}</td>
+            {columns.map((c, i) => (
+              <td key={c.header || i}>{c.render(row)}</td>
             ))}
           </tr>
         ))}

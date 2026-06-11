@@ -1,4 +1,6 @@
 // Minimal toast bus: pages call toast(); the <Toasts/> host renders them.
+// Single-listener by design — mount exactly ONE <Toasts/> at the app root
+// (subscribe replaces any previous listener).
 export interface ToastItem {
   id: number
   kind: 'error' | 'info'
