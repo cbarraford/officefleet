@@ -740,6 +740,78 @@ func TestAssignment_UnknownAgentID_400(t *testing.T) {
 	}
 }
 
+// TestPatchDutyConfigSchemaSemantics verifies that explicit JSON null clears
+// config_schema while an absent field leaves it untouched (PATCH semantics).
+func TestPatchDutyConfigSchemaSemantics(t *testing.T) {
+	f := newEntityFixture(t)
+
+	// Create a duty with a non-empty config_schema.
+	createResp := f.do(t, "POST", "/api/v1/duties", map[string]any{
+		"name": "SchemaDuty",
+		"config_schema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"ticket": map[string]any{"type": "string"},
+			},
+		},
+	})
+	if createResp.StatusCode != http.StatusCreated {
+		t.Fatalf("create duty: status = %d, want 201", createResp.StatusCode)
+	}
+	var created map[string]any
+	decodeBody(t, createResp, &created)
+	dutyID := created["id"].(string)
+
+	// Sanity: GET confirms schema is set.
+	getResp := f.do(t, "GET", "/api/v1/duties/"+dutyID, nil)
+	var got map[string]any
+	decodeBody(t, getResp, &got)
+	if got["config_schema"] == nil {
+		t.Fatal("precondition: config_schema should be set after create")
+	}
+
+	// PATCH with "config_schema": null → should clear the schema.
+	// json.Marshal(nil interface{}) produces "null", which is what we want.
+	patchNullResp := f.do(t, "PATCH", "/api/v1/duties/"+dutyID, map[string]any{
+		"config_schema": nil,
+	})
+	if patchNullResp.StatusCode != http.StatusOK {
+		t.Fatalf("patch null config_schema: status = %d, want 200", patchNullResp.StatusCode)
+	}
+	var afterNull map[string]any
+	decodeBody(t, patchNullResp, &afterNull)
+	if afterNull["config_schema"] != nil {
+		t.Errorf("after PATCH null: config_schema = %v, want nil/null", afterNull["config_schema"])
+	}
+
+	// Re-seed schema via POST (create a fresh duty).
+	create2Resp := f.do(t, "POST", "/api/v1/duties", map[string]any{
+		"name": "SchemaDuty2",
+		"config_schema": map[string]any{
+			"type": "object",
+		},
+	})
+	if create2Resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create duty2: status = %d, want 201", create2Resp.StatusCode)
+	}
+	var created2 map[string]any
+	decodeBody(t, create2Resp, &created2)
+	duty2ID := created2["id"].(string)
+
+	// PATCH with config_schema absent → schema must be preserved.
+	patchNameResp := f.do(t, "PATCH", "/api/v1/duties/"+duty2ID, map[string]any{
+		"name": "SchemaDuty2-renamed",
+	})
+	if patchNameResp.StatusCode != http.StatusOK {
+		t.Fatalf("patch name only: status = %d, want 200", patchNameResp.StatusCode)
+	}
+	var afterAbsent map[string]any
+	decodeBody(t, patchNameResp, &afterAbsent)
+	if afterAbsent["config_schema"] == nil {
+		t.Errorf("after PATCH absent field: config_schema should be preserved but got nil")
+	}
+}
+
 // TestAgentCreate_KnownBackend ensures a known backend ref is accepted.
 func TestAgentCreate_KnownBackend_201(t *testing.T) {
 	f := newEntityFixture(t)

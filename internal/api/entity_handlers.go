@@ -205,7 +205,7 @@ type dutyBody struct {
 	Prompt        *string                   `json:"prompt"`
 	RequiredTools []string                  `json:"required_tools"`
 	OutputActions []domain.OutputActionType `json:"output_actions"`
-	ConfigSchema  map[string]any            `json:"config_schema"`
+	ConfigSchema  json.RawMessage           `json:"config_schema"`
 	Backend       *domain.BackendRef        `json:"backend"`
 }
 
@@ -239,8 +239,16 @@ func (a *API) applyDutyBody(b *dutyBody, duty *domain.Duty) error {
 	if b.OutputActions != nil {
 		duty.OutputActions = b.OutputActions
 	}
-	if b.ConfigSchema != nil {
-		duty.ConfigSchema = b.ConfigSchema
+	if len(b.ConfigSchema) > 0 {
+		if string(b.ConfigSchema) == "null" {
+			duty.ConfigSchema = nil
+		} else {
+			var m map[string]any
+			if err := json.Unmarshal(b.ConfigSchema, &m); err != nil {
+				return errValidation("config_schema must be a JSON object")
+			}
+			duty.ConfigSchema = m
+		}
 	}
 	if b.Backend != nil {
 		if !a.backendNameExists(b.Backend) {
