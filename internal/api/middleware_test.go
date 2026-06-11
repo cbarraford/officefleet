@@ -153,3 +153,17 @@ func TestMeReturnsUsernameAndRole(t *testing.T) {
 		t.Errorf("role = %q, want admin", body["role"])
 	}
 }
+
+func TestMeDeletedUserUnauthorized(t *testing.T) {
+	a, token := authedAPI(t, domain.RoleAdmin)
+	// Simulate the account being deleted while the session lives on.
+	if err := a.users.Delete(context.Background(), "tester-admin"); err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	a.Mount(mux)
+	resp := doReq(t, mux, http.MethodGet, "/api/v1/me", token)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", resp.StatusCode)
+	}
+}
