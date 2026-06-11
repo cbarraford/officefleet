@@ -22,6 +22,8 @@ type Agent struct {
 	SystemPrompt   string     `db:"system_prompt"`
 	DefaultBackend BackendRef `db:"default_backend"`
 	Enabled        bool       `db:"enabled"`
+	AvatarURL      *string    `db:"avatar_url"` // generated/uploaded avatar (SP4c fills it)
+	HiredAt        *time.Time `db:"hired_at"`   // "hire date" flavour shown in the UI
 	CreatedAt      time.Time  `db:"created_at"`
 	UpdatedAt      time.Time  `db:"updated_at"`
 }
@@ -150,4 +152,37 @@ type Run struct {
 	StartedAt            time.Time        `db:"started_at"`
 	FinishedAt           *time.Time       `db:"finished_at"`
 	Error                *string          `db:"error"`
+}
+
+// User is an operator account. Roles: admin (full control) | viewer (read-only).
+type User struct {
+	ID           uuid.UUID `db:"id"`
+	Username     string    `db:"username"`
+	PasswordHash string    `db:"password_hash"`
+	Role         string    `db:"role"`
+	CreatedAt    time.Time `db:"created_at"`
+	UpdatedAt    time.Time `db:"updated_at"`
+}
+
+const (
+	RoleAdmin  = "admin"
+	RoleViewer = "viewer"
+)
+
+// AgentStats is the derived per-agent metrics view (spec.md §6) — computed
+// from runs on demand, never stored.
+type AgentStats struct {
+	AgentID          uuid.UUID  `json:"agent_id"`
+	TotalRuns        int        `json:"total_runs"`
+	RunsLast30d      int        `json:"runs_last_30d"`
+	SuccessRate      float64    `json:"success_rate"` // succeeded/(succeeded+failed), last 30d; 0 when no terminal runs
+	SkipRate         float64    `json:"skip_rate"`    // skipped/total, last 30d; 0 when no runs
+	TotalTokens      int        `json:"total_tokens"`
+	TotalCostUSD     float64    `json:"total_cost_usd"`
+	TokensLast30d    int        `json:"tokens_last_30d"`
+	CostLast30dUSD   float64    `json:"cost_last_30d_usd"`
+	OutputsDelivered int        `json:"outputs_delivered"`
+	OutputsLast30d   int        `json:"outputs_last_30d"`
+	AvgRunDurationS  float64    `json:"avg_run_duration_s"`
+	LastRunAt        *time.Time `json:"last_run_at"`
 }

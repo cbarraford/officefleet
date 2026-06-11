@@ -20,8 +20,8 @@ func (r *AgentRepo) Insert(ctx context.Context, a *domain.Agent) error {
 	}
 	backendJSON, _ := json.Marshal(a.DefaultBackend)
 	_, err := r.db.Exec(ctx,
-		"INSERT INTO agents (id, name, role, system_prompt, default_backend, enabled) VALUES ($1,$2,$3,$4,$5,$6)",
-		a.ID, a.Name, a.Role, a.SystemPrompt, backendJSON, a.Enabled)
+		"INSERT INTO agents (id, name, role, system_prompt, default_backend, enabled, avatar_url, hired_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+		a.ID, a.Name, a.Role, a.SystemPrompt, backendJSON, a.Enabled, a.AvatarURL, a.HiredAt)
 	return err
 }
 
@@ -31,8 +31,8 @@ func (r *AgentRepo) UpsertByName(ctx context.Context, a *domain.Agent) error {
 	}
 	backendJSON, _ := json.Marshal(a.DefaultBackend)
 	return r.db.QueryRow(ctx,
-		`INSERT INTO agents (id, name, role, system_prompt, default_backend, enabled)
-		 VALUES ($1,$2,$3,$4,$5,$6)
+		`INSERT INTO agents (id, name, role, system_prompt, default_backend, enabled, avatar_url, hired_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
 		 ON CONFLICT (name) DO UPDATE SET
 		   role=EXCLUDED.role,
 		   system_prompt=EXCLUDED.system_prompt,
@@ -40,19 +40,25 @@ func (r *AgentRepo) UpsertByName(ctx context.Context, a *domain.Agent) error {
 		   enabled=EXCLUDED.enabled,
 		   updated_at=NOW()
 		 RETURNING id`,
-		a.ID, a.Name, a.Role, a.SystemPrompt, backendJSON, a.Enabled,
+		a.ID, a.Name, a.Role, a.SystemPrompt, backendJSON, a.Enabled, a.AvatarURL, a.HiredAt,
 	).Scan(&a.ID)
 }
 
 func (r *AgentRepo) GetByName(ctx context.Context, name string) (*domain.Agent, error) {
 	row := r.db.QueryRow(ctx,
-		"SELECT id, name, role, system_prompt, default_backend, enabled, created_at, updated_at FROM agents WHERE name=$1", name)
+		"SELECT id, name, role, system_prompt, default_backend, enabled, avatar_url, hired_at, created_at, updated_at FROM agents WHERE name=$1", name)
+	return scanAgent(row)
+}
+
+func (r *AgentRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Agent, error) {
+	row := r.db.QueryRow(ctx,
+		"SELECT id, name, role, system_prompt, default_backend, enabled, avatar_url, hired_at, created_at, updated_at FROM agents WHERE id=$1", id)
 	return scanAgent(row)
 }
 
 func (r *AgentRepo) List(ctx context.Context) ([]*domain.Agent, error) {
 	rows, err := r.db.Query(ctx,
-		"SELECT id, name, role, system_prompt, default_backend, enabled, created_at, updated_at FROM agents ORDER BY name")
+		"SELECT id, name, role, system_prompt, default_backend, enabled, avatar_url, hired_at, created_at, updated_at FROM agents ORDER BY name")
 	if err != nil {
 		return nil, err
 	}
@@ -68,6 +74,34 @@ func (r *AgentRepo) List(ctx context.Context) ([]*domain.Agent, error) {
 	return out, rows.Err()
 }
 
+// Update persists every editable field by id (PATCH semantics live in the API
+// layer: it loads, applies provided fields, then calls Update).
+func (r *AgentRepo) Update(ctx context.Context, a *domain.Agent) error {
+	backendJSON, _ := json.Marshal(a.DefaultBackend)
+	tag, err := r.db.Exec(ctx,
+		`UPDATE agents SET name=$2, role=$3, system_prompt=$4, default_backend=$5,
+		   enabled=$6, avatar_url=$7, hired_at=$8, updated_at=NOW() WHERE id=$1`,
+		a.ID, a.Name, a.Role, a.SystemPrompt, backendJSON, a.Enabled, a.AvatarURL, a.HiredAt)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("agent %s not found", a.ID)
+	}
+	return nil
+}
+
+func (r *AgentRepo) Delete(ctx context.Context, id uuid.UUID) error {
+	tag, err := r.db.Exec(ctx, "DELETE FROM agents WHERE id=$1", id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("agent %s not found", id)
+	}
+	return nil
+}
+
 type scanner interface {
 	Scan(dest ...any) error
 }
@@ -75,7 +109,8 @@ type scanner interface {
 func scanAgent(s scanner) (*domain.Agent, error) {
 	var a domain.Agent
 	var backendJSON []byte
-	if err := s.Scan(&a.ID, &a.Name, &a.Role, &a.SystemPrompt, &backendJSON, &a.Enabled, &a.CreatedAt, &a.UpdatedAt); err != nil {
+	if err := s.Scan(&a.ID, &a.Name, &a.Role, &a.SystemPrompt, &backendJSON, &a.Enabled,
+		&a.AvatarURL, &a.HiredAt, &a.CreatedAt, &a.UpdatedAt); err != nil {
 		return nil, fmt.Errorf("scan agent: %w", err)
 	}
 	_ = json.Unmarshal(backendJSON, &a.DefaultBackend)
