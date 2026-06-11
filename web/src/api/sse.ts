@@ -36,24 +36,26 @@ export function connectStream(
   let stopped = false
 
   const open = () => {
-    source = makeSource('/api/v1/stream')
-    source.onopen = () => {
+    const es = makeSource('/api/v1/stream')
+    source = es
+    es.onopen = () => {
       delay = INITIAL_DELAY_MS
       handlers.onStatus?.(true)
       if (everOpened) handlers.onReconnect?.()
       everOpened = true
     }
-    source.onmessage = (ev) => {
+    es.onmessage = (ev) => {
       try {
         handlers.onMessage?.(JSON.parse(ev.data) as StreamMsg)
       } catch {
         // malformed payload: ignore (feed is advisory)
       }
     }
-    source.onerror = () => {
+    es.onerror = () => {
+      if (stopped || source !== es) return // stale/duplicate error from an old source
+      source = null
       handlers.onStatus?.(false)
-      source?.close()
-      if (stopped) return
+      es.close()
       timer = setTimeout(open, delay)
       delay = Math.min(delay * 2, MAX_DELAY_MS)
     }

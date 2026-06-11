@@ -109,4 +109,17 @@ describe('connectStream', () => {
     expect(FakeEventSource.instances).toHaveLength(1)
     expect(latest().closed).toBe(true)
   })
+
+  it('a duplicate error from the same source does not double-schedule', () => {
+    const onStatus = vi.fn()
+    connectStream({ onStatus }, factory)
+    latest().onopen?.()
+    latest().onerror?.()
+    latest().onerror?.() // duplicate from the same (now closed) source
+    expect(onStatus).toHaveBeenCalledTimes(2) // true, false — not false twice
+    vi.advanceTimersByTime(1000)
+    expect(FakeEventSource.instances).toHaveLength(2) // one retry, not two
+    vi.advanceTimersByTime(60000)
+    expect(FakeEventSource.instances).toHaveLength(2) // and no stragglers
+  })
 })
