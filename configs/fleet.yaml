@@ -6,6 +6,9 @@ serve:
   workers: 4             # dispatcher worker pool
   rescan_interval: 30s   # pending-event redispatch period
 #  secure_cookies: true  # set when serving behind TLS
+#  avatar_backend: dalle      # unset => initials-SVG fallback only
+#  avatars_dir: ./avatars     # default ./avatars
+#  avatar_prompt: "Professional illustrated headshot of a {{.Role}} named {{.Name}}, neutral background, corporate style"
 
 backends:
   - name: claude-default
@@ -43,6 +46,15 @@ backends:
 #    kind: voter
 #    strategy: first_success       # or: majority (plurality on status code)
 #    panel: [claude-default, local-ollama]
+
+# Image backends generate agent avatars (spec §6.1). Separate from LLM backends.
+# image_backends:
+#   - name: dalle
+#     kind: openai-image-compatible
+#     base_uri: https://api.openai.com/v1
+#     model: gpt-image-1
+#     auth: { mode: api_key, api_key: YOUR-OPENAI-API-KEY }
+#     size: 256x256            # optional; default 256x256
 
 agents:
   - name: dev-1

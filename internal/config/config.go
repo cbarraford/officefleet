@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/cbarraford/office-fleet/internal/domain"
@@ -40,6 +41,18 @@ type Backend struct {
 	// Voter (kind: voter only).
 	Strategy string   `yaml:"strategy,omitempty"` // first_success | majority
 	Panel    []string `yaml:"panel,omitempty"`    // names of non-voter backends
+}
+
+// ImageBackend is a named image-generation provider (separate list from LLM
+// backends — avatars only, spec §6.1 / SP4c). v1 supports one kind:
+// openai-image-compatible (POST {base_uri}/images/generations, b64 response).
+type ImageBackend struct {
+	Name    string      `yaml:"name"`
+	Kind    string      `yaml:"kind"` // openai-image-compatible
+	BaseURI string      `yaml:"base_uri"`
+	Model   string      `yaml:"model"`
+	Auth    BackendAuth `yaml:"auth"`
+	Size    string      `yaml:"size,omitempty"` // e.g. "256x256" (generator default when empty)
 }
 
 // AgentConfig configures one agent (mirrors domain.Agent plus YAML BackendRef).
@@ -94,17 +107,25 @@ type ServeConfig struct {
 	Workers        int    `yaml:"workers,omitempty"`         // dispatcher pool; default 4
 	RescanInterval string `yaml:"rescan_interval,omitempty"` // Go duration; default "30s"
 	SecureCookies  bool   `yaml:"secure_cookies,omitempty"`  // set true when serving behind TLS
+
+	// Avatars (SP4c). AvatarBackend names an image_backends entry; unset
+	// means initials-fallback only. AvatarPrompt is a Go text/template with
+	// {{.Name}} and {{.Role}}; empty uses the built-in default.
+	AvatarBackend string `yaml:"avatar_backend,omitempty"`
+	AvatarsDir    string `yaml:"avatars_dir,omitempty"` // default "./avatars"
+	AvatarPrompt  string `yaml:"avatar_prompt,omitempty"`
 }
 
 // Config is the root fleet.yaml configuration.
 type Config struct {
-	Database    DatabaseConfig     `yaml:"database"`
-	Serve       ServeConfig        `yaml:"serve,omitempty"`
-	Backends    []Backend          `yaml:"backends"`
-	Plugins     []PluginConfig     `yaml:"plugins"`
-	Agents      []AgentConfig      `yaml:"agents"`
-	Duties      []DutyConfig       `yaml:"duties"`
-	Assignments []AssignmentConfig `yaml:"assignments"`
+	Database      DatabaseConfig     `yaml:"database"`
+	Serve         ServeConfig        `yaml:"serve,omitempty"`
+	Backends      []Backend          `yaml:"backends"`
+	ImageBackends []ImageBackend     `yaml:"image_backends,omitempty"`
+	Plugins       []PluginConfig     `yaml:"plugins"`
+	Agents        []AgentConfig      `yaml:"agents"`
+	Duties        []DutyConfig       `yaml:"duties"`
+	Assignments   []AssignmentConfig `yaml:"assignments"`
 }
 
 // Load reads and parses a fleet.yaml file, expanding ${secret:name} and ${env:name} references.
@@ -205,6 +226,47 @@ func Validate(cfg *Config) []error {
 			if backendKind[member] == "voter" {
 				errs = append(errs, fmt.Errorf("backend %q: panel member %q is a voter; voter nesting is not supported", b.Name, member))
 			}
+		}
+	}
+
+	imageBackendNames := map[string]bool{}
+	for i := range cfg.ImageBackends {
+		ib := &cfg.ImageBackends[i]
+		if ib.Name == "" {
+			errs = append(errs, fmt.Errorf("image backend missing name"))
+			continue
+		}
+		if imageBackendNames[ib.Name] {
+			errs = append(errs, fmt.Errorf("duplicate image backend name: %q", ib.Name))
+		}
+		imageBackendNames[ib.Name] = true
+		if ib.Kind != "openai-image-compatible" {
+			errs = append(errs, fmt.Errorf("image backend %q: unknown kind %q", ib.Name, ib.Kind))
+		}
+		if ib.BaseURI == "" {
+			errs = append(errs, fmt.Errorf("image backend %q: requires base_uri", ib.Name))
+		}
+		if ib.Model == "" {
+			errs = append(errs, fmt.Errorf("image backend %q: requires model", ib.Name))
+		}
+		if ib.Auth.Mode == "" {
+			ib.Auth.Mode = "none"
+		}
+		switch ib.Auth.Mode {
+		case "api_key", "none":
+		default:
+			errs = append(errs, fmt.Errorf("image backend %q: unknown auth mode %q (api_key or none)", ib.Name, ib.Auth.Mode))
+		}
+		if ib.Auth.Mode == "api_key" && strings.TrimSpace(ib.Auth.APIKey) == "" {
+			errs = append(errs, fmt.Errorf("image backend %q: auth mode api_key requires api_key to be set", ib.Name))
+		}
+	}
+	if cfg.Serve.AvatarBackend != "" && !imageBackendNames[cfg.Serve.AvatarBackend] {
+		errs = append(errs, fmt.Errorf("serve: avatar_backend %q is not a defined image backend", cfg.Serve.AvatarBackend))
+	}
+	if cfg.Serve.AvatarPrompt != "" {
+		if _, err := template.New("avatar_prompt").Parse(cfg.Serve.AvatarPrompt); err != nil {
+			errs = append(errs, fmt.Errorf("serve: invalid avatar_prompt: %v", err))
 		}
 	}
 

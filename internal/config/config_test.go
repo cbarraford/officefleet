@@ -703,6 +703,79 @@ func TestValidate_EventSubscriptionDutyKindMismatch(t *testing.T) {
 	errorsContain(t, config.Validate(cfg), "trigger_kinds")
 }
 
+func TestValidateImageBackends(t *testing.T) {
+	base := func() *config.Config {
+		return &config.Config{
+			ImageBackends: []config.ImageBackend{{
+				Name: "dalle", Kind: "openai-image-compatible",
+				BaseURI: "https://api.openai.com/v1", Model: "gpt-image-1",
+				Auth: config.BackendAuth{Mode: "api_key", APIKey: "k"},
+			}},
+		}
+	}
+
+	t.Run("valid passes", func(t *testing.T) {
+		if errs := config.Validate(base()); len(errs) != 0 {
+			t.Fatalf("unexpected errors: %v", errs)
+		}
+	})
+
+	cases := []struct {
+		name    string
+		mutate  func(*config.Config)
+		wantSub string
+	}{
+		{"missing name", func(c *config.Config) { c.ImageBackends[0].Name = "" }, "image backend missing name"},
+		{"duplicate name", func(c *config.Config) {
+			c.ImageBackends = append(c.ImageBackends, c.ImageBackends[0])
+		}, "duplicate image backend name"},
+		{"unknown kind", func(c *config.Config) { c.ImageBackends[0].Kind = "stable-diffusion" }, "unknown kind"},
+		{"missing base_uri", func(c *config.Config) { c.ImageBackends[0].BaseURI = "" }, "requires base_uri"},
+		{"missing model", func(c *config.Config) { c.ImageBackends[0].Model = "" }, "requires model"},
+		{"bad auth mode", func(c *config.Config) { c.ImageBackends[0].Auth.Mode = "subscription" }, "auth mode"},
+		{"api_key mode without key", func(c *config.Config) {
+			c.ImageBackends[0].Auth = config.BackendAuth{Mode: "api_key"}
+		}, "requires api_key"},
+		{"avatar_backend undefined", func(c *config.Config) { c.Serve.AvatarBackend = "missing" }, "avatar_backend"},
+		{"avatar_prompt unparsable", func(c *config.Config) { c.Serve.AvatarPrompt = "{{.Name" }, "avatar_prompt"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := base()
+			tc.mutate(cfg)
+			errs := config.Validate(cfg)
+			found := false
+			for _, e := range errs {
+				if strings.Contains(e.Error(), tc.wantSub) {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("Validate() = %v, want an error containing %q", errs, tc.wantSub)
+			}
+		})
+	}
+
+	t.Run("avatar_backend referencing a defined backend passes", func(t *testing.T) {
+		cfg := base()
+		cfg.Serve.AvatarBackend = "dalle"
+		if errs := config.Validate(cfg); len(errs) != 0 {
+			t.Fatalf("unexpected errors: %v", errs)
+		}
+	})
+
+	t.Run("auth mode none is valid and empty mode normalizes to none", func(t *testing.T) {
+		cfg := base()
+		cfg.ImageBackends[0].Auth = config.BackendAuth{}
+		if errs := config.Validate(cfg); len(errs) != 0 {
+			t.Fatalf("unexpected errors: %v", errs)
+		}
+		if cfg.ImageBackends[0].Auth.Mode != "none" {
+			t.Errorf("mode = %q, want normalized none", cfg.ImageBackends[0].Auth.Mode)
+		}
+	})
+}
+
 func TestValidate_ServeBlock(t *testing.T) {
 	cfg := eventSubConfig()
 	cfg.Serve = config.ServeConfig{Workers: -1}
