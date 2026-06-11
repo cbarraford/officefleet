@@ -124,7 +124,7 @@ func (a *API) handleRunNow(w http.ResponseWriter, r *http.Request) {
 	run, err := a.invoker.Invoke(r.Context(), id, "manual", nil, body.Params)
 	if err != nil {
 		a.logf("api: run-now %s: %v", id, err)
-		writeError(w, http.StatusInternalServerError, "run failed to start: "+err.Error())
+		writeError(w, http.StatusInternalServerError, "run failed to start")
 		return
 	}
 	writeJSON(w, http.StatusOK, run)
