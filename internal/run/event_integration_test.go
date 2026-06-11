@@ -174,6 +174,19 @@ func TestEventVertical_WebhookToRun(t *testing.T) {
 		t.Fatalf("duplicate webhook status = %d", resp2.StatusCode)
 	}
 
+	// Event-level dedup: same MR+SHA via webhook again -> still exactly one
+	// event and exactly one run.
+	if pending, _ := store.ListPending(ctx, 10); len(pending) != 0 {
+		t.Errorf("pending after duplicate webhook = %d, want 0 (dedup)", len(pending))
+	}
+	if got := len(rr.snapshot()); got != 1 {
+		t.Errorf("runs after duplicate webhook = %d, want 1", got)
+	}
+
+	// NOTE: the replay's "exactly one skipped run" invariant relies on
+	// dispatcher.Run serializing dispatch calls (single goroutine consumes
+	// bus + ticker); the bus nudge and a rescan tick can both target this
+	// event but never concurrently.
 	// --- replay: re-queue and expect a dedup-SKIPPED second run ---
 	if err := store.MarkPending(ctx, evID); err != nil {
 		t.Fatal(err)
