@@ -239,6 +239,43 @@ func (f *fakeUserStore) Delete(_ context.Context, username string) error {
 	return nil
 }
 
+type fakeAvatarService struct {
+	mu       sync.Mutex
+	assigned []uuid.UUID
+	uploads  map[uuid.UUID][]byte
+}
+
+func newFakeAvatarService() *fakeAvatarService {
+	return &fakeAvatarService{uploads: map[uuid.UUID][]byte{}}
+}
+
+func (f *fakeAvatarService) Assign(agent *domain.Agent) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.assigned = append(f.assigned, agent.ID)
+}
+
+func (f *fakeAvatarService) SetUpload(_ context.Context, id uuid.UUID, png []byte) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	cp := make([]byte, len(png))
+	copy(cp, png)
+	f.uploads[id] = cp
+	return "/avatars/" + id.String() + ".png?v=1", nil
+}
+
+func (f *fakeAvatarService) assignedIDs() []uuid.UUID {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]uuid.UUID(nil), f.assigned...)
+}
+
+func (f *fakeAvatarService) uploadFor(id uuid.UUID) []byte {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.uploads[id]
+}
+
 type fakeInvoker struct {
 	mu        sync.Mutex
 	calls     []invokerCall

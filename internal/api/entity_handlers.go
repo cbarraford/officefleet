@@ -125,6 +125,9 @@ func (a *API) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+	if a.avatars != nil {
+		a.avatars.Assign(agent) // async per §6.1 — creation never blocks on imagery
+	}
 	writeJSON(w, http.StatusCreated, agent)
 }
 

@@ -77,6 +77,13 @@ type Encryptor interface {
 	Encrypt(plain []byte) ([]byte, error)
 }
 
+// AvatarService triggers avatar generation/storage; nil means avatars are
+// not wired (tests). Implemented by avatar.Service.
+type AvatarService interface {
+	Assign(agent *domain.Agent)
+	SetUpload(ctx context.Context, id uuid.UUID, png []byte) (string, error)
+}
+
 // API carries the dependencies for every handler.
 type API struct {
 	agents        AgentStore
@@ -92,6 +99,7 @@ type API struct {
 	isEncrypted   func([]byte) bool // secrets.IsEncrypted
 	notify        func(uuid.UUID)   // dispatcher nudge for replay; nil-safe
 	cfg           *config.Config    // backends listing + validation parity
+	avatars       AvatarService     // nil = avatars not wired
 	broadcaster   *Broadcaster
 	secureCookies bool
 	logf          func(format string, args ...any)
@@ -114,6 +122,7 @@ type Deps struct {
 	IsEncrypted   func([]byte) bool
 	Notify        func(uuid.UUID)
 	Config        *config.Config
+	Avatars       AvatarService
 	SecureCookies bool
 }
 
@@ -123,6 +132,7 @@ func New(d Deps) *API {
 		runs: d.Runs, events: d.Events, secretsRepo: d.Secrets, users: d.Users,
 		sessions: d.Sessions, invoker: d.Invoker, encryptor: d.Encryptor,
 		isEncrypted: d.IsEncrypted, notify: d.Notify, cfg: d.Config,
+		avatars:       d.Avatars,
 		broadcaster:   NewBroadcaster(),
 		secureCookies: d.SecureCookies,
 		logf:          func(format string, args ...any) { fmt.Fprintf(os.Stderr, format+"\n", args...) },
@@ -152,6 +162,8 @@ func (a *API) authedMux() *http.ServeMux {
 	m.HandleFunc("PATCH /api/v1/agents/{id}", a.handlePatchAgent)
 	m.HandleFunc("DELETE /api/v1/agents/{id}", a.handleDeleteAgent)
 	m.HandleFunc("GET /api/v1/agents/{id}/stats", a.handleAgentStats)
+	m.HandleFunc("POST /api/v1/agents/{id}/avatar/regenerate", a.handleRegenerateAvatar)
+	m.HandleFunc("PUT /api/v1/agents/{id}/avatar", a.handleUploadAvatar)
 
 	m.HandleFunc("GET /api/v1/duties", a.handleListDuties)
 	m.HandleFunc("POST /api/v1/duties", a.handleCreateDuty)
