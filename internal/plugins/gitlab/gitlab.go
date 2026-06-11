@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cbarraford/office-fleet/internal/plugin"
 )
@@ -16,17 +17,21 @@ func init() {
 	plugin.Register(&GitLabPlugin{})
 }
 
-// GitLabPlugin is the GitLab integration plugin (SP1 scope: post_mr_comment action).
+// GitLabPlugin is the GitLab integration plugin: actions (post_mr_comment)
+// plus the mr_events source (webhook push + poll).
 type GitLabPlugin struct {
-	token   string
-	baseURL string
+	token         string
+	baseURL       string
+	webhookSecret string
+	pollProjects  []string
+	pollInterval  time.Duration
 }
 
 func (g *GitLabPlugin) Name() string { return "gitlab" }
 
 func (g *GitLabPlugin) EventSources() []plugin.EventSource {
 	return []plugin.EventSource{
-		{Name: "mr_events", Description: "Merge request opened/updated events (wired in SP3)"},
+		{Name: "mr_events", Description: "Merge request opened/updated/merged/closed events (webhook + poll)"},
 	}
 }
 
@@ -42,7 +47,9 @@ func (g *GitLabPlugin) ConfigSchema() plugin.Schema {
 	return plugin.Schema{
 		"type": "object",
 		"properties": map[string]any{
-			"base_url": map[string]any{"type": "string", "default": "https://gitlab.com"},
+			"base_url":      map[string]any{"type": "string", "default": "https://gitlab.com"},
+			"poll_interval": map[string]any{"type": "string", "default": "60s"},
+			"poll_projects": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 		},
 	}
 }
@@ -57,6 +64,31 @@ func (g *GitLabPlugin) Init(_ context.Context, cfg map[string]any, secrets plugi
 		g.baseURL = strings.TrimRight(u, "/")
 	} else {
 		g.baseURL = "https://gitlab.com"
+	}
+
+	// Webhook secret: optional at init; the webhook handler rejects all
+	// requests when it is unset (push ingestion requires it).
+	ws, err := secrets("gitlab_webhook_secret")
+	if err != nil {
+		return fmt.Errorf("gitlab: resolve secret gitlab_webhook_secret: %w", err)
+	}
+	g.webhookSecret = ws
+
+	g.pollInterval = time.Minute
+	if v, ok := cfg["poll_interval"].(string); ok && v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("gitlab: invalid poll_interval %q: %w", v, err)
+		}
+		g.pollInterval = d
+	}
+	g.pollProjects = nil
+	if list, ok := cfg["poll_projects"].([]any); ok {
+		for _, item := range list {
+			if s, ok := item.(string); ok && s != "" {
+				g.pollProjects = append(g.pollProjects, s)
+			}
+		}
 	}
 	return nil
 }
