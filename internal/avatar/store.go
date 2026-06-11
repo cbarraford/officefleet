@@ -74,6 +74,13 @@ func MountHTTP(mux *http.ServeMux, dir string) {
 			http.NotFound(w, r)
 			return
 		}
+		if strings.HasSuffix(name, ".svg") {
+			// SVGs can carry scripts; sandbox them when fetched directly so
+			// /avatars/* can never run code in the app's origin. <img> usage
+			// is unaffected (resource CSP applies to navigation, not
+			// image embedding).
+			w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'; style-src 'unsafe-inline'")
+		}
 		http.ServeFile(w, r, full)
 	})
 }
