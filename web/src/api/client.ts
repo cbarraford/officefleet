@@ -34,10 +34,6 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     init.body = JSON.stringify(body)
   }
   const res = await fetch(path, init)
-  if (res.status === 401) {
-    cfg.onUnauthorized()
-    throw new ApiError(401, 'authentication required')
-  }
   if (!res.ok) {
     let msg = `request failed (${res.status})`
     try {
@@ -47,6 +43,10 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       }
     } catch {
       // non-JSON error body: keep the generic message
+    }
+    if (res.status === 401) {
+      cfg.onUnauthorized()
+      throw new ApiError(401, msg === `request failed (401)` ? 'authentication required' : msg)
     }
     throw new ApiError(res.status, msg)
   }

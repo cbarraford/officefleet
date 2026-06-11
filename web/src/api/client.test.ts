@@ -71,13 +71,18 @@ describe('api client', () => {
     expect((err as ApiError).message).toBe('request failed (500)')
   })
 
-  it('invokes onUnauthorized and throws on 401', async () => {
+  it('invokes onUnauthorized and throws with the server message on 401', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(jsonResponse(401, { error: 'authentication required' })),
+      vi.fn().mockResolvedValue(jsonResponse(401, { error: 'invalid credentials' })),
     )
 
-    await expect(api.get('/api/v1/me')).rejects.toBeInstanceOf(ApiError)
+    const err = await api.get('/api/v1/me').then(
+      () => null,
+      (e: unknown) => e,
+    )
+    expect(err).toBeInstanceOf(ApiError)
+    expect((err as ApiError).message).toBe('invalid credentials')
     expect(onUnauthorized).toHaveBeenCalledOnce()
   })
 })
