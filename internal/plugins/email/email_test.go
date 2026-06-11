@@ -272,3 +272,17 @@ func TestInit_FromInjectionRejected(t *testing.T) {
 		t.Error("expected Init rejection for CR/LF in from")
 	}
 }
+
+func TestInit_PortAcceptsIntAndString(t *testing.T) {
+	lookup := func(string) (string, error) { return "", nil }
+	for _, port := range []any{465, float64(465), "465"} {
+		p := &EmailPlugin{}
+		cfg := map[string]any{"smtp_host": "h", "from": "a@b.c", "smtp_port": port}
+		if err := p.Init(context.Background(), cfg, lookup); err != nil {
+			t.Fatalf("port %v (%T): %v", port, port, err)
+		}
+		if p.port != "465" {
+			t.Errorf("port %v (%T): got %q, want 465", port, port, p.port)
+		}
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net/smtp"
+	"strconv"
 	"strings"
 
 	"github.com/cbarraford/office-fleet/internal/plugin"
@@ -65,8 +66,19 @@ func (e *EmailPlugin) Init(_ context.Context, cfg map[string]any, secrets plugin
 	e.host = host
 	e.from = from
 	e.port = "587"
-	if p, ok := cfg["smtp_port"].(string); ok && p != "" {
-		e.port = p
+	switch v := cfg["smtp_port"].(type) {
+	case string:
+		if v != "" {
+			e.port = v
+		}
+	case int:
+		if v > 0 {
+			e.port = strconv.Itoa(v)
+		}
+	case float64:
+		if v > 0 {
+			e.port = strconv.Itoa(int(v))
+		}
 	}
 	e.username = from
 	if u, ok := cfg["smtp_username"].(string); ok && u != "" {
