@@ -91,6 +91,20 @@ func (r *AgentRepo) Update(ctx context.Context, a *domain.Agent) error {
 	return nil
 }
 
+// UpdateAvatarURL sets only avatar_url — the async avatar worker must not
+// clobber concurrent full-row updates.
+func (r *AgentRepo) UpdateAvatarURL(ctx context.Context, id uuid.UUID, avatarURL string) error {
+	tag, err := r.db.Exec(ctx,
+		"UPDATE agents SET avatar_url=$2, updated_at=now() WHERE id=$1", id, avatarURL)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("agent %s not found", id)
+	}
+	return nil
+}
+
 func (r *AgentRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	tag, err := r.db.Exec(ctx, "DELETE FROM agents WHERE id=$1", id)
 	if err != nil {
