@@ -123,7 +123,9 @@ func parseClaudeOutput(data []byte) (domain.LLMResult, error) {
 			}
 		}
 	}
-	if v, ok := raw["cost_usd"].(float64); ok {
+	if v, ok := raw["total_cost_usd"].(float64); ok {
+		result.Cost = v
+	} else if v, ok := raw["cost_usd"].(float64); ok {
 		result.Cost = v
 	}
 	if v, ok := raw["usage"].(map[string]any); ok {
