@@ -25,6 +25,40 @@ func TestGitLabPlugin_InitSecretError(t *testing.T) {
 	}
 }
 
+func TestGitLabPlugin_InitRejectsEmptyToken(t *testing.T) {
+	p, ok := plugin.Get("gitlab")
+	if !ok {
+		t.Fatal("gitlab plugin not registered")
+	}
+	secrets := func(name string) (string, error) { return "", nil }
+	err := p.Init(context.Background(), nil, secrets)
+	if err == nil {
+		t.Fatal("expected error when gitlab_token is empty")
+	}
+	if !strings.Contains(err.Error(), "gitlab_token") {
+		t.Fatalf("err = %v, want gitlab_token context", err)
+	}
+}
+
+func TestGitLabPlugin_InitAllowsMissingWebhookSecret(t *testing.T) {
+	p, ok := plugin.Get("gitlab")
+	if !ok {
+		t.Fatal("gitlab plugin not registered")
+	}
+	secrets := func(name string) (string, error) {
+		switch name {
+		case "gitlab_token":
+			return "test-token", nil
+		case "gitlab_webhook_secret":
+			return "", &plugin.SecretNotFoundError{Name: name}
+		}
+		return "", nil
+	}
+	if err := p.Init(context.Background(), nil, secrets); err != nil {
+		t.Fatalf("Init returned error for missing optional webhook secret: %v", err)
+	}
+}
+
 func TestGitLabPlugin_PostMRComment(t *testing.T) {
 	var capturedBody string
 	var capturedPath string

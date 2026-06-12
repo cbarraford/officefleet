@@ -85,7 +85,7 @@ func (e *EmailPlugin) Init(_ context.Context, cfg map[string]any, secrets plugin
 		e.username = u
 	}
 	pw, err := secrets("smtp_password")
-	if err != nil {
+	if err != nil && !plugin.IsSecretNotFound(err) {
 		return fmt.Errorf("email: resolve secret smtp_password: %w", err)
 	}
 	e.password = pw // empty = unauthenticated relay

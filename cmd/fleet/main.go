@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
 
@@ -144,14 +145,17 @@ func decryptSecret(c *secrets.Cipher, name string, stored []byte) (string, error
 }
 
 // buildSecretLookup returns a SecretLookup that queries the secrets table and
-// decrypts FSEC1 values transparently. Missing secrets return ("", nil) so
-// --fake runs remain usable without seeded secrets.
+// decrypts FSEC1 values transparently. Missing or unreadable secrets fail
+// closed so plugins cannot silently run with empty credentials.
 func buildSecretLookup(ctx context.Context, pool *pgxpool.Pool, cipher *secrets.Cipher) plugin.SecretLookup {
 	return func(name string) (string, error) {
 		var val []byte
 		err := pool.QueryRow(ctx, "SELECT encrypted_value FROM secrets WHERE name=$1", name).Scan(&val)
 		if err != nil {
-			return "", nil
+			if errors.Is(err, pgx.ErrNoRows) {
+				return "", &plugin.SecretNotFoundError{Name: name}
+			}
+			return "", fmt.Errorf("query secret %q: %w", name, err)
 		}
 		return decryptSecret(cipher, name, val)
 	}
@@ -190,7 +194,8 @@ func (d *dbSecretsProvider) Load(ctx context.Context) (map[string]string, error)
 }
 
 // initPlugins initialises all registered plugins using config and DB secrets.
-func initPlugins(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, cipher *secrets.Cipher) {
+func initPlugins(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, cipher *secrets.Cipher) map[string]error {
+	failures := map[string]error{}
 	secretLookup := buildSecretLookup(ctx, pool, cipher)
 	for _, p := range plugin.All() {
 		var pluginCfg map[string]any
@@ -204,9 +209,32 @@ func initPlugins(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, ci
 			pluginCfg = map[string]any{}
 		}
 		if err := p.Init(ctx, pluginCfg, secretLookup); err != nil {
+			failures[p.Name()] = err
 			fmt.Fprintf(os.Stderr, "warning: plugin %q init failed: %v\n", p.Name(), err)
 		}
 	}
+	return failures
+}
+
+func pluginInitErrorForOutputs(outputs []domain.OutputBinding, failures map[string]error) error {
+	for _, out := range outputs {
+		if err := failures[out.Plugin]; err != nil {
+			return fmt.Errorf("plugin %q required for output action %q failed to initialize: %w", out.Plugin, out.Action, err)
+		}
+	}
+	return nil
+}
+
+func pluginInitErrorForAssignments(assignments []*domain.Assignment, failures map[string]error) error {
+	for _, assignment := range assignments {
+		if !assignment.Enabled {
+			continue
+		}
+		if err := pluginInitErrorForOutputs(assignment.Outputs, failures); err != nil {
+			return fmt.Errorf("assignment %s: %w", assignment.ID, err)
+		}
+	}
+	return nil
 }
 
 // migrateCmd runs DB migrations.
@@ -648,7 +676,10 @@ func runCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			initPlugins(ctx, cfg, pool, cipher)
+			pluginFailures := initPlugins(ctx, cfg, pool, cipher)
+			if err := pluginInitErrorForOutputs(assignment.Outputs, pluginFailures); err != nil {
+				return err
+			}
 
 			// Resolve executor.
 			var exec executor.Executor
@@ -759,9 +790,9 @@ func scheduleCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			initPlugins(ctx, cfg, pool, cipher)
+			pluginFailures := initPlugins(ctx, cfg, pool, cipher)
 			inv, _ := buildInvoker(cfg, pool, cipher)
-			return runSchedulerLoop(ctx, pool, inv)
+			return runSchedulerLoop(ctx, pool, inv, pluginFailures)
 		},
 	}
 }
@@ -777,7 +808,7 @@ func buildInvoker(cfg *config.Config, pool *pgxpool.Pool, cipher *secrets.Cipher
 }
 
 // runSchedulerLoop blocks running cron-triggered assignments until ctx is done.
-func runSchedulerLoop(ctx context.Context, pool *pgxpool.Pool, inv *run.Invoker) error {
+func runSchedulerLoop(ctx context.Context, pool *pgxpool.Pool, inv *run.Invoker, pluginFailures map[string]error) error {
 	assignments, err := repo.NewAssignmentRepo(pool).List(ctx)
 	if err != nil {
 		return fmt.Errorf("list assignments: %w", err)
@@ -786,6 +817,9 @@ func runSchedulerLoop(ctx context.Context, pool *pgxpool.Pool, inv *run.Invoker)
 	for _, a := range assignments {
 		if !a.Enabled || a.Trigger.Kind != "cron" {
 			continue
+		}
+		if err := pluginInitErrorForOutputs(a.Outputs, pluginFailures); err != nil {
+			return fmt.Errorf("assignment %s: %w", a.ID, err)
 		}
 		t := trigger.NewCron(a.Trigger.Schedule)
 		if err := sched.Add(a.ID.String(), t, time.Now()); err != nil {
@@ -841,7 +875,14 @@ func serveCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			initPlugins(ctx, cfg, pool, cipher)
+			pluginFailures := initPlugins(ctx, cfg, pool, cipher)
+			assignments, err := repo.NewAssignmentRepo(pool).List(ctx)
+			if err != nil {
+				return fmt.Errorf("list assignments: %w", err)
+			}
+			if err := pluginInitErrorForAssignments(assignments, pluginFailures); err != nil {
+				return err
+			}
 
 			// Warn about unencrypted secrets at startup.
 			if allSecrets, listErr := repo.NewSecretRepo(pool).List(ctx); listErr == nil {
@@ -967,7 +1008,7 @@ func serveCmd() *cobra.Command {
 			}()
 
 			go func() {
-				if err := runSchedulerLoop(ctx, pool, inv); err != nil {
+				if err := runSchedulerLoop(ctx, pool, inv, pluginFailures); err != nil {
 					fmt.Fprintf(os.Stderr, "serve: scheduler: %v\n", err)
 				}
 			}()

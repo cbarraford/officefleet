@@ -2,6 +2,8 @@ package plugin
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/cbarraford/office-fleet/internal/domain"
@@ -9,6 +11,19 @@ import (
 
 // SecretLookup resolves a named secret to its plaintext value.
 type SecretLookup func(name string) (string, error)
+
+type SecretNotFoundError struct {
+	Name string
+}
+
+func (e *SecretNotFoundError) Error() string {
+	return fmt.Sprintf("secret %q not found", e.Name)
+}
+
+func IsSecretNotFound(err error) bool {
+	var notFound *SecretNotFoundError
+	return errors.As(err, &notFound)
+}
 
 // Schema describes a JSON schema for plugin or assignment config.
 type Schema map[string]any

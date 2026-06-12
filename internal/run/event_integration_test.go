@@ -46,7 +46,10 @@ func TestEventVertical_WebhookToRun(t *testing.T) {
 		t.Fatal("gitlab plugin not registered")
 	}
 	secrets := func(name string) (string, error) {
-		if name == "gitlab_webhook_secret" {
+		switch name {
+		case "gitlab_token":
+			return "integration-token", nil
+		case "gitlab_webhook_secret":
 			return "integration-secret", nil
 		}
 		return "", nil
