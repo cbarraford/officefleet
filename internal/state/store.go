@@ -21,4 +21,11 @@ type Store interface {
 
 	// MarkProcessed records a dedupKey as processed.
 	MarkProcessed(ctx context.Context, assignmentID, dedupKey string) error
+
+	// ClaimProcessed atomically records a dedupKey and reports whether this
+	// caller won the claim. A false result means another run already owns it.
+	ClaimProcessed(ctx context.Context, assignmentID, dedupKey string) (bool, error)
+
+	// DeleteProcessed releases a claimed dedupKey after a non-successful run.
+	DeleteProcessed(ctx context.Context, assignmentID, dedupKey string) error
 }

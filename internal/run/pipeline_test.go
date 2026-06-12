@@ -29,6 +29,7 @@ func (f *fakeSecretsProvider) Load(_ context.Context) (map[string]string, error)
 type mockPlugin struct {
 	name   string
 	called bool
+	err    error
 }
 
 func (m *mockPlugin) Name() string                       { return m.name }
@@ -40,6 +41,9 @@ func (m *mockPlugin) Init(_ context.Context, _ map[string]any, _ plugin.SecretLo
 }
 func (m *mockPlugin) Do(_ context.Context, _ string, _ map[string]any) (map[string]any, error) {
 	m.called = true
+	if m.err != nil {
+		return nil, m.err
+	}
 	return map[string]any{}, nil
 }
 
@@ -884,8 +888,9 @@ func TestPipelineExecute_DedupSkip(t *testing.T) {
 		Config:  map[string]any{},
 	}
 
-	// Pre-mark the dedup key as processed so the pipeline skips.
-	if err := store.MarkProcessed(ctx, assignmentID.String(), "mr_iid:42"); err != nil {
+	// Pre-mark the dedup key as processed so the pipeline skips only this MR
+	// at this SHA.
+	if err := store.MarkProcessed(ctx, assignmentID.String(), "mr_iid:42:sha:abc123"); err != nil {
 		t.Fatalf("MarkProcessed: %v", err)
 	}
 
@@ -894,7 +899,7 @@ func TestPipelineExecute_DedupSkip(t *testing.T) {
 		Agent:       agent,
 		Duty:        duty,
 		TriggerKind: "event",
-		EventParams: map[string]any{"mr_iid": "42"},
+		EventParams: map[string]any{"mr_iid": "42", "last_commit_sha": "abc123"},
 		Executor:    fakeExec,
 	}
 
@@ -922,6 +927,90 @@ func TestPipelineExecute_DedupSkip(t *testing.T) {
 	}
 	if stored.Status != domain.RunStatusSkipped {
 		t.Errorf("expected stored run status %q, got %q", domain.RunStatusSkipped, stored.Status)
+	}
+}
+
+func TestPipelineExecute_PersistsReviewedSHAOnSuccess(t *testing.T) {
+	ctx := context.Background()
+	store := state.NewMemStore()
+	backendName := "reviewed-sha-backend"
+	cfg := &config.Config{Backends: []config.Backend{{
+		Name: backendName, Kind: "claude", Model: "claude-3-5-sonnet",
+		DefaultEffort: "normal", Auth: config.BackendAuth{Mode: "subscription"},
+	}}}
+	rr := newFakeRunRepo()
+	pipeline := &Pipeline{cfg: cfg, runRepo: rr, store: store}
+
+	agentID, dutyID, assignmentID := uuid.New(), uuid.New(), uuid.New()
+	_, err := pipeline.Execute(ctx, ExecuteRequest{
+		Assignment: &domain.Assignment{
+			ID: assignmentID, AgentID: agentID, DutyID: dutyID,
+			Enabled: true, Backend: &domain.BackendRef{Name: backendName}, Config: map[string]any{},
+		},
+		Agent:       &domain.Agent{ID: agentID, Name: "sha-agent", Role: "t", SystemPrompt: "s", Enabled: true},
+		Duty:        &domain.Duty{ID: dutyID, Name: "sha-duty", Role: "t", Description: "d", Prompt: "p"},
+		TriggerKind: "event",
+		EventParams: map[string]any{"dedup_key": "mr:org/repo:7:abc123def"},
+		Executor: executor.NewFakeExecutor(domain.LLMResult{
+			Status:  0,
+			Summary: "review complete\nREVIEWED_SHA=abc123def",
+			Output:  map[string]any{},
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := store.Get(ctx, assignmentID.String(), "last_reviewed_sha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || string(got) != "abc123def" {
+		t.Fatalf("last_reviewed_sha = %q ok=%v, want abc123def", got, ok)
+	}
+}
+
+func TestPipelineExecute_SkipSentinelSkipsDeliveryAndDedupMark(t *testing.T) {
+	ctx := context.Background()
+	mock := &mockPlugin{name: "skip-sentinel-plugin"}
+	plugin.Register(mock)
+
+	store := state.NewMemStore()
+	backendName := "skip-sentinel-backend"
+	cfg := &config.Config{Backends: []config.Backend{{
+		Name: backendName, Kind: "claude", Model: "claude-3-5-sonnet",
+		DefaultEffort: "normal", Auth: config.BackendAuth{Mode: "subscription"},
+	}}}
+	rr := newFakeRunRepo()
+	pipeline := &Pipeline{cfg: cfg, runRepo: rr, store: store}
+
+	agentID, dutyID, assignmentID := uuid.New(), uuid.New(), uuid.New()
+	run, err := pipeline.Execute(ctx, ExecuteRequest{
+		Assignment: &domain.Assignment{
+			ID: assignmentID, AgentID: agentID, DutyID: dutyID,
+			Enabled: true, Backend: &domain.BackendRef{Name: backendName}, Config: map[string]any{},
+			Outputs: []domain.OutputBinding{{Plugin: "skip-sentinel-plugin", Action: "notify", Params: map[string]any{"m": "x"}}},
+		},
+		Agent:       &domain.Agent{ID: agentID, Name: "skip-agent", Role: "t", SystemPrompt: "s", Enabled: true},
+		Duty:        &domain.Duty{ID: dutyID, Name: "skip-duty", Role: "t", Description: "d", Prompt: "p"},
+		TriggerKind: "event",
+		EventParams: map[string]any{"dedup_key": "mr:org/repo:7:abc123def"},
+		Executor:    executor.NewFakeExecutor(domain.LLMResult{Status: 0, Summary: "SKIP", Output: map[string]any{}}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != domain.RunStatusSkipped {
+		t.Fatalf("status = %q, want skipped", run.Status)
+	}
+	if mock.called {
+		t.Fatal("output plugin was called for SKIP sentinel")
+	}
+	already, err := store.HasProcessed(ctx, assignmentID.String(), "dedup_key:mr:org/repo:7:abc123def")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if already {
+		t.Fatal("SKIP sentinel should not keep the dedup claim")
 	}
 }
 
@@ -1228,6 +1317,48 @@ func TestPipelineExecute_ModelReportedFailure(t *testing.T) {
 	}
 }
 
+func TestPipelineExecute_DeliveryFailureDeletesDedupClaim(t *testing.T) {
+	ctx := context.Background()
+	mock := &mockPlugin{name: "dedup-delivery-fail-plugin", err: fmt.Errorf("delivery unavailable")}
+	plugin.Register(mock)
+
+	store := state.NewMemStore()
+	backendName := "delivery-dedup-backend"
+	cfg := &config.Config{Backends: []config.Backend{{
+		Name: backendName, Kind: "claude", Model: "claude-3-5-sonnet",
+		DefaultEffort: "normal", Auth: config.BackendAuth{Mode: "subscription"},
+	}}}
+	rr := newFakeRunRepo()
+	pipeline := &Pipeline{cfg: cfg, runRepo: rr, store: store}
+
+	agentID, dutyID, assignmentID := uuid.New(), uuid.New(), uuid.New()
+	run, err := pipeline.Execute(ctx, ExecuteRequest{
+		Assignment: &domain.Assignment{
+			ID: assignmentID, AgentID: agentID, DutyID: dutyID,
+			Enabled: true, Backend: &domain.BackendRef{Name: backendName}, Config: map[string]any{},
+			Outputs: []domain.OutputBinding{{Plugin: "dedup-delivery-fail-plugin", Action: "notify", Params: map[string]any{"m": "x"}}},
+		},
+		Agent:       &domain.Agent{ID: agentID, Name: "df-agent", Role: "t", SystemPrompt: "s", Enabled: true},
+		Duty:        &domain.Duty{ID: dutyID, Name: "df-duty", Role: "t", Description: "d", Prompt: "p"},
+		TriggerKind: "event",
+		EventParams: map[string]any{"dedup_key": "mr:org/repo:99:sha99"},
+		Executor:    executor.NewFakeExecutor(domain.LLMResult{Status: 0, Summary: "ok", Output: map[string]any{}}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != domain.RunStatusFailed {
+		t.Fatalf("status = %q, want failed", run.Status)
+	}
+	already, err := store.HasProcessed(ctx, assignmentID.String(), "dedup_key:mr:org/repo:99:sha99")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if already {
+		t.Fatal("dedup key remained claimed after delivery failure; retry would be blocked")
+	}
+}
+
 func TestPipelineExecute_ZeroStatusStillSucceeds(t *testing.T) {
 	// Guard: the new Status check must not affect the success path.
 	ctx := context.Background()
@@ -1419,8 +1550,11 @@ func TestDeriveDedupKey_ExplicitKeyWins(t *testing.T) {
 	}{
 		{"explicit beats mr_iid", map[string]any{"mr_iid": 7, "dedup_key": "mr:org/repo:7:sha2"},
 			"dedup_key:mr:org/repo:7:sha2"},
-		{"mr_iid alone (SP1 manual run)", map[string]any{"mr_iid": "7"}, "mr_iid:7"},
+		{"mr_iid with last commit sha", map[string]any{"mr_iid": "7", "last_commit_sha": "abc"}, "mr_iid:7:sha:abc"},
+		{"mr_iid with commit sha", map[string]any{"mr_iid": "7", "commit_sha": "def"}, "mr_iid:7:sha:def"},
+		{"mr_iid alone cannot be safely deduped", map[string]any{"mr_iid": "7"}, ""},
 		{"commit_sha alone", map[string]any{"commit_sha": "abc"}, "sha:abc"},
+		{"last_commit_sha alone", map[string]any{"last_commit_sha": "abc"}, "sha:abc"},
 		{"nothing", map[string]any{"foo": "bar"}, ""},
 	}
 	for _, c := range cases {
