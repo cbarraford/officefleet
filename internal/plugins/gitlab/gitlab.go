@@ -66,6 +66,9 @@ func (g *GitLabPlugin) Init(_ context.Context, cfg map[string]any, secrets plugi
 	if err != nil {
 		return fmt.Errorf("gitlab: resolve secret gitlab_token: %w", err)
 	}
+	if tok == "" {
+		return fmt.Errorf("gitlab: secret gitlab_token is not configured")
+	}
 	g.token = tok
 	if u, ok := cfg["base_url"].(string); ok && u != "" {
 		g.baseURL = strings.TrimRight(u, "/")
@@ -76,7 +79,7 @@ func (g *GitLabPlugin) Init(_ context.Context, cfg map[string]any, secrets plugi
 	// Webhook secret: optional at init; the webhook handler rejects all
 	// requests when it is unset (push ingestion requires it).
 	ws, err := secrets("gitlab_webhook_secret")
-	if err != nil {
+	if err != nil && !plugin.IsSecretNotFound(err) {
 		return fmt.Errorf("gitlab: resolve secret gitlab_webhook_secret: %w", err)
 	}
 	g.webhookSecret = ws

@@ -62,7 +62,7 @@ func (g *GitHubPlugin) Init(_ context.Context, cfg map[string]any, secrets plugi
 	}
 	g.token = tok
 	ws, err := secrets("github_webhook_secret")
-	if err != nil {
+	if err != nil && !plugin.IsSecretNotFound(err) {
 		return fmt.Errorf("github: resolve secret github_webhook_secret: %w", err)
 	}
 	g.webhookSecret = ws // empty => webhook handler rejects all requests
