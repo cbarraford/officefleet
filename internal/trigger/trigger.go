@@ -52,7 +52,7 @@ func (c *CronTrigger) Next(t time.Time) (time.Time, error) {
 	if err != nil {
 		return time.Time{}, err
 	}
-	return sched.Next(t), nil
+	return sched.Next(t)
 }
 
 // Scheduler runs the cron trigger loop, calling fire for each due assignment.
@@ -94,8 +94,8 @@ func (s *Scheduler) Run(ctx context.Context, fire func(ctx context.Context, assi
 
 		for _, e := range due {
 			fire(ctx, e.AssignmentID)
-			next, err := e.trigger.Next(time.Now())
-			if err == nil {
+			next, err := e.trigger.Next(e.next)
+			if err == nil && !next.IsZero() {
 				e.next = next
 				s.entries = append(s.entries, e)
 			}
