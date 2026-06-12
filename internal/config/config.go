@@ -104,7 +104,7 @@ type DatabaseConfig struct {
 // ServeConfig configures the fleet serve daemon.
 type ServeConfig struct {
 	Addr           string `yaml:"addr,omitempty"`            // webhook listener; default ":8080"
-	Workers        int    `yaml:"workers,omitempty"`         // dispatcher pool; default 4
+	Workers        *int   `yaml:"workers,omitempty"`         // dispatcher pool; default 4
 	RescanInterval string `yaml:"rescan_interval,omitempty"` // Go duration; default "30s"
 	SecureCookies  bool   `yaml:"secure_cookies,omitempty"`  // set true when serving behind TLS
 
@@ -270,8 +270,8 @@ func Validate(cfg *Config) []error {
 		}
 	}
 
-	if cfg.Serve.Workers < 0 {
-		errs = append(errs, fmt.Errorf("serve: workers must be >= 0, got %d", cfg.Serve.Workers))
+	if cfg.Serve.Workers != nil && *cfg.Serve.Workers <= 0 {
+		errs = append(errs, fmt.Errorf("serve: workers must be > 0 when set, got %d", *cfg.Serve.Workers))
 	}
 	if cfg.Serve.RescanInterval != "" {
 		if _, err := time.ParseDuration(cfg.Serve.RescanInterval); err != nil {

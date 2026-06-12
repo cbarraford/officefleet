@@ -810,7 +810,7 @@ func TestValidateForEach(t *testing.T) {
 
 func TestValidate_ServeBlock(t *testing.T) {
 	cfg := eventSubConfig()
-	cfg.Serve = config.ServeConfig{Workers: -1}
+	cfg.Serve = config.ServeConfig{Workers: intPtr(-1)}
 	errorsContain(t, config.Validate(cfg), "workers")
 
 	cfg = eventSubConfig()
@@ -818,8 +818,31 @@ func TestValidate_ServeBlock(t *testing.T) {
 	errorsContain(t, config.Validate(cfg), "rescan_interval")
 
 	cfg = eventSubConfig()
-	cfg.Serve = config.ServeConfig{Addr: ":9090", Workers: 8, RescanInterval: "45s", SecureCookies: true}
+	cfg.Serve = config.ServeConfig{Addr: ":9090", Workers: intPtr(8), RescanInterval: "45s", SecureCookies: true}
 	if errs := config.Validate(cfg); len(errs) != 0 {
 		t.Errorf("valid serve block rejected: %v", errs)
 	}
+}
+
+func intPtr(v int) *int { return &v }
+
+func TestValidate_ServeWorkersExplicitZero(t *testing.T) {
+	content := []byte(`
+backends:
+  - name: b
+    kind: claude
+    auth: {mode: subscription}
+serve:
+  workers: 0
+`)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "fleet.yaml")
+	if err := os.WriteFile(path, content, 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	errorsContain(t, config.Validate(cfg), "workers")
 }
