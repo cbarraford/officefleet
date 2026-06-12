@@ -571,64 +571,29 @@ func runCmd() *cobra.Command {
 			}
 			defer pool.Close()
 
-			agentRepo := repo.NewAgentRepo(pool)
-			dutyRepo := repo.NewDutyRepo(pool)
 			assignmentRepo := repo.NewAssignmentRepo(pool)
-			runRepo := repo.NewRunRepo(pool)
 
-			// Resolve assignment, agent, duty.
-			var assignment *domain.Assignment
-			var agent *domain.Agent
-			var duty *domain.Duty
-
+			var assignmentID uuid.UUID
 			if flagID != "" {
 				id, err := uuid.Parse(flagID)
 				if err != nil {
 					return fmt.Errorf("invalid assignment id %q: %w", flagID, err)
 				}
-				assignment, err = assignmentRepo.GetByID(ctx, id)
-				if err != nil {
-					return fmt.Errorf("get assignment: %w", err)
-				}
-				allAgents, err := agentRepo.List(ctx)
-				if err != nil {
-					return fmt.Errorf("list agents: %w", err)
-				}
-				for _, a := range allAgents {
-					if a.ID == assignment.AgentID {
-						agent = a
-						break
-					}
-				}
-				if agent == nil {
-					return fmt.Errorf("agent %s not found", assignment.AgentID)
-				}
-				allDuties, err := dutyRepo.List(ctx)
-				if err != nil {
-					return fmt.Errorf("list duties: %w", err)
-				}
-				for _, d := range allDuties {
-					if d.ID == assignment.DutyID {
-						duty = d
-						break
-					}
-				}
-				if duty == nil {
-					return fmt.Errorf("duty %s not found", assignment.DutyID)
-				}
+				assignmentID = id
 			} else if flagAgent != "" && flagDuty != "" {
-				agent, err = agentRepo.GetByName(ctx, flagAgent)
+				agent, err := repo.NewAgentRepo(pool).GetByName(ctx, flagAgent)
 				if err != nil {
 					return fmt.Errorf("get agent %q: %w", flagAgent, err)
 				}
-				duty, err = dutyRepo.GetByName(ctx, flagDuty)
+				duty, err := repo.NewDutyRepo(pool).GetByName(ctx, flagDuty)
 				if err != nil {
 					return fmt.Errorf("get duty %q: %w", flagDuty, err)
 				}
-				assignment, err = assignmentRepo.GetByAgentAndDuty(ctx, agent.ID, duty.ID)
+				assignment, err := assignmentRepo.GetByAgentAndDuty(ctx, agent.ID, duty.ID)
 				if err != nil {
 					return fmt.Errorf("get assignment for agent=%q duty=%q: %w", flagAgent, flagDuty, err)
 				}
+				assignmentID = assignment.ID
 			} else {
 				return fmt.Errorf("must provide --id or both --agent and --duty")
 			}
@@ -650,49 +615,21 @@ func runCmd() *cobra.Command {
 			}
 			initPlugins(ctx, cfg, pool, cipher)
 
-			// Resolve executor.
-			var exec executor.Executor
+			var builder func(*config.Config, *config.Backend) (executor.Executor, error)
 			if flagFake {
-				exec = executor.NewFakeExecutor(domain.LLMResult{
+				fakeExec := executor.NewFakeExecutor(domain.LLMResult{
 					Summary:    "fake execution result",
 					Output:     map[string]any{"raw": "fake output"},
 					Transcript: "fake transcript",
 				})
-			} else {
-				var resolved *config.Backend
-				for _, ac := range cfg.Assignments {
-					if ac.Agent == agent.Name && ac.Duty == duty.Name {
-						b, _, berr := config.ResolveBackend(cfg, ac)
-						if berr == nil {
-							resolved = b
-						}
-						break
-					}
-				}
-				if resolved == nil {
-					// No matching config assignment (e.g. DB-seeded): keep
-					// the SP1 default of the subscription claude CLI.
-					exec = executor.NewClaudeExecutor("")
-				} else {
-					var eerr error
-					exec, eerr = executor.FromBackend(cfg, resolved)
-					if eerr != nil {
-						return fmt.Errorf("build executor: %w", eerr)
-					}
+				builder = func(_ *config.Config, _ *config.Backend) (executor.Executor, error) {
+					return fakeExec, nil
 				}
 			}
 
-			store := state.NewPostgresStore(pool)
-			pipeline := run.NewPipeline(cfg, runRepo, store, &dbSecretsProvider{pool: pool, cipher: cipher})
+			inv, _ := buildInvokerWithExecutorBuilder(cfg, pool, cipher, builder)
 
-			result, execErr := pipeline.Execute(ctx, run.ExecuteRequest{
-				Assignment:  assignment,
-				Agent:       agent,
-				Duty:        duty,
-				TriggerKind: "manual",
-				EventParams: eventParams,
-				Executor:    exec,
-			})
+			result, execErr := inv.Invoke(ctx, assignmentID, "manual", nil, eventParams)
 			if result != nil {
 				fmt.Printf("Run ID:   %s\n", result.ID)
 				fmt.Printf("Status:   %s\n", result.Status)
@@ -770,9 +707,18 @@ func scheduleCmd() *cobra.Command {
 // It returns both the Invoker and the underlying Pipeline so callers that need
 // to attach lifecycle hooks (e.g. serveCmd) can call SetRunUpdateHook.
 func buildInvoker(cfg *config.Config, pool *pgxpool.Pool, cipher *secrets.Cipher) (*run.Invoker, *run.Pipeline) {
+	return buildInvokerWithExecutorBuilder(cfg, pool, cipher, nil)
+}
+
+func buildInvokerWithExecutorBuilder(
+	cfg *config.Config,
+	pool *pgxpool.Pool,
+	cipher *secrets.Cipher,
+	builder func(*config.Config, *config.Backend) (executor.Executor, error),
+) (*run.Invoker, *run.Pipeline) {
 	pipeline := run.NewPipeline(cfg, repo.NewRunRepo(pool), state.NewPostgresStore(pool), &dbSecretsProvider{pool: pool, cipher: cipher})
-	inv := run.NewInvoker(cfg, pipeline,
-		repo.NewAssignmentRepo(pool), repo.NewAgentRepo(pool), repo.NewDutyRepo(pool))
+	inv := run.NewInvokerWithExecutorBuilder(cfg, pipeline,
+		repo.NewAssignmentRepo(pool), repo.NewAgentRepo(pool), repo.NewDutyRepo(pool), builder)
 	return inv, pipeline
 }
 
