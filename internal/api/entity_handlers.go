@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cbarraford/office-fleet/internal/config"
 	"github.com/cbarraford/office-fleet/internal/domain"
 	"github.com/google/uuid"
 )
@@ -386,6 +387,11 @@ func (a *API) validateAssignment(ctx context.Context, asg *domain.Assignment) er
 	}
 	if !a.backendNameExists(asg.Backend) {
 		return errValidation("unknown backend " + asg.Backend.Name)
+	}
+	for _, out := range asg.Outputs {
+		if out.ForEach != "" && !config.ValidForEachKey(out.ForEach) {
+			return errValidation("for_each must be a bare output key (letters, digits, underscore)")
+		}
 	}
 	return nil
 }
