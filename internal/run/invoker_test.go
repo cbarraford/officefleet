@@ -136,16 +136,12 @@ func TestInvoker_UnknownAssignment(t *testing.T) {
 }
 
 func TestInvoker_DefaultBuildExecutor(t *testing.T) {
-	// nil backend -> claude default; defined backend -> factory dispatch.
-	ex, err := defaultBuildExecutor(&config.Config{}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := ex.(*executor.ClaudeExecutor); !ok {
-		t.Errorf("nil backend built %T, want *executor.ClaudeExecutor", ex)
+	_, err := defaultBuildExecutor(&config.Config{}, nil)
+	if err == nil {
+		t.Fatal("expected nil backend to be rejected")
 	}
 	cfg := &config.Config{}
-	ex, err = defaultBuildExecutor(cfg, &config.Backend{
+	ex, err := defaultBuildExecutor(cfg, &config.Backend{
 		Name: "e", Kind: "openai-compatible", BaseURI: "http://x/v1", Model: "m",
 		Auth: config.BackendAuth{Mode: "none"},
 	})
@@ -154,5 +150,55 @@ func TestInvoker_DefaultBuildExecutor(t *testing.T) {
 	}
 	if _, ok := ex.(*executor.EndpointExecutor); !ok {
 		t.Errorf("endpoint backend built %T", ex)
+	}
+}
+
+func TestInvoker_ResolvesBackendFromDBRefs(t *testing.T) {
+	agentID, dutyID, assignmentID := uuid.New(), uuid.New(), uuid.New()
+	cfg := &config.Config{
+		Backends: []config.Backend{{
+			Name: "db-backend", Kind: "openai-compatible", BaseURI: "http://example.invalid/v1",
+			Model: "base-model", DefaultEffort: "medium", Auth: config.BackendAuth{Mode: "none"},
+		}},
+		Assignments: []config.AssignmentConfig{{
+			Agent: "stale-agent", Duty: "stale-duty",
+			Backend: &domain.BackendRef{Name: "wrong-backend"},
+		}},
+	}
+	rr := newFakeRunRepo()
+	pipeline := &Pipeline{cfg: cfg, runRepo: rr, store: state.NewMemStore()}
+	fakeExec := executor.NewFakeExecutor(domain.LLMResult{Status: 0, Summary: "db backend"})
+	var built *config.Backend
+	inv := NewInvokerWithExecutorBuilder(cfg, pipeline,
+		&fakeAssignmentGetter{byID: map[uuid.UUID]*domain.Assignment{
+			assignmentID: {
+				ID: assignmentID, AgentID: agentID, DutyID: dutyID, Enabled: true,
+				Backend: &domain.BackendRef{Name: "db-backend", Model: "override-model", Effort: "high"},
+				Config:  map[string]any{},
+			},
+		}},
+		&fakeAgentGetter{byID: map[uuid.UUID]*domain.Agent{
+			agentID: {ID: agentID, Name: "db-agent", Role: "t", Enabled: true},
+		}},
+		&fakeDutyGetter{byID: map[uuid.UUID]*domain.Duty{
+			dutyID: {ID: dutyID, Name: "db-duty", Role: "t", Prompt: "p"},
+		}},
+		func(_ *config.Config, b *config.Backend) (executor.Executor, error) {
+			built = b
+			return fakeExec, nil
+		})
+
+	run, err := inv.Invoke(context.Background(), assignmentID, "manual", nil, map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != domain.RunStatusSucceeded {
+		t.Fatalf("status = %q", run.Status)
+	}
+	if built == nil || built.Name != "db-backend" || built.Model != "override-model" || built.DefaultEffort != "high" {
+		t.Fatalf("built backend = %#v, want db-backend with ref overrides", built)
+	}
+	if fakeExec.LastReq.Model != "override-model" || fakeExec.LastReq.Effort != "high" {
+		t.Fatalf("LLMRequest model/effort = %q/%q, want override-model/high", fakeExec.LastReq.Model, fakeExec.LastReq.Effort)
 	}
 }
