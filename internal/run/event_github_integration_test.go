@@ -81,21 +81,19 @@ func TestEventVertical_GitHubWebhookToRun(t *testing.T) {
 			Params: map[string]any{"body": "{{.Event.llm_summary}}", "pr": "{{.Event.pr_number}}"},
 		}},
 	}
-	inv := &Invoker{
-		cfg: cfg, pipeline: pipeline,
-		assignments: &fakeAssignmentGetter{byID: map[uuid.UUID]*domain.Assignment{assignmentID: assignment}},
-		agents: &fakeAgentLister{agents: []*domain.Agent{{
+	inv := NewInvokerWithExecutorBuilder(cfg, pipeline,
+		&fakeAssignmentGetter{byID: map[uuid.UUID]*domain.Assignment{assignmentID: assignment}},
+		&fakeAgentGetter{byID: map[uuid.UUID]*domain.Agent{agentID: {
 			ID: agentID, Name: "sp3b-agent", Role: "dev", SystemPrompt: "reviewer",
 			DefaultBackend: domain.BackendRef{Name: backendName}, Enabled: true,
 		}}},
-		duties: &fakeDutyLister{duties: []*domain.Duty{{
+		&fakeDutyGetter{byID: map[uuid.UUID]*domain.Duty{dutyID: {
 			ID: dutyID, Name: "sp3b-duty", Role: "dev", Description: "d",
 			Prompt: "Review PR #{{.Event.pr_number}} by {{.Event.author}}",
 		}}},
-		buildExecutor: func(_ *config.Config, _ *config.Backend) (executor.Executor, error) {
+		func(_ *config.Config, _ *config.Backend) (executor.Executor, error) {
 			return fakeExec, nil
-		},
-	}
+		})
 
 	store := events.NewMemStore()
 	dispatcher := events.NewDispatcher(store, &staticAssignmentLister{list: []*domain.Assignment{assignment}}, inv, 2, 50*time.Millisecond)
