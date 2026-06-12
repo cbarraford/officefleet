@@ -64,7 +64,7 @@ func NewInvokerWithExecutorBuilder(
 // subscription claude CLI; otherwise the factory dispatches on kind.
 func defaultBuildExecutor(cfg *config.Config, b *config.Backend) (executor.Executor, error) {
 	if b == nil {
-		return executor.NewClaudeExecutor(""), nil
+		return nil, fmt.Errorf("no backend resolved")
 	}
 	return executor.FromBackend(cfg, b)
 }
@@ -86,16 +86,9 @@ func (inv *Invoker) Invoke(ctx context.Context, assignmentID uuid.UUID, triggerK
 		return nil, fmt.Errorf("get duty: %w", err)
 	}
 
-	// Resolve the named backend from config (nil when this assignment has no
-	// config counterpart, e.g. DB-only seeds).
-	var resolved *config.Backend
-	for _, ac := range inv.cfg.Assignments {
-		if ac.Agent == agent.Name && ac.Duty == duty.Name {
-			if b, _, berr := config.ResolveBackend(inv.cfg, ac); berr == nil {
-				resolved = b
-			}
-			break
-		}
+	resolved, err := resolveDomainBackend(inv.cfg, assignment, agent, duty)
+	if err != nil {
+		return nil, fmt.Errorf("resolve backend: %w", err)
 	}
 	exec, err := inv.buildExecutor(inv.cfg, resolved)
 	if err != nil {
@@ -110,5 +103,33 @@ func (inv *Invoker) Invoke(ctx context.Context, assignmentID uuid.UUID, triggerK
 		EventID:     eventID,
 		EventParams: params,
 		Executor:    exec,
+		Backend:     resolved,
 	})
+}
+
+func resolveDomainBackend(cfg *config.Config, assignment *domain.Assignment, agent *domain.Agent, duty *domain.Duty) (*config.Backend, error) {
+	ref := domain.BackendRef{}
+	switch {
+	case assignment.Backend != nil && assignment.Backend.Name != "":
+		ref = *assignment.Backend
+	case duty.Backend != nil && duty.Backend.Name != "":
+		ref = *duty.Backend
+	case agent.DefaultBackend.Name != "":
+		ref = agent.DefaultBackend
+	default:
+		return nil, fmt.Errorf("assignment %s has no backend ref", assignment.ID)
+	}
+	for i := range cfg.Backends {
+		if cfg.Backends[i].Name == ref.Name {
+			backend := cfg.Backends[i]
+			if ref.Model != "" {
+				backend.Model = ref.Model
+			}
+			if ref.Effort != "" {
+				backend.DefaultEffort = ref.Effort
+			}
+			return &backend, nil
+		}
+	}
+	return nil, fmt.Errorf("backend %q not found in config", ref.Name)
 }
