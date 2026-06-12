@@ -58,7 +58,7 @@ Run all commands from the repo root: `/Users/cbarraford/workshop/office-fleet`.
 - Create: `internal/agentloop/protocol.go`
 - Test: `internal/agentloop/protocol_test.go`
 
-- [ ] **Step 1: Create the types file** (pure declarations — no test needed for declarations themselves; the protocol test below exercises them)
+- [x] **Step 1: Create the types file** (pure declarations — no test needed for declarations themselves; the protocol test below exercises them)
 
 `internal/agentloop/tool.go`:
 
@@ -156,7 +156,7 @@ type Opts struct {
 const DefaultMaxIterations = 25
 ```
 
-- [ ] **Step 2: Write the failing protocol test**
+- [x] **Step 2: Write the failing protocol test**
 
 `internal/agentloop/protocol_test.go`:
 
@@ -231,12 +231,12 @@ func TestNativeProtocol_DecodeNoCalls(t *testing.T) {
 }
 ```
 
-- [ ] **Step 3: Run the test to verify it fails**
+- [x] **Step 3: Run the test to verify it fails**
 
 Run: `go test ./internal/agentloop/ -run TestNativeProtocol -v`
 Expected: FAIL (compile error: `Native` undefined)
 
-- [ ] **Step 4: Implement the native protocol**
+- [x] **Step 4: Implement the native protocol**
 
 `internal/agentloop/protocol.go`:
 
@@ -271,12 +271,12 @@ func (nativeProtocol) Decode(resp ChatResponse) []ToolCall {
 }
 ```
 
-- [ ] **Step 5: Run the test to verify it passes**
+- [x] **Step 5: Run the test to verify it passes**
 
 Run: `go test ./internal/agentloop/ -run TestNativeProtocol -v`
 Expected: PASS (3 tests)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add internal/agentloop/tool.go internal/agentloop/protocol.go internal/agentloop/protocol_test.go
@@ -291,7 +291,7 @@ git commit -m "feat(sp2): agentloop types and native function-calling protocol"
 - Create: `internal/agentloop/loop.go`
 - Test: `internal/agentloop/loop_test.go`
 
-- [ ] **Step 1: Write the failing loop tests**
+- [x] **Step 1: Write the failing loop tests**
 
 `internal/agentloop/loop_test.go`:
 
@@ -604,12 +604,12 @@ func TestRun_DefaultMaxIterations(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `go test ./internal/agentloop/ -run TestRun_ -v`
 Expected: FAIL (compile error: `Run` undefined)
 
-- [ ] **Step 3: Implement the loop**
+- [x] **Step 3: Implement the loop**
 
 `internal/agentloop/loop.go`:
 
@@ -770,12 +770,12 @@ func writeTranscript(sb *strings.Builder, m Message) {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `go test ./internal/agentloop/ -v`
 Expected: PASS (all protocol + loop tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/agentloop/loop.go internal/agentloop/loop_test.go
@@ -790,7 +790,7 @@ git commit -m "feat(sp2): generic agent loop with submit_result termination"
 - Create: `internal/agentloop/bridge/bridge.go`
 - Test: `internal/agentloop/bridge/bridge_test.go`
 
-- [ ] **Step 1: Write the failing bridge tests**
+- [x] **Step 1: Write the failing bridge tests**
 
 `internal/agentloop/bridge/bridge_test.go`:
 
@@ -1050,12 +1050,12 @@ func TestUnknownTool(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `go test ./internal/agentloop/bridge/ -v`
 Expected: FAIL (compile error: package does not exist / `New` undefined)
 
-- [ ] **Step 3: Implement the bridge**
+- [x] **Step 3: Implement the bridge**
 
 `internal/agentloop/bridge/bridge.go`:
 
@@ -1329,12 +1329,12 @@ func (b *Bridge) truncate(s string) string {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `go test ./internal/agentloop/bridge/ -v`
 Expected: PASS. Note: `TestRunCommand_Timeout` takes ~50ms; the suite should finish in under 5s.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/agentloop/bridge/
@@ -1349,7 +1349,7 @@ git commit -m "feat(sp2): workspace tool bridge with safety limits"
 - Create: `internal/agentloop/openai/client.go`
 - Test: `internal/agentloop/openai/client_test.go`
 
-- [ ] **Step 1: Write the failing client tests**
+- [x] **Step 1: Write the failing client tests**
 
 `internal/agentloop/openai/client_test.go`:
 
@@ -1614,12 +1614,12 @@ func TestChat_EmptyChoices(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `go test ./internal/agentloop/openai/ -v`
 Expected: FAIL (compile error: `Client` undefined)
 
-- [ ] **Step 3: Implement the client**
+- [x] **Step 3: Implement the client**
 
 `internal/agentloop/openai/client.go`:
 
@@ -1812,12 +1812,12 @@ func snippet(b []byte) string {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `go test ./internal/agentloop/openai/ -v`
 Expected: PASS (8 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/agentloop/openai/
@@ -1832,7 +1832,7 @@ git commit -m "feat(sp2): openai-compatible chat client with bounded retry"
 - Modify: `internal/config/config.go` (Backend struct at lines 19–28; Validate backends loop at lines 109–138; ref checks at lines 140–204)
 - Test: `internal/config/config_test.go` (append new tests)
 
-- [ ] **Step 1: Write the failing validation tests** (append to `internal/config/config_test.go`)
+- [x] **Step 1: Write the failing validation tests** (append to `internal/config/config_test.go`)
 
 ```go
 // --- SP2 validation tests ---
@@ -1966,12 +1966,12 @@ func TestValidate_VoterRefEffortOverrideRejected(t *testing.T) {
 
 Check the existing `config_test.go` first: ensure its import block has `strings` and `github.com/cbarraford/office-fleet/internal/domain` (add them if missing), and confirm none of the new helper names (`validEndpointBackend`, `validVoterConfig`, `errorsContain`) collide with existing helpers — rename the new ones if they do.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `go test ./internal/config/ -run 'TestValidate_Endpoint|TestValidate_Voter' -v`
 Expected: FAIL (compile error: unknown fields `Strategy`, `Panel`, `CommandTimeout`)
 
-- [ ] **Step 3: Add the Backend fields**
+- [x] **Step 3: Add the Backend fields**
 
 In `internal/config/config.go`, replace the `Backend` struct with:
 
@@ -1998,7 +1998,7 @@ type Backend struct {
 }
 ```
 
-- [ ] **Step 4: Add the validation rules**
+- [x] **Step 4: Add the validation rules**
 
 In `Validate` (`internal/config/config.go`), make these changes:
 
@@ -2112,12 +2112,12 @@ Add `"time"` to the config.go import block.
 
 Note: `rejectVoterOverride` must be declared before the agents loop (it is — step (d) places it right after the backends loop).
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `go test ./internal/config/ -v`
 Expected: PASS — all new tests AND all pre-existing config tests (no regressions).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add internal/config/config.go internal/config/config_test.go
@@ -2133,7 +2133,7 @@ git commit -m "feat(sp2): endpoint and voter backend config validation"
 - Create: `internal/executor/factory.go`
 - Test: `internal/executor/endpoint_test.go`, `internal/executor/factory_test.go`
 
-- [ ] **Step 1: Write the failing EndpointExecutor test**
+- [x] **Step 1: Write the failing EndpointExecutor test**
 
 `internal/executor/endpoint_test.go`:
 
@@ -2260,7 +2260,7 @@ func TestNewEndpointExecutor_BadTimeout(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Write the failing factory test**
+- [x] **Step 2: Write the failing factory test**
 
 `internal/executor/factory_test.go`:
 
@@ -2327,12 +2327,12 @@ func TestFromBackend_UnknownKind(t *testing.T) {
 
 (Voter factory tests are added in Task 7.)
 
-- [ ] **Step 3: Run the tests to verify they fail**
+- [x] **Step 3: Run the tests to verify they fail**
 
 Run: `go test ./internal/executor/ -run 'TestEndpointExecutor|TestNewEndpointExecutor|TestFromBackend' -v`
 Expected: FAIL (compile errors: `NewEndpointExecutor`, `FromBackend` undefined)
 
-- [ ] **Step 4: Implement EndpointExecutor**
+- [x] **Step 4: Implement EndpointExecutor**
 
 `internal/executor/endpoint.go`:
 
@@ -2408,7 +2408,7 @@ func (e *EndpointExecutor) Run(ctx context.Context, req LLMRequest) (domain.LLMR
 }
 ```
 
-- [ ] **Step 5: Implement the factory (voter case lands in Task 7)**
+- [x] **Step 5: Implement the factory (voter case lands in Task 7)**
 
 `internal/executor/factory.go`:
 
@@ -2451,12 +2451,12 @@ func findBackend(cfg *config.Config, name string) *config.Backend {
 
 (`findBackend` is used by the voter case in Task 7; Go tolerates it being briefly unused only if referenced — if `go vet` complains about the unused function, that's fine, it's not an error; the compiler does not reject unused package-level funcs.)
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [x] **Step 6: Run the tests to verify they pass**
 
 Run: `go test ./internal/executor/ -v`
 Expected: PASS — new tests AND all pre-existing executor tests (fake, claude parse).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add internal/executor/endpoint.go internal/executor/factory.go internal/executor/endpoint_test.go internal/executor/factory_test.go
@@ -2472,7 +2472,7 @@ git commit -m "feat(sp2): EndpointExecutor and executor factory"
 - Modify: `internal/executor/factory.go` (add the voter case)
 - Test: `internal/executor/voter_test.go`; extend `internal/executor/factory_test.go`
 
-- [ ] **Step 1: Write the failing voter tests**
+- [x] **Step 1: Write the failing voter tests**
 
 `internal/executor/voter_test.go`:
 
@@ -2683,12 +2683,12 @@ func TestVoter_KindAndTranscriptPrefix(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `go test ./internal/executor/ -run TestVoter -v`
 Expected: FAIL (compile error: `VotingExecutor`, `PanelMember` undefined)
 
-- [ ] **Step 3: Implement the voter**
+- [x] **Step 3: Implement the voter**
 
 `internal/executor/voter.go`:
 
@@ -2869,7 +2869,7 @@ func (v *VotingExecutor) panelSummary(outcomes []memberOutcome) string {
 }
 ```
 
-- [ ] **Step 4: Add the voter case to the factory**
+- [x] **Step 4: Add the voter case to the factory**
 
 In `internal/executor/factory.go`, add this case to the `switch` in `FromBackend` (before `default`):
 
@@ -2895,7 +2895,7 @@ In `internal/executor/factory.go`, add this case to the `switch` in `FromBackend
 		return NewVotingExecutor(panel, b.Strategy), nil
 ```
 
-- [ ] **Step 5: Extend the factory test** (append to `internal/executor/factory_test.go`)
+- [x] **Step 5: Extend the factory test** (append to `internal/executor/factory_test.go`)
 
 ```go
 func TestFromBackend_Voter(t *testing.T) {
@@ -2936,12 +2936,12 @@ func TestFromBackend_VoterUnknownMember(t *testing.T) {
 }
 ```
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [x] **Step 6: Run the tests to verify they pass**
 
 Run: `go test ./internal/executor/ -v`
 Expected: PASS (voter, factory, endpoint, and pre-existing tests). The voter tests take ~600ms total (deliberate delays).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add internal/executor/voter.go internal/executor/voter_test.go internal/executor/factory.go internal/executor/factory_test.go
@@ -2956,7 +2956,7 @@ git commit -m "feat(sp2): minimal VotingExecutor with first_success and majority
 - Modify: `internal/run/pipeline.go` (insert after the executor-error block, currently lines 206–213)
 - Test: `internal/run/pipeline_test.go` (append)
 
-- [ ] **Step 1: Write the failing pipeline tests** (append to `internal/run/pipeline_test.go`)
+- [x] **Step 1: Write the failing pipeline tests** (append to `internal/run/pipeline_test.go`)
 
 ```go
 func TestPipelineExecute_ModelReportedFailure(t *testing.T) {
@@ -3096,12 +3096,12 @@ func TestPipelineExecute_ZeroStatusStillSucceeds(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `go test ./internal/run/ -run 'TestPipelineExecute_ModelReportedFailure|TestPipelineExecute_ZeroStatusStillSucceeds' -v`
 Expected: `TestPipelineExecute_ModelReportedFailure` FAILS (status is `succeeded`, plugin called); `ZeroStatusStillSucceeds` passes.
 
-- [ ] **Step 3: Implement the pipeline change**
+- [x] **Step 3: Implement the pipeline change**
 
 In `internal/run/pipeline.go`, insert directly after the executor-error block (after the `if llmErr != nil { ... }` block ending around line 213, before `// Deliver outputs.`):
 
@@ -3128,12 +3128,12 @@ In `internal/run/pipeline.go`, insert directly after the executor-error block (a
 	}
 ```
 
-- [ ] **Step 4: Run the full run-package tests**
+- [x] **Step 4: Run the full run-package tests**
 
 Run: `go test ./internal/run/ -v`
 Expected: PASS — both new tests AND all pre-existing pipeline tests (success path, fallbacks, dedup, pause, secrets).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/run/pipeline.go internal/run/pipeline_test.go
@@ -3150,7 +3150,7 @@ git commit -m "feat(sp2): nonzero LLMResult.Status fails the run and skips outpu
 
 There is no automated test for `main.go` (SP1 ships none); verification is compile + vet + the `--fake` smoke below. Logic lives in the already-tested factory.
 
-- [ ] **Step 1: Replace the runCmd dispatch**
+- [x] **Step 1: Replace the runCmd dispatch**
 
 In `cmd/fleet/main.go` runCmd, replace this block:
 
@@ -3182,7 +3182,7 @@ with:
 				}
 ```
 
-- [ ] **Step 2: Replace the scheduleCmd dispatch**
+- [x] **Step 2: Replace the scheduleCmd dispatch**
 
 In scheduleCmd, replace:
 
@@ -3216,7 +3216,7 @@ with:
 				}
 ```
 
-- [ ] **Step 3: Add `fleet backends test`**
+- [x] **Step 3: Add `fleet backends test`**
 
 In `backendsCmd()`, add `cmd.AddCommand(backendsTestCmd())` after the existing two AddCommand calls. Then add below `backendsLoginCmd`:
 
@@ -3271,7 +3271,7 @@ func backendsTestCmd() *cobra.Command {
 }
 ```
 
-- [ ] **Step 4: Add commented sample backends to `configs/fleet.yaml`**
+- [x] **Step 4: Add commented sample backends to `configs/fleet.yaml`**
 
 After the existing commented `claude-apikey` example block (line 17), add:
 
@@ -3299,7 +3299,7 @@ After the existing commented `claude-apikey` example block (line 17), add:
 #    panel: [claude-default, local-ollama]
 ```
 
-- [ ] **Step 5: Build, vet, and smoke**
+- [x] **Step 5: Build, vet, and smoke**
 
 ```bash
 go build ./... && go vet ./...
@@ -3311,7 +3311,7 @@ go run ./cmd/fleet --config configs/fleet.yaml config validate
 ```
 Expected: validation passes (the new examples are commented out, so config is unchanged semantically).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add cmd/fleet/main.go configs/fleet.yaml
@@ -3326,7 +3326,7 @@ git commit -m "feat(sp2): factory-based CLI dispatch and fleet backends test"
 - Create: `internal/run/pipeline_endpoint_test.go`
 - Create: `internal/executor/endpoint_live_test.go`
 
-- [ ] **Step 1: Write the endpoint pipeline integration test**
+- [x] **Step 1: Write the endpoint pipeline integration test**
 
 Full pipeline through a **real** `EndpointExecutor` against a scripted httptest server — the SP2 analogue of SP1's stubbed-executor pipeline test, proving the spec's acceptance criteria #2 and #3 (Output map → output template rendering).
 
@@ -3496,12 +3496,12 @@ func TestPipelineExecute_EndpointBackendEndToEnd(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run it**
+- [x] **Step 2: Run it**
 
 Run: `go test ./internal/run/ -run TestPipelineExecute_EndpointBackendEndToEnd -v`
 Expected: PASS. (If it fails, debug with the systematic-debugging skill — the seams are: client encode/decode, loop, bridge, pipeline.)
 
-- [ ] **Step 3: Add the live Ollama smoke (flagged off by default)**
+- [x] **Step 3: Add the live Ollama smoke (flagged off by default)**
 
 `internal/executor/endpoint_live_test.go`:
 
@@ -3556,12 +3556,12 @@ func TestEndpointExecutor_LiveOllamaSmoke(t *testing.T) {
 }
 ```
 
-- [ ] **Step 4: Verify the flag plumbing compiles and skips**
+- [x] **Step 4: Verify the flag plumbing compiles and skips**
 
 Run: `go test ./internal/executor/ -run LiveOllama -v`
 Expected: SKIP (flag not set).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/run/pipeline_endpoint_test.go internal/executor/endpoint_live_test.go
@@ -3574,21 +3574,21 @@ git commit -m "test(sp2): endpoint pipeline integration test and live Ollama smo
 
 **Files:** none new.
 
-- [ ] **Step 1: Format, vet, full test suite**
+- [x] **Step 1: Format, vet, full test suite**
 
 ```bash
 gofmt -l . && go vet ./... && go test ./...
 ```
 Expected: `gofmt -l` prints nothing; vet clean; **all** packages pass (including every pre-existing SP1 test — acceptance criterion #7).
 
-- [ ] **Step 2: Confirm SP1 interface untouched**
+- [x] **Step 2: Confirm SP1 interface untouched**
 
 ```bash
 git diff master --stat -- internal/executor/executor.go internal/domain/types.go
 ```
 Expected: **no output** (zero changes to the SP1 `Executor`/`LLMRequest`/`LLMResult` definitions). Note: run this against the commit where SP2 work started if `master` has moved.
 
-- [ ] **Step 3: Manual smoke (optional but recommended)**
+- [x] **Step 3: Manual smoke (optional but recommended)**
 
 ```bash
 go run ./cmd/fleet --config configs/fleet.yaml config validate
@@ -3603,7 +3603,7 @@ go test ./internal/executor/ -run LiveOllama -live-ollama -v
 go run ./cmd/fleet --config configs/fleet.yaml backends test claude-default   # needs claude CLI login
 ```
 
-- [ ] **Step 4: Final commit (if any stragglers) and push**
+- [x] **Step 4: Final commit (if any stragglers) and push**
 
 ```bash
 git status --short   # expect clean; commit anything outstanding

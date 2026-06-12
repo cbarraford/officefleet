@@ -49,7 +49,7 @@ Run all commands from the repo root. Commit directly to `master` (consented proj
 - Modify: `internal/plugin/plugin.go` (append)
 - Test: `internal/plugin/plugin_test.go` (create)
 
-- [ ] **Step 1: Append the Event envelope to `internal/domain/types.go`**
+- [x] **Step 1: Append the Event envelope to `internal/domain/types.go`**
 
 ```go
 // EventStatus is the dispatch lifecycle state of an Event.
@@ -79,7 +79,7 @@ type Event struct {
 
 Add `"encoding/json"` to domain's imports.
 
-- [ ] **Step 2: Create `internal/db/migrations/004_events.sql`**
+- [x] **Step 2: Create `internal/db/migrations/004_events.sql`**
 
 ```sql
 -- +migrate Up
@@ -115,7 +115,7 @@ DROP TABLE IF EXISTS poll_cursors;
 DROP TABLE IF EXISTS events;
 ```
 
-- [ ] **Step 3: Append the capability interfaces to `internal/plugin/plugin.go`**
+- [x] **Step 3: Append the capability interfaces to `internal/plugin/plugin.go`**
 
 ```go
 // WebhookSource is implemented by plugins that accept push ingestion.
@@ -143,7 +143,7 @@ type PollSource interface {
 
 Add `"net/http"` and `"github.com/cbarraford/office-fleet/internal/domain"` to plugin.go's imports.
 
-- [ ] **Step 4: Write the test** — `internal/plugin/plugin_test.go`:
+- [x] **Step 4: Write the test** — `internal/plugin/plugin_test.go`:
 
 ```go
 package plugin
@@ -165,12 +165,12 @@ func TestAuthError(t *testing.T) {
 }
 ```
 
-- [ ] **Step 5: Run and verify**
+- [x] **Step 5: Run and verify**
 
 Run: `go build ./... && go test ./internal/plugin/ ./internal/domain/ ./internal/db/ -v`
 Expected: build clean; new test passes; existing domain/db tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add internal/domain/types.go internal/db/migrations/004_events.sql internal/plugin/plugin.go internal/plugin/plugin_test.go
@@ -187,7 +187,7 @@ git commit -m "feat(sp3): event envelope, events migration, plugin ingestion int
 
 Repos follow the SP1 precedent: thin pgx SQL, no unit tests (logic is tested through fakes; SQL is exercised by `fleet migrate` + manual smoke). Match the style of `internal/repo/runs.go`.
 
-- [ ] **Step 1: Create `internal/repo/events.go`**
+- [x] **Step 1: Create `internal/repo/events.go`**
 
 ```go
 package repo
@@ -312,7 +312,7 @@ func scanEvent(s scanner) (*domain.Event, error) {
 
 (`scanner` is the existing package-level interface used by `scanRun` — check `internal/repo/` for its definition; reuse it.)
 
-- [ ] **Step 2: Create `internal/repo/cursors.go`**
+- [x] **Step 2: Create `internal/repo/cursors.go`**
 
 ```go
 package repo
@@ -348,7 +348,7 @@ func (r *CursorRepo) Set(ctx context.Context, plugin, cursor string) error {
 }
 ```
 
-- [ ] **Step 3: Build, vet, commit**
+- [x] **Step 3: Build, vet, commit**
 
 Run: `go build ./... && go vet ./internal/repo/`
 Expected: clean.
@@ -366,7 +366,7 @@ git commit -m "feat(sp3): event and poll-cursor repositories"
 - Create: `internal/events/match.go`
 - Test: `internal/events/match_test.go`
 
-- [ ] **Step 1: Write the failing tests** — `internal/events/match_test.go`:
+- [x] **Step 1: Write the failing tests** — `internal/events/match_test.go`:
 
 ```go
 package events
@@ -423,12 +423,12 @@ func TestMatches(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `go test ./internal/events/ -v`
 Expected: FAIL (package missing / `Matches` undefined).
 
-- [ ] **Step 3: Implement** — `internal/events/match.go`:
+- [x] **Step 3: Implement** — `internal/events/match.go`:
 
 ```go
 // Package events implements the SP3 eventing core: ingestion, the in-process
@@ -468,12 +468,12 @@ func Matches(filter map[string]any, ev *domain.Event) bool {
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `go test ./internal/events/ -v`
 Expected: PASS (11 subtests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/events/match.go internal/events/match_test.go
@@ -492,7 +492,7 @@ git commit -m "feat(sp3): event-subscription filter matching"
 
 It ALSO fixes a latent dedup-precedence conflict the dispatcher would otherwise trip: `deriveDedupKey` currently checks `mr_iid` BEFORE `dedup_key`. Event params carry both (`payload_norm.mr_iid` + the envelope's `dedup_key` meta key), so a re-pushed MR (new SHA → new event `dedup_key`, same `mr_iid`) would derive `mr_iid:7` and be wrongly skipped — contradicting spec §5.3 ("the dedup key changes only when the MR head SHA changes"). The explicit `dedup_key` must take precedence over inferred keys. Manual/cron runs without a `dedup_key` param are unaffected.
 
-- [ ] **Step 1: Write the failing test** (append to `internal/run/pipeline_test.go`):
+- [x] **Step 1: Write the failing test** (append to `internal/run/pipeline_test.go`):
 
 ```go
 func TestPipelineExecute_EventIDStamped(t *testing.T) {
@@ -572,12 +572,12 @@ func TestDeriveDedupKey_ExplicitKeyWins(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `go test ./internal/run/ -run TestPipelineExecute_EventID -v`
 Expected: FAIL (unknown field `EventID` in ExecuteRequest).
 
-- [ ] **Step 3: Implement** — in `internal/run/pipeline.go`:
+- [x] **Step 3: Implement** — in `internal/run/pipeline.go`:
 
 (a) Add to `ExecuteRequest` (after `TriggerKind string`):
 ```go
@@ -617,12 +617,12 @@ func deriveDedupKey(params map[string]any) string {
 
 Check existing tests for reliance on the old order: `TestPipelineExecute_DedupSkip` pre-marks `"mr_iid:42"` and passes params `{"mr_iid": "42"}` (no dedup_key) — unaffected. `TestPipelineExecute_ModelReportedFailure` uses `{"mr_iid": "99"}` and asserts `HasProcessed(..., "mr_iid:99")` is false — unaffected.
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `go test ./internal/run/ -v`
 Expected: PASS — both new tests plus every pre-existing pipeline test.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/run/pipeline.go internal/run/pipeline_test.go
@@ -639,7 +639,7 @@ git commit -m "feat(sp3): stamp event id onto runs; explicit dedup_key takes pre
 
 The cron scheduler in `cmd/fleet/main.go` inlines "GetByID assignment → find agent/duty in List → resolve backend → build executor → Execute". The dispatcher needs the same. Extract it as `Invoker`, with interface seams (`*repo.X` satisfy them structurally) and a `buildExecutor` test seam.
 
-- [ ] **Step 1: Write the failing tests** — `internal/run/invoker_test.go`:
+- [x] **Step 1: Write the failing tests** — `internal/run/invoker_test.go`:
 
 ```go
 package run
@@ -767,12 +767,12 @@ func TestInvoker_DefaultBuildExecutor(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `go test ./internal/run/ -run TestInvoker -v`
 Expected: FAIL (`Invoker` undefined).
 
-- [ ] **Step 3: Implement** — `internal/run/invoker.go`:
+- [x] **Step 3: Implement** — `internal/run/invoker.go`:
 
 ```go
 package run
@@ -897,12 +897,12 @@ func (inv *Invoker) Invoke(ctx context.Context, assignmentID uuid.UUID, triggerK
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `go test ./internal/run/ -v`
 Expected: PASS (all, including the three new Invoker tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/run/invoker.go internal/run/invoker_test.go
@@ -919,7 +919,7 @@ git commit -m "feat(sp3): shared assignment Invoker for cron and event dispatch"
 - Create: `internal/events/dispatcher.go`
 - Test: `internal/events/dispatcher_test.go`, `internal/events/ingest_test.go`
 
-- [ ] **Step 1: Create `internal/events/mem.go`** (exported in-memory store, mirroring the `state.NewMemStore` precedent — used by unit tests here and the Task 12 integration test):
+- [x] **Step 1: Create `internal/events/mem.go`** (exported in-memory store, mirroring the `state.NewMemStore` precedent — used by unit tests here and the Task 12 integration test):
 
 ```go
 package events
@@ -1040,7 +1040,7 @@ func (m *MemStore) Set(_ context.Context, plugin, cursor string) error {
 }
 ```
 
-- [ ] **Step 2: Write the failing ingest test** — `internal/events/ingest_test.go`:
+- [x] **Step 2: Write the failing ingest test** — `internal/events/ingest_test.go`:
 
 ```go
 package events
@@ -1090,7 +1090,7 @@ func TestIngestor_NilNotify(t *testing.T) {
 }
 ```
 
-- [ ] **Step 3: Write the failing dispatcher tests** — `internal/events/dispatcher_test.go`:
+- [x] **Step 3: Write the failing dispatcher tests** — `internal/events/dispatcher_test.go`:
 
 ```go
 package events
@@ -1348,12 +1348,12 @@ func TestDispatcher_RunDeliversNotifiedAndRescansPending(t *testing.T) {
 }
 ```
 
-- [ ] **Step 4: Run to verify failure**
+- [x] **Step 4: Run to verify failure**
 
 Run: `go test ./internal/events/ -v`
 Expected: FAIL (`NewIngestor`, `NewDispatcher`, `busCapacity` undefined; match tests still pass).
 
-- [ ] **Step 5: Implement `internal/events/ingest.go`**
+- [x] **Step 5: Implement `internal/events/ingest.go`**
 
 ```go
 package events
@@ -1407,7 +1407,7 @@ func (i *Ingestor) Ingest(ctx context.Context, evs []domain.Event) (int, error) 
 }
 ```
 
-- [ ] **Step 6: Implement `internal/events/dispatcher.go`**
+- [x] **Step 6: Implement `internal/events/dispatcher.go`**
 
 ```go
 package events
@@ -1579,12 +1579,12 @@ func buildEventParams(ev *domain.Event) map[string]any {
 }
 ```
 
-- [ ] **Step 7: Run to verify pass**
+- [x] **Step 7: Run to verify pass**
 
 Run: `go test ./internal/events/ -race -v`
 Expected: PASS (match + ingest + dispatcher tests; ~1s with the deliberate sleeps).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add internal/events/mem.go internal/events/ingest.go internal/events/dispatcher.go internal/events/ingest_test.go internal/events/dispatcher_test.go
@@ -1599,7 +1599,7 @@ git commit -m "feat(sp3): ingestor and at-least-once event dispatcher"
 - Create: `internal/events/poller.go`
 - Test: `internal/events/poller_test.go`
 
-- [ ] **Step 1: Write the failing tests** — `internal/events/poller_test.go`:
+- [x] **Step 1: Write the failing tests** — `internal/events/poller_test.go`:
 
 ```go
 package events
@@ -1745,12 +1745,12 @@ func TestRunPoller_IngestErrorKeepsCursor(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `go test ./internal/events/ -run TestRunPoller -v`
 Expected: FAIL (`RunPoller` undefined).
 
-- [ ] **Step 3: Implement** — `internal/events/poller.go`:
+- [x] **Step 3: Implement** — `internal/events/poller.go`:
 
 ```go
 package events
@@ -1816,12 +1816,12 @@ func RunPoller(ctx context.Context, pluginName string, src plugin.PollSource, in
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `go test ./internal/events/ -race -v`
 Expected: PASS (all events-package tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/events/poller.go internal/events/poller_test.go
@@ -1837,7 +1837,7 @@ git commit -m "feat(sp3): plugin poll loop with durable cursors"
 - Modify: `internal/plugins/gitlab/gitlab.go` (Init gains webhook secret + poll config; ConfigSchema documents them; EventSources description loses "wired in SP3")
 - Test: `internal/plugins/gitlab/events_test.go`
 
-- [ ] **Step 1: Write the failing tests** — `internal/plugins/gitlab/events_test.go`:
+- [x] **Step 1: Write the failing tests** — `internal/plugins/gitlab/events_test.go`:
 
 ```go
 package gitlab
@@ -2126,12 +2126,12 @@ func asAuthError(err error, target **plugin.AuthError) bool {
 }
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `go test ./internal/plugins/gitlab/ -v`
 Expected: FAIL (`HandleWebhook`, `Poll`, fields undefined).
 
-- [ ] **Step 3: Extend `gitlab.go`** — add struct fields and Init parsing. The `GitLabPlugin` struct becomes:
+- [x] **Step 3: Extend `gitlab.go`** — add struct fields and Init parsing. The `GitLabPlugin` struct becomes:
 
 ```go
 // GitLabPlugin is the GitLab integration plugin: actions (post_mr_comment)
@@ -2184,7 +2184,7 @@ Extend `ConfigSchema()` properties with:
 			"poll_projects": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 ```
 
-- [ ] **Step 4: Implement `internal/plugins/gitlab/events.go`**
+- [x] **Step 4: Implement `internal/plugins/gitlab/events.go`**
 
 ```go
 package gitlab
@@ -2394,12 +2394,12 @@ func truncateForErr(b []byte) string {
 
 NOTE: `url.PathEscape("org/repo")` produces `org%2Frepo` — matching both the GitLab API requirement and the test's path assertion. The existing `postMRComment` uses a manual `strings.ReplaceAll(project, "/", "%2F")`; leave it as is (out of scope).
 
-- [ ] **Step 5: Run to verify pass**
+- [x] **Step 5: Run to verify pass**
 
 Run: `go test ./internal/plugins/gitlab/ -v`
 Expected: PASS (new event tests + the pre-existing action tests).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add internal/plugins/gitlab/
@@ -2414,7 +2414,7 @@ git commit -m "feat(sp3): gitlab mr_events source — authenticated webhook and 
 - Create: `internal/server/server.go`
 - Test: `internal/server/server_test.go`
 
-- [ ] **Step 1: Write the failing tests** — `internal/server/server_test.go`:
+- [x] **Step 1: Write the failing tests** — `internal/server/server_test.go`:
 
 ```go
 package server
@@ -2552,12 +2552,12 @@ func TestWebhook_StatusCodes(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `go test ./internal/server/ -v`
 Expected: FAIL (package missing).
 
-- [ ] **Step 3: Implement** — `internal/server/server.go`:
+- [x] **Step 3: Implement** — `internal/server/server.go`:
 
 ```go
 // Package server hosts OfficeFleet's HTTP ingestion surface: plugin webhooks
@@ -2642,12 +2642,12 @@ func writeJSON(w http.ResponseWriter, status int, body map[string]any) {
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `go test ./internal/server/ -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/server/
@@ -2662,7 +2662,7 @@ git commit -m "feat(sp3): webhook ingestion server"
 - Modify: `internal/config/config.go`
 - Test: `internal/config/config_test.go` (append)
 
-- [ ] **Step 1: Write the failing tests** (append to `internal/config/config_test.go`; tests are `package config_test`, use `config.X` and the existing `errorsContain` helper):
+- [x] **Step 1: Write the failing tests** (append to `internal/config/config_test.go`; tests are `package config_test`, use `config.X` and the existing `errorsContain` helper):
 
 ```go
 // --- SP3 validation tests ---
@@ -2725,12 +2725,12 @@ func TestValidate_ServeBlock(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `go test ./internal/config/ -run 'TestValidate_EventSubscription|TestValidate_ServeBlock' -v`
 Expected: FAIL (`ServeConfig` undefined).
 
-- [ ] **Step 3: Implement** — in `internal/config/config.go`:
+- [x] **Step 3: Implement** — in `internal/config/config.go`:
 
 (a) Add the type and root field:
 
@@ -2781,12 +2781,12 @@ and in `Config`: `Serve ServeConfig \`yaml:"serve,omitempty"\`` (after `Database
 
 Add `"slices"` to config.go's imports. (`dutyOK` and `dutyByName` already exist in that loop — verify against the current code.)
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `go test ./internal/config/ -v`
 Expected: PASS — all new tests AND every pre-existing config test.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/config/config.go internal/config/config_test.go
@@ -2803,7 +2803,7 @@ git commit -m "feat(sp3): serve block and event-subscription trigger validation"
 
 No automated main.go tests (project precedent); verification is compile + vet + smoke. All dispatch/match/poll logic lives in already-tested packages.
 
-- [ ] **Step 1: Extract the scheduler loop.** In `cmd/fleet/main.go`, the body of `scheduleCmd`'s `sched.Run(...)` callback currently loads assignment/agent/duty, resolves the backend, builds the executor, and calls `pipeline.Execute`. Replace `scheduleCmd` with:
+- [x] **Step 1: Extract the scheduler loop.** In `cmd/fleet/main.go`, the body of `scheduleCmd`'s `sched.Run(...)` callback currently loads assignment/agent/duty, resolves the backend, builds the executor, and calls `pipeline.Execute`. Replace `scheduleCmd` with:
 
 ```go
 // scheduleCmd returns the "schedule" daemon subcommand (cron only).
@@ -2884,7 +2884,7 @@ func runSchedulerLoop(ctx context.Context, pool *pgxpool.Pool, inv *run.Invoker)
 
 This DELETES the old inline agent/duty/backend resolution from scheduleCmd (the Invoker owns it now). Behavior note: the old code printed errors identically; the only intended change is the shared path.
 
-- [ ] **Step 2: Add `serveCmd`** (and register `root.AddCommand(serveCmd())` + `root.AddCommand(eventsCmd())` in `main()`):
+- [x] **Step 2: Add `serveCmd`** (and register `root.AddCommand(serveCmd())` + `root.AddCommand(eventsCmd())` in `main()`):
 
 ```go
 // serveCmd returns the "serve" daemon: webhooks, polling, dispatcher, cron.
@@ -2982,7 +2982,7 @@ func pollInterval(cfg *config.Config, pluginName string) time.Duration {
 
 New imports for main.go: `"errors"` (already present from SP2's loadValidatedConfig — verify), `"net/http"`, `"os/signal"`, `"syscall"`, `"github.com/cbarraford/office-fleet/internal/events"`, `"github.com/cbarraford/office-fleet/internal/server"`, `"github.com/jackc/pgx/v5/pgxpool"` (verify — dbSecretsProvider already uses it).
 
-- [ ] **Step 3: Add `eventsCmd`:**
+- [x] **Step 3: Add `eventsCmd`:**
 
 ```go
 // eventsCmd returns the "events" group of subcommands.
@@ -3080,7 +3080,7 @@ func eventsReplayCmd() *cobra.Command {
 }
 ```
 
-- [ ] **Step 4: Update `configs/fleet.yaml`.** Add after the `database:` block:
+- [x] **Step 4: Update `configs/fleet.yaml`.** Add after the `database:` block:
 
 ```yaml
 serve:
@@ -3124,7 +3124,7 @@ In the `mr-reviewer` duty, extend `trigger_kinds` with `- event-subscription`. T
           body: "{{.Event.llm_summary}}"
 ```
 
-- [ ] **Step 5: Build, vet, smoke**
+- [x] **Step 5: Build, vet, smoke**
 
 ```bash
 go build ./... && go vet ./...
@@ -3135,7 +3135,7 @@ go run ./cmd/fleet --config configs/fleet.yaml serve --help
 ```
 Expected: all clean; validate prints OK; help texts render.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add cmd/fleet/main.go configs/fleet.yaml
@@ -3151,7 +3151,7 @@ git commit -m "feat(sp3): fleet serve daemon, events CLI, shared scheduler loop"
 
 In-package (`package run`) so the test can build `&Pipeline{...}`/`&Invoker{...}` with unexported fields, reusing `fakeRunRepo` and the Task 5 fakes. It composes the REAL gitlab plugin webhook parsing, REAL server, REAL ingestor/dispatcher (MemStore), and the REAL pipeline with a fake executor.
 
-- [ ] **Step 1: Write the test** — `internal/run/event_integration_test.go`:
+- [x] **Step 1: Write the test** — `internal/run/event_integration_test.go`:
 
 ```go
 package run
@@ -3359,14 +3359,14 @@ NOTE 1: `deliveryRecorder` already exists in `internal/run/pipeline_endpoint_tes
 NOTE 2: `fakeRunRepo.runs` is accessed from the test goroutine while the dispatcher's worker writes runs — `fakeRunRepo` methods have no mutex. Check whether `newFakeRunRepo` is already mutex-guarded; if not, add a `sync.Mutex` to `fakeRunRepo` (lock in Insert/UpdateStatus/UpdateResult and add a `snapshot()` helper returning a copy for assertions) as part of this task — run the whole package with `-race` to prove it.
 NOTE 3: the duty prompt renders `{{.Event.author}}` — that exists because the dispatcher merges `payload_norm` (which has `author`) into EventParams.
 
-- [ ] **Step 2: Run it (with race detector)**
+- [x] **Step 2: Run it (with race detector)**
 
 Run: `go test ./internal/run/ -run TestEventVertical -race -v -count=1`
 Expected: PASS. If the race detector fires on fakeRunRepo, apply NOTE 2's mutex and re-run.
 
 Then: `go test ./internal/run/ -race -count=1` (whole package, race-clean).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add internal/run/event_integration_test.go internal/run/pipeline_test.go
@@ -3381,21 +3381,21 @@ git commit -m "test(sp3): full webhook-to-run vertical integration test"
 
 **Files:** none new.
 
-- [ ] **Step 1: Full suite**
+- [x] **Step 1: Full suite**
 
 ```bash
 gofmt -l . && go vet ./... && go test ./... -count=1 && go test ./internal/... -race -count=1
 ```
 Expected: gofmt prints nothing; vet clean; ALL packages pass, race-clean.
 
-- [ ] **Step 2: SP1/SP2 stability check**
+- [x] **Step 2: SP1/SP2 stability check**
 
 ```bash
 git diff cafd2b3 --stat -- internal/executor/ internal/agentloop/ internal/outputs/ internal/prompt/ internal/state/ internal/trigger/
 ```
 Expected: NO changes to SP1/SP2 packages other than those this plan specifies (none of these dirs should appear at all).
 
-- [ ] **Step 3: CLI smoke**
+- [x] **Step 3: CLI smoke**
 
 ```bash
 FLEET_DATABASE_DSN=postgres://localhost/x go run ./cmd/fleet --config configs/fleet.yaml config validate
@@ -3411,7 +3411,7 @@ FLEET_DATABASE_DSN=postgres://localhost/fleet_sp3_smoke go run ./cmd/fleet --con
 # expect "(no events)"; proves migration 004 applied and the events CLI works
 ```
 
-- [ ] **Step 4: Push**
+- [x] **Step 4: Push**
 
 ```bash
 git status --short   # expect clean

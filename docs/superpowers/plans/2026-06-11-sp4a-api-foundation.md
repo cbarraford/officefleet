@@ -55,7 +55,7 @@ Dependency order: 1 → 2 ∥ 3 → 4 → 5 ∥ 6 → 7 → 8 → 9 → 10 → 1
 - Modify: `internal/domain/types.go`, `internal/repo/agents.go`
 - Test: existing suites must stay green (domain/repo have no unit tests per project precedent)
 
-- [ ] **Step 1: Create `internal/db/migrations/005_users_sessions.sql`**
+- [x] **Step 1: Create `internal/db/migrations/005_users_sessions.sql`**
 
 ```sql
 -- +migrate Up
@@ -90,7 +90,7 @@ DROP TABLE IF EXISTS sessions;
 DROP TABLE IF EXISTS users;
 ```
 
-- [ ] **Step 2: Extend `internal/domain/types.go`**
+- [x] **Step 2: Extend `internal/domain/types.go`**
 
 Add to the `Agent` struct, after `Enabled`:
 
@@ -136,7 +136,7 @@ type AgentStats struct {
 }
 ```
 
-- [ ] **Step 3: Update `internal/repo/agents.go` for the new columns and add Update/Delete**
+- [x] **Step 3: Update `internal/repo/agents.go` for the new columns and add Update/Delete**
 
 Replace the four SQL touchpoints and `scanAgent`, and append two methods:
 
@@ -233,7 +233,7 @@ func (r *AgentRepo) Delete(ctx context.Context, id uuid.UUID) error {
 }
 ```
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 Run: `go build ./... && go test ./... -count=1 && go vet ./... && gofmt -l internal/`
 Expected: all clean (no existing test reads the new columns yet).
@@ -251,7 +251,7 @@ git commit -m "feat(sp4a): users/sessions schema, agent persona columns, agent u
 - Create: `internal/secrets/cipher.go`
 - Test: `internal/secrets/cipher_test.go`
 
-- [ ] **Step 1: Write the failing tests** — `internal/secrets/cipher_test.go`:
+- [x] **Step 1: Write the failing tests** — `internal/secrets/cipher_test.go`:
 
 ```go
 package secrets
@@ -359,9 +359,9 @@ func TestNewCipherKeyValidation(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2:** Run `go test ./internal/secrets/ -v` — FAIL (package missing).
+- [x] **Step 2:** Run `go test ./internal/secrets/ -v` — FAIL (package missing).
 
-- [ ] **Step 3: Implement** — `internal/secrets/cipher.go`:
+- [x] **Step 3: Implement** — `internal/secrets/cipher.go`:
 
 ```go
 // Package secrets provides AES-256-GCM encryption-at-rest for the secrets
@@ -450,9 +450,9 @@ func IsEncrypted(stored []byte) bool {
 }
 ```
 
-- [ ] **Step 4:** Run `go test ./internal/secrets/ -v` — PASS (7 tests). gofmt/vet clean.
+- [x] **Step 4:** Run `go test ./internal/secrets/ -v` — PASS (7 tests). gofmt/vet clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/secrets/
@@ -467,7 +467,7 @@ git commit -m "feat(sp4a): AES-256-GCM secrets cipher with legacy-plaintext dete
 - Create: `internal/auth/password.go`, `internal/auth/session.go`
 - Test: `internal/auth/password_test.go`, `internal/auth/session_test.go`
 
-- [ ] **Step 1: Write the failing password tests** — `internal/auth/password_test.go`:
+- [x] **Step 1: Write the failing password tests** — `internal/auth/password_test.go`:
 
 ```go
 package auth
@@ -517,7 +517,7 @@ func TestEmptyPasswordRejected(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Write the failing session tests** — `internal/auth/session_test.go`:
+- [x] **Step 2: Write the failing session tests** — `internal/auth/session_test.go`:
 
 ```go
 package auth
@@ -607,9 +607,9 @@ func TestValidateUnknownToken(t *testing.T) {
 }
 ```
 
-- [ ] **Step 3:** Run `go test ./internal/auth/ -v` — FAIL (package missing).
+- [x] **Step 3:** Run `go test ./internal/auth/ -v` — FAIL (package missing).
 
-- [ ] **Step 4: Implement** — `internal/auth/password.go`:
+- [x] **Step 4: Implement** — `internal/auth/password.go`:
 
 ```go
 // Package auth provides operator authentication: PBKDF2 password hashing
@@ -686,7 +686,7 @@ NOTE: `crypto/pbkdf2` is stdlib since Go 1.24. Check the exact signature with
 `Key(h func() hash.Hash, password string, salt []byte, iter, keyLength int) ([]byte, error)`,
 adapt the two call sites (the tests pin the behavior, not the signature).
 
-- [ ] **Step 5: Implement** — `internal/auth/session.go`:
+- [x] **Step 5: Implement** — `internal/auth/session.go`:
 
 ```go
 package auth
@@ -756,9 +756,9 @@ func (s *Sessions) End(ctx context.Context, token string) error {
 }
 ```
 
-- [ ] **Step 6:** Run `go test ./internal/auth/ -v` — PASS. The PBKDF2 tests take ~1s each (600k iterations × a few hashes) — acceptable; do NOT lower iterations in tests.
+- [x] **Step 6:** Run `go test ./internal/auth/ -v` — PASS. The PBKDF2 tests take ~1s each (600k iterations × a few hashes) — acceptable; do NOT lower iterations in tests.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add internal/auth/
@@ -775,7 +775,7 @@ git commit -m "feat(sp4a): pbkdf2 password hashing and hashed session service"
 
 Repo precedent: thin pgx SQL, no unit tests (logic is exercised through fakes; SQL through migrate+smoke). Match `runs.go` style.
 
-- [ ] **Step 1: `internal/repo/users.go`**
+- [x] **Step 1: `internal/repo/users.go`**
 
 ```go
 package repo
@@ -851,7 +851,7 @@ func (r *UserRepo) Delete(ctx context.Context, username string) error {
 }
 ```
 
-- [ ] **Step 2: `internal/repo/sessions.go`** (implements `auth.SessionStore`)
+- [x] **Step 2: `internal/repo/sessions.go`** (implements `auth.SessionStore`)
 
 ```go
 package repo
@@ -912,7 +912,7 @@ func (r *SessionRepo) DeleteExpired(ctx context.Context) error {
 }
 ```
 
-- [ ] **Step 3: `internal/repo/secrets.go`**
+- [x] **Step 3: `internal/repo/secrets.go`**
 
 ```go
 package repo
@@ -985,7 +985,7 @@ func (r *SecretRepo) Delete(ctx context.Context, name string) error {
 }
 ```
 
-- [ ] **Step 4: Duty + Assignment Update/Delete** (append to the respective files; mirror the agent versions)
+- [x] **Step 4: Duty + Assignment Update/Delete** (append to the respective files; mirror the agent versions)
 
 `internal/repo/duties.go`:
 
@@ -1069,7 +1069,7 @@ func (r *AssignmentRepo) Delete(ctx context.Context, id uuid.UUID) error {
 }
 ```
 
-- [ ] **Step 5: Filtered runs + stats** (append to `internal/repo/runs.go`)
+- [x] **Step 5: Filtered runs + stats** (append to `internal/repo/runs.go`)
 
 ```go
 // ListFiltered returns run summaries newest-first. status/agentID filter when
@@ -1154,7 +1154,7 @@ func (r *RunRepo) AgentStats(ctx context.Context, agentID uuid.UUID) (*domain.Ag
 
 (NOTE: `outputs_delivered` may hold JSON `null` for old rows — `jsonb_array_elements(null)` errors. Guard with `AND jsonb_typeof(r.outputs_delivered)='array'` in the second query's WHERE. Add that.)
 
-- [ ] **Step 6: Verify and commit**
+- [x] **Step 6: Verify and commit**
 
 Run: `go build ./... && go test ./... -count=1 && go vet ./... && gofmt -l internal/repo/`
 Expected: clean.
@@ -1173,7 +1173,7 @@ git commit -m "feat(sp4a): user/session/secret repos, entity update-delete, run 
 - Create: `internal/seed/seed_test.go`
 - Modify: `cmd/fleet/main.go` (seedCmd; migrate call site)
 
-- [ ] **Step 1: Refactor `seed.FromConfig` onto interfaces with a force flag.** Replace the signature and add the guard (the function body's upsert loops are unchanged — only the parameter types and the new guard at the top):
+- [x] **Step 1: Refactor `seed.FromConfig` onto interfaces with a force flag.** Replace the signature and add the guard (the function body's upsert loops are unchanged — only the parameter types and the new guard at the top):
 
 ```go
 // AgentSeeder, DutySeeder, AssignmentSeeder are the repo capabilities seeding
@@ -1222,7 +1222,7 @@ func FromConfig(ctx context.Context, cfg *config.Config,
 }
 ```
 
-- [ ] **Step 2: Write the tests** — `internal/seed/seed_test.go` (fakes implement the three seeder interfaces; record upsert calls; List returns configurable rows):
+- [x] **Step 2: Write the tests** — `internal/seed/seed_test.go` (fakes implement the three seeder interfaces; record upsert calls; List returns configurable rows):
 
 ```go
 package seed
@@ -1313,7 +1313,7 @@ func TestSeed_ForceOverwrites(t *testing.T) {
 
 NOTE: the existing FromConfig body uses `agent.ID` after UpsertByName via the name→id maps — the fakes above return nil without setting IDs, which leaves uuid.Nil in the maps; that is fine for these tests (assignment upsert is still counted). Verify the body doesn't error on Nil ids; it does not.
 
-- [ ] **Step 3: Update the call site in migrateCmd and add seedCmd.** In `cmd/fleet/main.go`, the migrate body's `seed.FromConfig(ctx, cfg, agentRepo, dutyRepo, assignmentRepo)` gains `, false`. Add the new command (register `root.AddCommand(seedCmd())`):
+- [x] **Step 3: Update the call site in migrateCmd and add seedCmd.** In `cmd/fleet/main.go`, the migrate body's `seed.FromConfig(ctx, cfg, agentRepo, dutyRepo, assignmentRepo)` gains `, false`. Add the new command (register `root.AddCommand(seedCmd())`):
 
 ```go
 // seedCmd returns the "seed" command (DB is the source of truth; this is the
@@ -1354,7 +1354,7 @@ func seedCmd() *cobra.Command {
 }
 ```
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 Run: `go build ./... && go test ./... -count=1 && go vet ./...`
 
@@ -1371,7 +1371,7 @@ git commit -m "feat(sp4a): DB-owns seeding — guard FromConfig, add fleet seed 
 - Modify: `internal/run/pipeline.go`
 - Test: `internal/run/pipeline_test.go` (append)
 
-- [ ] **Step 1: Write the failing test** (append to pipeline_test.go):
+- [x] **Step 1: Write the failing test** (append to pipeline_test.go):
 
 ```go
 func TestPipelineExecute_RunUpdateHook(t *testing.T) {
@@ -1431,9 +1431,9 @@ func TestPipelineExecute_RunUpdateHookOnPauseSkip(t *testing.T) {
 
 (`sync` may need adding to pipeline_test.go imports — check.)
 
-- [ ] **Step 2:** Run — FAIL (`SetRunUpdateHook` undefined).
+- [x] **Step 2:** Run — FAIL (`SetRunUpdateHook` undefined).
 
-- [ ] **Step 3: Implement in `internal/run/pipeline.go`:**
+- [x] **Step 3: Implement in `internal/run/pipeline.go`:**
 
 (a) Add the field to `Pipeline`:
 ```go
@@ -1463,9 +1463,9 @@ func (p *Pipeline) emitRunUpdate(run *domain.Run) {
 5. Model-failure (Status != 0) path: before `return run, nil` → `p.emitRunUpdate(run)`.
 6. Success path: after `run.FinishedAt` is set, before `return run, nil` → `p.emitRunUpdate(run)`.
 
-- [ ] **Step 4:** Run `go test ./internal/run/ -race -count=1` — ALL pass (new + every pre-existing test runs with a nil hook).
+- [x] **Step 4:** Run `go test ./internal/run/ -race -count=1` — ALL pass (new + every pre-existing test runs with a nil hook).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/run/pipeline.go internal/run/pipeline_test.go
@@ -1481,7 +1481,7 @@ git commit -m "feat(sp4a): additive run-update hook on the pipeline"
 
 No new automated tests (main.go precedent); the cipher and repo are already tested. Verification is compile + behavioral smoke in Task 12.
 
-- [ ] **Step 1: Central decrypt helper + cipher construction.** In main.go add:
+- [x] **Step 1: Central decrypt helper + cipher construction.** In main.go add:
 
 ```go
 // loadCipher returns the secrets cipher, or nil when FLEET_MASTER_KEY is unset
@@ -1511,11 +1511,11 @@ func decryptSecret(c *secrets.Cipher, name string, stored []byte) (string, error
 }
 ```
 
-- [ ] **Step 2: Route the two read paths through it.** `buildSecretLookup` and `dbSecretsProvider.Load` gain a `*secrets.Cipher` (field/param — thread it from the call sites, which all already call `loadCipher()` once at command start; a nil cipher is valid). Replace their raw `string(val)` with `decryptSecret(cipher, name, val)`. In `dbSecretsProvider.Load`, a decrypt error for one secret fails the load (loud, names the secret). Update every constructor call site (`runCmd`, `scheduleCmd`, `serveCmd`, `initPlugins` callers) to obtain and pass the cipher; commands fail fast on an invalid key.
+- [x] **Step 2: Route the two read paths through it.** `buildSecretLookup` and `dbSecretsProvider.Load` gain a `*secrets.Cipher` (field/param — thread it from the call sites, which all already call `loadCipher()` once at command start; a nil cipher is valid). Replace their raw `string(val)` with `decryptSecret(cipher, name, val)`. In `dbSecretsProvider.Load`, a decrypt error for one secret fails the load (loud, names the secret). Update every constructor call site (`runCmd`, `scheduleCmd`, `serveCmd`, `initPlugins` callers) to obtain and pass the cipher; commands fail fast on an invalid key.
 
-- [ ] **Step 3: Startup warning in serveCmd.** After initPlugins, list secrets via `repo.NewSecretRepo(pool).List(ctx)` and print a warning naming any rows where `!secrets.IsEncrypted(value)`, plus a note when the master key is unset.
+- [x] **Step 3: Startup warning in serveCmd.** After initPlugins, list secrets via `repo.NewSecretRepo(pool).List(ctx)` and print a warning naming any rows where `!secrets.IsEncrypted(value)`, plus a note when the master key is unset.
 
-- [ ] **Step 4: Add the secrets CLI** (register `root.AddCommand(secretsCmd())`):
+- [x] **Step 4: Add the secrets CLI** (register `root.AddCommand(secretsCmd())`):
 
 ```go
 func secretsCmd() *cobra.Command {
@@ -1568,7 +1568,7 @@ func secretsSetCmd() *cobra.Command {
 
 `secretsListCmd` prints `NAME / ENCRYPTED` columns from `SecretRepo.List` + `secrets.IsEncrypted` — never values. `secretsDeleteCmd` calls Delete. `secretsEncryptExistingCmd` loads the cipher (required), lists, and for each non-encrypted row re-Upserts `cipher.Encrypt(raw)`, printing a per-secret line and a final count; idempotent because already-encrypted rows are skipped. Add a small `mustDSN(cfg)` helper wrapping the existing `resolveDSN` + empty-check pattern (or inline the existing three-liner; match surrounding style).
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run: `go build ./... && go test ./... -count=1 && go vet ./...`
 
@@ -1584,7 +1584,7 @@ git commit -m "feat(sp4a): decrypting secret read path and fleet secrets CLI"
 **Files:**
 - Modify: `cmd/fleet/main.go`
 
-- [ ] **Step 1: Add `usersCmd`** (register in main()):
+- [x] **Step 1: Add `usersCmd`** (register in main()):
 
 ```go
 func usersCmd() *cobra.Command {
@@ -1647,7 +1647,7 @@ func usersCreateCmd() *cobra.Command {
 
 `usersListCmd`: table of username/role/created (never hashes). `usersDeleteCmd`: `Use: "delete <username>"`, calls Delete. New imports: `bufio`, `internal/auth` (io/strings present from Task 7).
 
-- [ ] **Step 2: Verify and commit**
+- [x] **Step 2: Verify and commit**
 
 Run: `go build ./... && go vet ./...`
 
@@ -1664,7 +1664,7 @@ git commit -m "feat(sp4a): fleet users CLI"
 - Create: `internal/api/api.go`, `internal/api/middleware.go`, `internal/api/auth_handlers.go`, `internal/api/stream.go`
 - Test: `internal/api/middleware_test.go`, `internal/api/stream_test.go`
 
-- [ ] **Step 1: `internal/api/api.go`** — the API struct, dependency interfaces, JSON helpers, and Mount:
+- [x] **Step 1: `internal/api/api.go`** — the API struct, dependency interfaces, JSON helpers, and Mount:
 
 ```go
 // Package api implements the /api/v1 REST surface and SSE stream consumed by
@@ -1881,7 +1881,7 @@ func (a *API) sessionCookie(value string, maxAge time.Duration) *http.Cookie {
 
 (`route` is implemented in middleware.go below; it lazily builds `authedMux` once via the struct's `innerOnce`.)
 
-- [ ] **Step 2: `internal/api/middleware.go`:**
+- [x] **Step 2: `internal/api/middleware.go`:**
 
 ```go
 package api
@@ -1933,7 +1933,7 @@ func (a *API) requireAuth(next http.Handler) http.Handler {
 }
 ```
 
-- [ ] **Step 3: `internal/api/auth_handlers.go`:**
+- [x] **Step 3: `internal/api/auth_handlers.go`:**
 
 ```go
 package api
@@ -1999,7 +1999,7 @@ func (a *API) handleMe(w http.ResponseWriter, r *http.Request) {
 
 (`/me` returning only the role is sufficient for SP4a; SP4b can extend. If username-in-context is wanted, thread it from Validate via a Users lookup — out of scope.)
 
-- [ ] **Step 4: `internal/api/stream.go`** — Broadcaster + SSE handler:
+- [x] **Step 4: `internal/api/stream.go`** — Broadcaster + SSE handler:
 
 ```go
 package api
@@ -2090,7 +2090,7 @@ func (a *API) handleStream(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-- [ ] **Step 5: Write the middleware test** — `internal/api/middleware_test.go` (the mem session store defined here is REUSED by entity/integration tests in Tasks 10–11):
+- [x] **Step 5: Write the middleware test** — `internal/api/middleware_test.go` (the mem session store defined here is REUSED by entity/integration tests in Tasks 10–11):
 
 ```go
 package api
@@ -2233,9 +2233,9 @@ Also write `internal/api/stream_test.go` per this contract (complete the code yo
 
 Write complete tests following those specifications — assert payload JSON contains `"event":"run_started"` / `"run_finished"` and the run id.
 
-- [ ] **Step 6:** Run `go test ./internal/api/ -race -v` — PASS. Build/vet/gofmt clean.
+- [x] **Step 6:** Run `go test ./internal/api/ -race -v` — PASS. Build/vet/gofmt clean.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add internal/api/
@@ -2250,7 +2250,7 @@ git commit -m "feat(sp4a): api core — router, session middleware, auth endpoin
 - Create: `internal/api/entity_handlers.go`
 - Test: `internal/api/entity_handlers_test.go` (fakes for the three stores)
 
-- [ ] **Step 1: Implement `entity_handlers.go`.** Pattern per entity (agents shown; duties/assignments follow identically with their fields):
+- [x] **Step 1: Implement `entity_handlers.go`.** Pattern per entity (agents shown; duties/assignments follow identically with their fields):
 
 ```go
 package api
@@ -2468,7 +2468,7 @@ func (a *API) validateAssignment(ctx context.Context, asg *domain.Assignment) er
 }
 ```
 
-- [ ] **Step 2: Write the tests** — `entity_handlers_test.go`: in-memory fakes for AgentStore/DutyStore/AssignmentStore/RunStore (maps keyed by id; Insert assigns uuid; Update/Delete error on missing); an apiFixture helper building `New(Deps{...})` with an admin session pre-seeded (reuse a mem session store + `auth.NewSessions`) and an `http.Client` with the cookie set; tests:
+- [x] **Step 2: Write the tests** — `entity_handlers_test.go`: in-memory fakes for AgentStore/DutyStore/AssignmentStore/RunStore (maps keyed by id; Insert assigns uuid; Update/Delete error on missing); an apiFixture helper building `New(Deps{...})` with an admin session pre-seeded (reuse a mem session store + `auth.NewSessions`) and an `http.Client` with the cookie set; tests:
   - create agent → 201 + listed; duplicate name (fake returns an error containing "23505") → 409.
   - PATCH partial: set only `{"enabled":false}` → other fields unchanged; bad hired_at → 400; unknown backend ref → 400.
   - GET /agents/{id} embeds stats from the fake RunStore.
@@ -2478,9 +2478,9 @@ func (a *API) validateAssignment(ctx context.Context, asg *domain.Assignment) er
 
 Write the complete fixture + tests (model them on the route table; each is a few lines of request/assert via httptest.NewServer(api-mounted mux)).
 
-- [ ] **Step 3:** Run `go test ./internal/api/ -race -v` — PASS.
+- [x] **Step 3:** Run `go test ./internal/api/ -race -v` — PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add internal/api/
@@ -2495,7 +2495,7 @@ git commit -m "feat(sp4a): entity CRUD handlers with validation parity"
 - Create: `internal/api/record_handlers.go`
 - Test: `internal/api/api_test.go` (the package-level integration suite)
 
-- [ ] **Step 1: Implement `record_handlers.go`:**
+- [x] **Step 1: Implement `record_handlers.go`:**
 
 ```go
 package api
@@ -2690,7 +2690,7 @@ func (a *API) handleDeleteSecret(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-- [ ] **Step 2: Write the integration suite** — `internal/api/api_test.go`. One fixture: full API over all fakes + a real `auth.Sessions`/mem store + a real user with a PBKDF2 hash (use a REDUCED-iteration hash here? NO — hash once in the fixture with the real function; one hash ≈ 0.3s, acceptable). Cover:
+- [x] **Step 2: Write the integration suite** — `internal/api/api_test.go`. One fixture: full API over all fakes + a real `auth.Sessions`/mem store + a real user with a PBKDF2 hash (use a REDUCED-iteration hash here? NO — hash once in the fixture with the real function; one hash ≈ 0.3s, acceptable). Cover:
   - login wrong password → 401 (uniform body); login unknown user → 401 same body.
   - login ok → cookie set HttpOnly; `/me` → role; logout → subsequent call 401.
   - viewer user: GET /runs 200, PUT secret 403.
@@ -2702,9 +2702,9 @@ func (a *API) handleDeleteSecret(w http.ResponseWriter, r *http.Request) {
 
 Write the complete fixture and tests.
 
-- [ ] **Step 3:** Run `go test ./internal/api/ -race -count=1` — PASS (~1-2s incl. one real PBKDF2 hash).
+- [x] **Step 3:** Run `go test ./internal/api/ -race -count=1` — PASS (~1-2s incl. one real PBKDF2 hash).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add internal/api/
@@ -2718,7 +2718,7 @@ git commit -m "feat(sp4a): record handlers, run-now, secrets api, and api integr
 **Files:**
 - Modify: `internal/server/server.go` (+ `server_test.go`), `internal/config/config.go` (+ test), `cmd/fleet/main.go`, `configs/fleet.yaml`
 
-- [ ] **Step 1: `server.Handler` gains mounts.** Change the signature and add a test:
+- [x] **Step 1: `server.Handler` gains mounts.** Change the signature and add a test:
 
 ```go
 // Handler builds the HTTP mux: webhooks + healthz, plus any extra mounts
@@ -2760,9 +2760,9 @@ func TestHandlerMounts(t *testing.T) {
 
 (add `io` import if missing).
 
-- [ ] **Step 2: ServeConfig.SecureCookies.** In config.go add `SecureCookies bool \`yaml:"secure_cookies,omitempty"\`` to ServeConfig (booleans need no validation). Config test: a serve block with `secure_cookies: true` parses (extend `TestValidate_ServeBlock`'s valid case construction with the field).
+- [x] **Step 2: ServeConfig.SecureCookies.** In config.go add `SecureCookies bool \`yaml:"secure_cookies,omitempty"\`` to ServeConfig (booleans need no validation). Config test: a serve block with `secure_cookies: true` parses (extend `TestValidate_ServeBlock`'s valid case construction with the field).
 
-- [ ] **Step 3: Wire the API in serveCmd.** After the dispatcher/ingestor construction and before the http.Server:
+- [x] **Step 3: Wire the API in serveCmd.** After the dispatcher/ingestor construction and before the http.Server:
 
 ```go
 			cipher, err := loadCipher()
@@ -2796,13 +2796,13 @@ func TestHandlerMounts(t *testing.T) {
 
 PREREQUISITE for the `pipeline` variable: `buildInvoker` constructs the Pipeline internally — the hook needs that same Pipeline. Refactor it to `func buildInvoker(cfg *config.Config, pool *pgxpool.Pool) (*run.Invoker, *run.Pipeline)` and update both call sites: scheduleCmd uses `inv, _ := buildInvoker(...)`; serveCmd uses `inv, pipeline := buildInvoker(...)` (the serveCmd snippet above assumes these names). The nil-Encryptor case: passing a typed-nil `*secrets.Cipher` directly as the interface would make `a.encryptor != nil` true — hence the explicit `var enc api.Encryptor` + conditional assignment above. Preserve that exact pattern.
 
-- [ ] **Step 4: Sample config.** In configs/fleet.yaml's serve block add:
+- [x] **Step 4: Sample config.** In configs/fleet.yaml's serve block add:
 
 ```yaml
 #  secure_cookies: true  # set when serving behind TLS
 ```
 
-- [ ] **Step 5: Full verification**
+- [x] **Step 5: Full verification**
 
 ```bash
 gofmt -l . && go vet ./... && go test ./... -count=1 && go test ./internal/... -race -count=1
@@ -2814,14 +2814,14 @@ go run ./cmd/fleet --config configs/fleet.yaml serve --help
 ```
 Expected: all clean/green; helps render.
 
-- [ ] **Step 6: SP1–SP3b stability check**
+- [x] **Step 6: SP1–SP3b stability check**
 
 ```bash
 git diff 0252e93 --stat -- internal/agentloop/ internal/executor/ internal/events/ internal/plugins/ internal/outputs/ internal/prompt/ internal/trigger/ internal/state/
 ```
 Expected: empty — none of the frozen packages changed. (`internal/run/pipeline.go`, `internal/server/server.go`, `internal/seed`, `internal/repo`, `internal/config`, `internal/domain` legitimately changed per this plan.)
 
-- [ ] **Step 7: Commit and push**
+- [x] **Step 7: Commit and push**
 
 ```bash
 git add internal/server/ internal/config/ cmd/fleet/main.go configs/fleet.yaml

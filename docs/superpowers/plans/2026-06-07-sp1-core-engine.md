@@ -48,7 +48,7 @@
 - Create: `internal/db/db.go`
 - Test: `internal/db/db_test.go`
 
-- [ ] **Step 1: Write `internal/db/db.go`**
+- [x] **Step 1: Write `internal/db/db.go`**
 
 ```go
 package db
@@ -142,7 +142,7 @@ func extractUpBlock(sql string) string {
 }
 ```
 
-- [ ] **Step 2: Write `internal/db/db_test.go`** (compile-only; real DB test lives in integration suite)
+- [x] **Step 2: Write `internal/db/db_test.go`** (compile-only; real DB test lives in integration suite)
 
 ```go
 package db
@@ -161,14 +161,14 @@ DROP TABLE foo;`
 }
 ```
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 ```bash
 go test ./internal/db/...
 ```
 Expected: PASS
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add internal/db/
@@ -184,7 +184,7 @@ git commit -m "feat(db): pgx pool + embed migrations runner"
 - Create: `internal/repo/duties.go`
 - Create: `internal/repo/assignments.go`
 
-- [ ] **Step 1: Write `internal/repo/agents.go`**
+- [x] **Step 1: Write `internal/repo/agents.go`**
 
 ```go
 package repo
@@ -256,7 +256,7 @@ func scanAgent(s scanner) (*domain.Agent, error) {
 }
 ```
 
-- [ ] **Step 2: Write `internal/repo/duties.go`**
+- [x] **Step 2: Write `internal/repo/duties.go`**
 
 ```go
 package repo
@@ -339,7 +339,7 @@ func scanDuty(s scanner) (*domain.Duty, error) {
 }
 ```
 
-- [ ] **Step 3: Write `internal/repo/assignments.go`**
+- [x] **Step 3: Write `internal/repo/assignments.go`**
 
 ```go
 package repo
@@ -434,14 +434,14 @@ func scanAssignment(s scanner) (*domain.Assignment, error) {
 }
 ```
 
-- [ ] **Step 4: Compile check**
+- [x] **Step 4: Compile check**
 
 ```bash
 go build ./internal/repo/...
 ```
 Expected: no errors
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/repo/
@@ -455,7 +455,7 @@ git commit -m "feat(repo): Agent, Duty, Assignment CRUD"
 **Files:**
 - Create: `internal/repo/runs.go`
 
-- [ ] **Step 1: Write `internal/repo/runs.go`**
+- [x] **Step 1: Write `internal/repo/runs.go`**
 
 ```go
 package repo
@@ -539,14 +539,14 @@ func scanRun(s scanner) (*domain.Run, error) {
 }
 ```
 
-- [ ] **Step 2: Compile check**
+- [x] **Step 2: Compile check**
 
 ```bash
 go build ./internal/repo/...
 ```
 Expected: no errors
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add internal/repo/runs.go
@@ -561,7 +561,7 @@ git commit -m "feat(repo): Run CRUD"
 - Create: `internal/state/postgres.go`
 - Test: `internal/state/store_test.go`
 
-- [ ] **Step 1: Write `internal/state/postgres.go`**
+- [x] **Step 1: Write `internal/state/postgres.go`**
 
 ```go
 package state
@@ -636,7 +636,7 @@ func (s *PostgresStore) MarkProcessed(ctx context.Context, assignmentID, dedupKe
 }
 ```
 
-- [ ] **Step 2: Write `internal/state/store_test.go`** (unit test with in-memory fake)
+- [x] **Step 2: Write `internal/state/store_test.go`** (unit test with in-memory fake)
 
 ```go
 package state_test
@@ -712,14 +712,14 @@ func TestMemStore_HasProcessed(t *testing.T) {
 }
 ```
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 ```bash
 go test ./internal/state/...
 ```
 Expected: PASS
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add internal/state/
@@ -734,7 +734,7 @@ git commit -m "feat(state): Postgres store + in-memory test double"
 - Create: `internal/prompt/engine.go`
 - Test: `internal/prompt/engine_test.go`
 
-- [ ] **Step 1: Write `internal/prompt/engine.go`**
+- [x] **Step 1: Write `internal/prompt/engine.go`**
 
 ```go
 package prompt
@@ -816,7 +816,7 @@ func helpers() template.FuncMap {
 }
 ```
 
-- [ ] **Step 2: Write `internal/prompt/engine_test.go`**
+- [x] **Step 2: Write `internal/prompt/engine_test.go`**
 
 ```go
 package prompt_test
@@ -893,14 +893,14 @@ func TestRender_Truncate(t *testing.T) {
 }
 ```
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 ```bash
 go test ./internal/prompt/... -v
 ```
 Expected: all PASS
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add internal/prompt/
@@ -915,7 +915,7 @@ git commit -m "feat(prompt): text/template engine with three-layer composition"
 - Create: `internal/plugins/gitlab/gitlab.go`
 - Test: `internal/plugins/gitlab/gitlab_test.go`
 
-- [ ] **Step 1: Write `internal/plugins/gitlab/gitlab.go`**
+- [x] **Step 1: Write `internal/plugins/gitlab/gitlab.go`**
 
 ```go
 package gitlab
@@ -1027,7 +1027,7 @@ func (g *GitLabPlugin) postMRComment(ctx context.Context, params map[string]any)
 }
 ```
 
-- [ ] **Step 2: Write `internal/plugins/gitlab/gitlab_test.go`**
+- [x] **Step 2: Write `internal/plugins/gitlab/gitlab_test.go`**
 
 ```go
 package gitlab_test
@@ -1095,14 +1095,14 @@ func TestGitLabPlugin_UnknownAction(t *testing.T) {
 }
 ```
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 ```bash
 go test ./internal/plugins/gitlab/... -v
 ```
 Expected: PASS (uses httptest, no real GitLab)
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add internal/plugins/gitlab/
@@ -1118,7 +1118,7 @@ git commit -m "feat(plugins/gitlab): post_mr_comment action + httptest suite"
 - Create: `internal/executor/fake.go`
 - Test: `internal/executor/executor_test.go`
 
-- [ ] **Step 1: Write `internal/executor/fake.go`**
+- [x] **Step 1: Write `internal/executor/fake.go`**
 
 ```go
 package executor
@@ -1145,7 +1145,7 @@ func (f *FakeExecutor) Run(_ context.Context, req LLMRequest) (domain.LLMResult,
 }
 ```
 
-- [ ] **Step 2: Write `internal/executor/claude.go`**
+- [x] **Step 2: Write `internal/executor/claude.go`**
 
 ```go
 package executor
@@ -1296,7 +1296,7 @@ func verifyTools(tools []string) error {
 }
 ```
 
-- [ ] **Step 3: Write `internal/executor/executor_test.go`**
+- [x] **Step 3: Write `internal/executor/executor_test.go`**
 
 ```go
 package executor_test
@@ -1349,14 +1349,14 @@ func TestFakeExecutor_Kind(t *testing.T) {
 }
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```bash
 go test ./internal/executor/... -v
 ```
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/executor/
@@ -1371,7 +1371,7 @@ git commit -m "feat(executor): claude CLI backend + fake executor for tests"
 - Create: `internal/outputs/deliver.go`
 - Test: `internal/outputs/deliver_test.go`
 
-- [ ] **Step 1: Write `internal/outputs/deliver.go`**
+- [x] **Step 1: Write `internal/outputs/deliver.go`**
 
 ```go
 package outputs

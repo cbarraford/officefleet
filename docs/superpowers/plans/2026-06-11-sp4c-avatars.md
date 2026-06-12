@@ -59,7 +59,7 @@
 - Test: `internal/config/config_test.go`
 - Modify: `configs/fleet.yaml`
 
-- [ ] **Step 1: Write the failing validation tests**
+- [x] **Step 1: Write the failing validation tests**
 
 Read `internal/config/config_test.go` first and follow its existing table/helper style (there is an established pattern of building a minimal valid Config and asserting `Validate` error substrings). Add:
 
@@ -136,12 +136,12 @@ func TestValidateImageBackends(t *testing.T) {
 
 (Add `"strings"` to the test imports if missing.)
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `go test ./internal/config/ -run TestValidateImageBackends -v`
 Expected: compile FAIL — `ImageBackend` undefined.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `internal/config/config.go`:
 
@@ -232,12 +232,12 @@ In `Validate`, after the voter-panel loop and before the `cfg.Serve.Workers` che
 
 Add `"text/template"` to the imports.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `go test ./internal/config/ -count=1`
 Expected: PASS (new + existing).
 
-- [ ] **Step 5: Sample config**
+- [x] **Step 5: Sample config**
 
 In `configs/fleet.yaml`, add a commented block (adjacent to the `backends:` section; adapt placement to the file's existing comment style — read it first). IMPORTANT: write `$ {env:...}` style references carefully — `expandEnvRefs` runs on the RAW file bytes including comments, and an unset env var inside a comment would break loading (this bit us in SP2). Use a placeholder name that is safe, exactly as the existing file does for other commented secrets (check how it comments out `api_key` examples and copy that convention — if existing comments avoid `${env:...}` entirely, write `api_key: YOUR-API-KEY` instead):
 
@@ -260,7 +260,7 @@ serve:
 
 Verify the sample still loads: `go run ./cmd/fleet validate 2>/dev/null || true` — check what the validate/load command is named (`grep -n "Use:" cmd/fleet/main.go | head -20`) and run the appropriate one against `configs/fleet.yaml`; at minimum run the config tests again.
 
-- [ ] **Step 6: gofmt + vet + commit**
+- [x] **Step 6: gofmt + vet + commit**
 
 ```bash
 gofmt -l . && go vet ./...
@@ -276,7 +276,7 @@ git commit -m "feat(sp4c): image_backends config and serve avatar settings"
 - Create: `internal/avatar/initials.go`
 - Test: `internal/avatar/initials_test.go`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `internal/avatar/initials_test.go`:
 
@@ -354,12 +354,12 @@ func TestPaletteMatchesSPA(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `go test ./internal/avatar/ -v`
 Expected: FAIL to build — package/functions undefined.
 
-- [ ] **Step 3: Implement `internal/avatar/initials.go`**
+- [x] **Step 3: Implement `internal/avatar/initials.go`**
 
 ```go
 // Package avatar generates, stores, and serves agent avatars (spec §6.1):
@@ -421,12 +421,12 @@ func InitialsSVG(name string) []byte {
 }
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `go test ./internal/avatar/ -count=1 -v`
 Expected: PASS (5 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 gofmt -l . && go vet ./...
@@ -442,7 +442,7 @@ git commit -m "feat(sp4c): deterministic initials-SVG avatar fallback"
 - Create: `internal/avatar/generator.go`
 - Test: `internal/avatar/generator_test.go`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `internal/avatar/generator_test.go`:
 
@@ -570,12 +570,12 @@ func TestGenerateEmptyData(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `go test ./internal/avatar/ -run TestGenerate -v`
 Expected: FAIL to build — `NewOpenAIImageGenerator`/`DefaultPrompt` undefined.
 
-- [ ] **Step 3: Implement `internal/avatar/generator.go`**
+- [x] **Step 3: Implement `internal/avatar/generator.go`**
 
 ```go
 package avatar
@@ -697,12 +697,12 @@ func truncate(b []byte, n int) string {
 }
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `go test ./internal/avatar/ -count=1`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 gofmt -l . && go vet ./...
@@ -719,7 +719,7 @@ git commit -m "feat(sp4c): openai-image-compatible avatar generator"
 - Test: `internal/avatar/store_test.go`
 - Modify: `.gitignore` (add `/avatars/` — serve creates the dir at runtime; the worktree must stay clean)
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `internal/avatar/store_test.go`:
 
@@ -850,12 +850,12 @@ func TestMountHTTPServing(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `go test ./internal/avatar/ -run 'TestStore|TestMount|TestNewStore' -v`
 Expected: FAIL to build — `NewStore`/`MountHTTP` undefined.
 
-- [ ] **Step 3: Implement `internal/avatar/store.go`**
+- [x] **Step 3: Implement `internal/avatar/store.go`**
 
 ```go
 package avatar
@@ -939,7 +939,7 @@ func MountHTTP(mux *http.ServeMux, dir string) {
 }
 ```
 
-- [ ] **Step 4: Run tests + update .gitignore**
+- [x] **Step 4: Run tests + update .gitignore**
 
 Run: `go test ./internal/avatar/ -count=1`
 Expected: PASS.
@@ -950,7 +950,7 @@ Append to `.gitignore`:
 /avatars/
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 gofmt -l . && go vet ./...
@@ -967,7 +967,7 @@ git commit -m "feat(sp4c): atomic avatar store and public /avatars route"
 - Test: `internal/avatar/service_test.go`
 - Modify: `internal/repo/agents.go` (add `UpdateAvatarURL`)
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `internal/avatar/service_test.go`:
 
@@ -1167,12 +1167,12 @@ func TestAssignUpdateErrorIsLoggedNotFatal(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `go test ./internal/avatar/ -run 'TestAssign|TestSetUpload' -v`
 Expected: FAIL to build — `Service` undefined.
 
-- [ ] **Step 3: Implement `internal/avatar/service.go`**
+- [x] **Step 3: Implement `internal/avatar/service.go`**
 
 ```go
 package avatar
@@ -1312,7 +1312,7 @@ func (s *Service) SetUpload(ctx context.Context, id uuid.UUID, png []byte) (stri
 }
 ```
 
-- [ ] **Step 4: Add `UpdateAvatarURL` to `internal/repo/agents.go`** (after `Update`)
+- [x] **Step 4: Add `UpdateAvatarURL` to `internal/repo/agents.go`** (after `Update`)
 
 ```go
 // UpdateAvatarURL sets only avatar_url — the async avatar worker must not
@@ -1330,12 +1330,12 @@ func (r *AgentRepo) UpdateAvatarURL(ctx context.Context, id uuid.UUID, avatarURL
 }
 ```
 
-- [ ] **Step 5: Run the full avatar suite + race detector**
+- [x] **Step 5: Run the full avatar suite + race detector**
 
 Run: `go test ./internal/avatar/ -count=1 -race`
 Expected: PASS, no races (the in-flight guard test exercises concurrency).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 gofmt -l . && go vet ./...
@@ -1354,7 +1354,7 @@ git commit -m "feat(sp4c): async avatar service with in-flight guard and fallbac
 - Modify: `internal/api/entity_handlers.go` (`handleCreateAgent` hook)
 - Modify: `internal/api/api_test.go` (`fakeAvatarService`)
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `internal/api/avatar_handlers_test.go`:
 
@@ -1575,12 +1575,12 @@ func (f *fakeAvatarService) uploadFor(id uuid.UUID) []byte {
 }
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `go test ./internal/api/ -run 'TestRegenerate|TestUpload|TestCreateAgentTriggers|TestCreateAgentNilAvatar' -v`
 Expected: FAIL to build — `Deps.Avatars`/`fakeAvatarService` undefined.
 
-- [ ] **Step 3: Wire the interface and routes in `internal/api/api.go`**
+- [x] **Step 3: Wire the interface and routes in `internal/api/api.go`**
 
 After the `Encryptor` interface, add:
 
@@ -1602,7 +1602,7 @@ In `authedMux()`, after the agents routes:
 	m.HandleFunc("PUT /api/v1/agents/{id}/avatar", a.handleUploadAvatar)
 ```
 
-- [ ] **Step 4: Create `internal/api/avatar_handlers.go`**
+- [x] **Step 4: Create `internal/api/avatar_handlers.go`**
 
 ```go
 package api
@@ -1684,7 +1684,7 @@ func (a *API) handleUploadAvatar(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-- [ ] **Step 5: Hook agent creation in `internal/api/entity_handlers.go`**
+- [x] **Step 5: Hook agent creation in `internal/api/entity_handlers.go`**
 
 In `handleCreateAgent`, after the successful `a.agents.Insert(...)` block and before `writeJSON(w, http.StatusCreated, agent)`:
 
@@ -1694,12 +1694,12 @@ In `handleCreateAgent`, after the successful `a.agents.Insert(...)` block and be
 	}
 ```
 
-- [ ] **Step 6: Run the API suite**
+- [x] **Step 6: Run the API suite**
 
 Run: `go test ./internal/api/ -count=1`
 Expected: PASS (new avatar tests + entire existing suite — the nil-Avatars Deps in older tests stay valid because the hook nil-checks).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 gofmt -l . && go vet ./...
@@ -1714,7 +1714,7 @@ git commit -m "feat(sp4c): avatar regenerate/upload endpoints and create-agent h
 **Files:**
 - Modify: `cmd/fleet/main.go` (serve command + imports)
 
-- [ ] **Step 1: Build the avatar service in `serveCmd`**
+- [x] **Step 1: Build the avatar service in `serveCmd`**
 
 In `cmd/fleet/main.go`, inside `serveCmd`'s `RunE`, after `inv, pipeline := buildInvoker(...)` and before the `apiSrv := api.New(...)` block, add:
 
@@ -1757,7 +1757,7 @@ In `cmd/fleet/main.go`, inside `serveCmd`'s `RunE`, after `inv, pipeline := buil
 
 Add imports: `"text/template"` and `"github.com/cbarraford/office-fleet/internal/avatar"`.
 
-- [ ] **Step 2: Pass the service into the API and mount /avatars**
+- [x] **Step 2: Pass the service into the API and mount /avatars**
 
 In the `api.New(api.Deps{...})` literal, add:
 
@@ -1783,12 +1783,12 @@ to:
 
 (`web.Mount` registers bare `/` which is lowest precedence regardless of order, but keep it last for readability.)
 
-- [ ] **Step 3: Build + full suite**
+- [x] **Step 3: Build + full suite**
 
 Run: `go build ./... && go test ./... -count=1`
 Expected: PASS. (Note: `*avatar.Service` is always non-nil in serve — no typed-nil interface hazard here, unlike the SP4a Encryptor case where a nil pointer was conditionally assigned.)
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 gofmt -l . && go vet ./...
@@ -1805,7 +1805,7 @@ git commit -m "feat(sp4c): wire avatar service, /avatars route into fleet serve"
 - Test: `web/src/api/client.test.ts`
 - Modify: `web/src/pages/AgentDetail.tsx` (Regenerate + Upload controls, ~5s poll)
 
-- [ ] **Step 1: Write the failing client test**
+- [x] **Step 1: Write the failing client test**
 
 Append to the `describe('api client', ...)` block in `web/src/api/client.test.ts`:
 
@@ -1835,12 +1835,12 @@ Append to the `describe('api client', ...)` block in `web/src/api/client.test.ts
   })
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `cd web && NODE_OPTIONS= npx vitest run src/api/client.test.ts`
 Expected: FAIL — `putRaw` is not a function.
 
-- [ ] **Step 3: Implement `putRaw` in `web/src/api/client.ts`**
+- [x] **Step 3: Implement `putRaw` in `web/src/api/client.ts`**
 
 Refactor so JSON and raw requests share the response handling. Replace the `request` function and `api` export with:
 
@@ -1897,12 +1897,12 @@ export const api = {
 
 IMPORTANT: preserve the current 401 semantics exactly (the existing tests pin them — the error-envelope message wins over the generic 'authentication required' fallback).
 
-- [ ] **Step 4: Run the client tests**
+- [x] **Step 4: Run the client tests**
 
 Run: `cd web && NODE_OPTIONS= npx vitest run src/api/`
 Expected: PASS (all client + sse tests, including the two new ones).
 
-- [ ] **Step 5: Add the controls to `web/src/pages/AgentDetail.tsx`**
+- [x] **Step 5: Add the controls to `web/src/pages/AgentDetail.tsx`**
 
 Add imports: change the react import to include `useRef` and `type ChangeEvent`:
 
@@ -1966,7 +1966,7 @@ In the header JSX, next to the existing Pause/Resume button (inside the `{isAdmi
         )}
 ```
 
-- [ ] **Step 6: Gate + commit**
+- [x] **Step 6: Gate + commit**
 
 ```bash
 cd web && NODE_OPTIONS= npm run build && NODE_OPTIONS= npm run test
@@ -1980,7 +1980,7 @@ git commit -m "feat(sp4c): avatar regenerate/upload controls and raw-body client
 
 **Files:** none new — verification only (plus fixes it surfaces).
 
-- [ ] **Step 1: Full automated gate**
+- [x] **Step 1: Full automated gate**
 
 ```bash
 NODE_OPTIONS= make test          # go test ./... + tsc + vitest
@@ -1990,13 +1990,13 @@ go test ./internal/avatar/ -race -count=1
 git diff --stat 04467fd -- go.mod go.sum   # 04467fd = last SP4b commit (pre-SP4c base); must be EMPTY
 ```
 
-- [ ] **Step 2: Worktree invariant**
+- [x] **Step 2: Worktree invariant**
 
 ```bash
 NODE_OPTIONS= make build && git status --short   # nothing (avatars/, fleet, dist all ignored)
 ```
 
-- [ ] **Step 3: Acceptance criteria spot-check (map to spec §8)**
+- [x] **Step 3: Acceptance criteria spot-check (map to spec §8)**
 
 1. No-backend create → initials SVG + populated avatar_url: covered by `TestAssignNilGeneratorUsesSVG` + `TestCreateAgentTriggersAvatarAssign`.
 2. Backend create/regenerate → PNG + cache-busted URL; API failure → SVG fallback + log: `TestAssignGeneratesPNG`, `TestAssignFallsBackToSVGOnGeneratorError`, generator httptest suite.
@@ -2007,7 +2007,7 @@ NODE_OPTIONS= make build && git status --short   # nothing (avatars/, fleet, dis
 
 Live-browser smoke against a real image backend stays in the deferred dogfood pass (no local Postgres in this environment) — note it in the final report.
 
-- [ ] **Step 4: Commit any fixes**
+- [x] **Step 4: Commit any fixes**
 
 ```bash
 git add -A && git status --short   # review carefully

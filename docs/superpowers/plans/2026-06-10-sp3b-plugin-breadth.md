@@ -44,7 +44,7 @@ Notes that apply to every task:
 - Create: `internal/plugins/slack/slack.go`
 - Test: `internal/plugins/slack/slack_test.go`
 
-- [ ] **Step 1: Write the failing tests** — `internal/plugins/slack/slack_test.go`:
+- [x] **Step 1: Write the failing tests** — `internal/plugins/slack/slack_test.go`:
 
 ```go
 package slack
@@ -178,12 +178,12 @@ func TestDefaults(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `go test ./internal/plugins/slack/ -v`
 Expected: FAIL (package missing).
 
-- [ ] **Step 3: Implement** — `internal/plugins/slack/slack.go`:
+- [x] **Step 3: Implement** — `internal/plugins/slack/slack.go`:
 
 ```go
 // Package slack provides the Slack integration plugin: the send_message
@@ -324,12 +324,12 @@ func truncateForErr(b []byte) string {
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `go test ./internal/plugins/slack/ -v && gofmt -l internal/plugins/slack/ && go vet ./internal/plugins/slack/`
 Expected: 6 tests PASS; gofmt empty; vet clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/plugins/slack/
@@ -344,7 +344,7 @@ git commit -m "feat(sp3b): slack plugin — send_message action"
 - Create: `internal/plugins/discord/discord.go`
 - Test: `internal/plugins/discord/discord_test.go`
 
-- [ ] **Step 1: Write the failing tests** — `internal/plugins/discord/discord_test.go`:
+- [x] **Step 1: Write the failing tests** — `internal/plugins/discord/discord_test.go`:
 
 ```go
 package discord
@@ -458,12 +458,12 @@ func TestShape(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `go test ./internal/plugins/discord/ -v`
 Expected: FAIL (package missing).
 
-- [ ] **Step 3: Implement** — `internal/plugins/discord/discord.go`:
+- [x] **Step 3: Implement** — `internal/plugins/discord/discord.go`:
 
 ```go
 // Package discord provides the Discord integration plugin: the send_message
@@ -574,12 +574,12 @@ func truncateForErr(b []byte) string {
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `go test ./internal/plugins/discord/ -v && gofmt -l internal/plugins/discord/ && go vet ./internal/plugins/discord/`
 Expected: 6 tests PASS; clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/plugins/discord/
@@ -594,7 +594,7 @@ git commit -m "feat(sp3b): discord plugin — send_message via webhook-URL secre
 - Create: `internal/plugins/email/email.go`
 - Test: `internal/plugins/email/email_test.go`
 
-- [ ] **Step 1: Write the failing tests** — `internal/plugins/email/email_test.go`:
+- [x] **Step 1: Write the failing tests** — `internal/plugins/email/email_test.go`:
 
 ```go
 package email
@@ -840,12 +840,12 @@ func TestSendEmail_RealSMTPPath(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `go test ./internal/plugins/email/ -v`
 Expected: FAIL (package missing).
 
-- [ ] **Step 3: Implement** — `internal/plugins/email/email.go`:
+- [x] **Step 3: Implement** — `internal/plugins/email/email.go`:
 
 ```go
 // Package email provides the Email integration plugin: the send_email action
@@ -974,12 +974,12 @@ func (e *EmailPlugin) sendEmail(_ context.Context, params map[string]any) (map[s
 
 NOTE: the test asserts the message contains `"\r\n\r\nAll good."` — the blank line between headers and body. The construction above yields `Subject: ...\r\n\r\nAll good.` — correct.
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `go test ./internal/plugins/email/ -race -v && gofmt -l internal/plugins/email/ && go vet ./internal/plugins/email/`
 Expected: 6 tests PASS (incl. the real-SMTP-path test against the in-process fake); clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/plugins/email/
@@ -994,7 +994,7 @@ git commit -m "feat(sp3b): email plugin — send_email via stdlib SMTP"
 - Create: `internal/plugins/github/github.go`
 - Test: `internal/plugins/github/github_test.go`
 
-- [ ] **Step 1: Write the failing tests** — `internal/plugins/github/github_test.go`:
+- [x] **Step 1: Write the failing tests** — `internal/plugins/github/github_test.go`:
 
 ```go
 package github
@@ -1117,12 +1117,12 @@ func TestPostPRComment_Errors(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `go test ./internal/plugins/github/ -v`
 Expected: FAIL (package missing).
 
-- [ ] **Step 3: Implement** — `internal/plugins/github/github.go`:
+- [x] **Step 3: Implement** — `internal/plugins/github/github.go`:
 
 ```go
 // Package github provides the GitHub integration plugin: the pr_events source
@@ -1284,12 +1284,12 @@ func truncateForErr(b []byte) string {
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `go test ./internal/plugins/github/ -v && gofmt -l internal/plugins/github/ && go vet ./internal/plugins/github/`
 Expected: 3 tests PASS; clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/plugins/github/
@@ -1306,7 +1306,7 @@ git commit -m "feat(sp3b): github plugin core and post_pr_comment action"
 
 Reference: `internal/plugins/gitlab/events.go` — read it first; this mirrors it with HMAC auth and client-side cursor filtering.
 
-- [ ] **Step 1: Write the failing tests** — `internal/plugins/github/events_test.go`:
+- [x] **Step 1: Write the failing tests** — `internal/plugins/github/events_test.go`:
 
 ```go
 package github
@@ -1614,12 +1614,12 @@ func asAuthError(err error, target **plugin.AuthError) bool {
 }
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `go test ./internal/plugins/github/ -v`
 Expected: FAIL (`HandleWebhook`, `Poll` undefined).
 
-- [ ] **Step 3: Implement** — `internal/plugins/github/events.go`:
+- [x] **Step 3: Implement** — `internal/plugins/github/events.go`:
 
 ```go
 package github
@@ -1852,12 +1852,12 @@ func (g *GitHubPlugin) fetchOpenPRs(ctx context.Context, repo string) ([]pollPR,
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `go test ./internal/plugins/github/ -race -count=2 -v && gofmt -l internal/plugins/github/ && go vet ./internal/plugins/github/`
 Expected: all tests PASS twice; clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/plugins/github/
@@ -1873,7 +1873,7 @@ git commit -m "feat(sp3b): github pr_events source — HMAC webhook and client-f
 - Modify: `configs/fleet.yaml` (commented samples)
 - Create: `internal/run/event_github_integration_test.go`
 
-- [ ] **Step 1: Add the blank imports.** In `cmd/fleet/main.go`, the import block ends with:
+- [x] **Step 1: Add the blank imports.** In `cmd/fleet/main.go`, the import block ends with:
 
 ```go
 	// Register all plugins via init().
@@ -1891,7 +1891,7 @@ Extend it to:
 	_ "github.com/cbarraford/office-fleet/internal/plugins/slack"
 ```
 
-- [ ] **Step 2: Add commented samples to `configs/fleet.yaml`.** In the `plugins:` section, after the gitlab entry's commented poll lines, add:
+- [x] **Step 2: Add commented samples to `configs/fleet.yaml`.** In the `plugins:` section, after the gitlab entry's commented poll lines, add:
 
 ```yaml
 # Example: GitHub integration (SP3b) — pr_events source + post_pr_comment action.
@@ -1951,7 +1951,7 @@ And at the end of the `assignments:` section, add a commented example showing a 
 
 (No `${env:` patterns anywhere in the comments.)
 
-- [ ] **Step 3: Write the integration test** — `internal/run/event_github_integration_test.go` (package `run`, mirroring the SP3 vertical; reuses `fakeRunRepo`, `fakeAssignmentGetter`/`fakeAgentLister`/`fakeDutyLister`, `deliveryRecorder`, `staticAssignmentLister`, `waitForCondition` — all already in this package; do NOT redefine them):
+- [x] **Step 3: Write the integration test** — `internal/run/event_github_integration_test.go` (package `run`, mirroring the SP3 vertical; reuses `fakeRunRepo`, `fakeAssignmentGetter`/`fakeAgentLister`/`fakeDutyLister`, `deliveryRecorder`, `staticAssignmentLister`, `waitForCondition` — all already in this package; do NOT redefine them):
 
 ```go
 package run
@@ -2117,7 +2117,7 @@ NOTE: check `rr.snapshot()`'s actual return type in pipeline_test.go (`map[uuid.
 
 placed before the recorder assertions (note: `deliveryRecorder.params` is written by the dispatcher worker goroutine — if the race detector flags it, add a small mutex to `deliveryRecorder` in pipeline_endpoint_test.go and a locked accessor, mirroring the fakeRunRepo treatment; report if you had to).
 
-- [ ] **Step 4: Run everything**
+- [x] **Step 4: Run everything**
 
 ```bash
 go test ./internal/run/ -run TestEventVertical_GitHub -race -count=2 -v
@@ -2128,7 +2128,7 @@ FLEET_DATABASE_DSN=postgres://localhost/x go run ./cmd/fleet --config configs/fl
 ```
 Expected: all green; validate OK (new blocks are commented).
 
-- [ ] **Step 5: Framework-frozen check**
+- [x] **Step 5: Framework-frozen check**
 
 ```bash
 git diff HEAD --stat -- internal/plugin/ internal/events/ internal/server/ internal/run/pipeline.go internal/run/invoker.go internal/run/dispatcher*
@@ -2136,7 +2136,7 @@ git diff 790fad3 --stat -- internal/plugin/ internal/events/ internal/server/
 ```
 Expected: NO production changes in framework packages across the whole SP3b range (test files in internal/run are the only additions there; a mutex addition to deliveryRecorder in pipeline_endpoint_test.go is acceptable).
 
-- [ ] **Step 6: Commit and push**
+- [x] **Step 6: Commit and push**
 
 ```bash
 git add cmd/fleet/main.go configs/fleet.yaml internal/run/

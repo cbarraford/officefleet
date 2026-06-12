@@ -89,12 +89,54 @@ func TestPostInlineCommentFallsBackToNote(t *testing.T) {
 }
 
 func TestPostInlineCommentBothFail(t *testing.T) {
+	// The discussions POST must reject with 400 (a fallback-triggering status)
+	// and the notes fallback must then ALSO fail — only that combination
+	// exercises the both-fail error path.
+	notesHit := false
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v4/projects/{proj}/merge_requests/42/versions", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode([]map[string]any{{"head_commit_sha": "h", "base_commit_sha": "b", "start_commit_sha": "s"}})
 	})
-	mux.HandleFunc("POST /", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("POST /api/v4/projects/{proj}/merge_requests/42/discussions", func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"message": "line_code not found"}`, http.StatusBadRequest)
+	})
+	mux.HandleFunc("POST /api/v4/projects/{proj}/merge_requests/42/notes", func(w http.ResponseWriter, _ *http.Request) {
+		notesHit = true
 		http.Error(w, "boom", http.StatusInternalServerError)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	g := newTestPlugin(srv.URL)
+	_, err := g.Do(context.Background(), "post_inline_comment", map[string]any{
+		"project": "org/repo", "mr_iid": "42", "path": "a.go", "line": "7", "body": "x",
+	})
+	if err == nil {
+		t.Fatal("expected error when both inline and fallback fail")
+	}
+	if !notesHit {
+		t.Fatal("fallback notes endpoint was never attempted")
+	}
+	if !strings.Contains(err.Error(), "fallback failed") {
+		t.Errorf("error should name the failed fallback: %v", err)
+	}
+}
+
+func TestPostInlineCommentNonFallbackErrorDoesNotFallBack(t *testing.T) {
+	// A 500 from the discussions endpoint is NOT a stale-position rejection:
+	// it must surface directly without attempting the notes fallback.
+	notesHit := false
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v4/projects/{proj}/merge_requests/42/versions", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode([]map[string]any{{"head_commit_sha": "h", "base_commit_sha": "b", "start_commit_sha": "s"}})
+	})
+	mux.HandleFunc("POST /api/v4/projects/{proj}/merge_requests/42/discussions", func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	})
+	mux.HandleFunc("POST /api/v4/projects/{proj}/merge_requests/42/notes", func(w http.ResponseWriter, _ *http.Request) {
+		notesHit = true
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id": 9}`))
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -103,7 +145,10 @@ func TestPostInlineCommentBothFail(t *testing.T) {
 	if _, err := g.Do(context.Background(), "post_inline_comment", map[string]any{
 		"project": "org/repo", "mr_iid": "42", "path": "a.go", "line": "7", "body": "x",
 	}); err == nil {
-		t.Fatal("expected error when both inline and fallback fail")
+		t.Fatal("expected the 500 to surface as an error")
+	}
+	if notesHit {
+		t.Error("a non-fallback error must not trigger the notes fallback")
 	}
 }
 

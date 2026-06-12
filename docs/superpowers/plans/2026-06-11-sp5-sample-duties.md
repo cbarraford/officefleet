@@ -65,7 +65,7 @@ Duty prompts must work on BOTH executor paths, so each prompt ends with this con
 - Modify: `internal/executor/claude.go` (parseClaudeOutput)
 - Test: `internal/executor/claude_test.go` (extend)
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Read `internal/executor/claude_test.go` first (existing parse tests — follow their fixture style). Append:
 
@@ -164,12 +164,12 @@ func TestParseClaudeOutputJSONWithoutSummaryKeepsTextSummary(t *testing.T) {
 
 (Add imports as needed; `encoding/json` is already imported in the test file or add it.)
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `go test ./internal/executor/ -run TestParseClaudeOutput -v`
 Expected: the new tests FAIL (Output has only "raw"; Summary not lifted).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `internal/executor/claude.go`, inside `parseClaudeOutput`, replace:
 
@@ -231,12 +231,12 @@ func extractJSONObject(text string) map[string]any {
 
 Add `"regexp"` and `"strings"` to imports if missing.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `go test ./internal/executor/ -count=1`
 Expected: PASS (new + all existing parse tests — verify none of the existing ones assumed `Output` stays raw-only for JSON-bearing fixtures; adjust ONLY if an existing fixture text genuinely contains a fenced JSON object, and note it in your report).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 gofmt -l . && go vet ./...
@@ -255,7 +255,7 @@ git commit -m "feat(sp5): claude executor extracts structured JSON result object
 - Test: `internal/outputs/deliver_test.go` (extend)
 - Modify: `web/src/api/types.ts` (OutputBinding mirror)
 
-- [ ] **Step 1: Add the fields**
+- [x] **Step 1: Add the fields**
 
 `internal/domain/types.go` — extend OutputBinding:
 
@@ -292,7 +292,7 @@ Check whether other domain structs embedded in config (TriggerConfig, BackendRef
 	Item map[string]any
 ```
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 Read `internal/outputs/deliver_test.go` first (it has a fake plugin registration pattern — reuse it; if the fake records calls, keep using it). Append tests (adapt the fake-plugin helper names to what exists — the assertions below are the contract):
 
@@ -407,12 +407,12 @@ func TestDeliverWithoutForEachUnchanged(t *testing.T) {
 
 Add `"strings"` / `"github.com/cbarraford/office-fleet/internal/prompt"` imports as needed. If the existing fake-plugin helper differs (name, reset semantics), adapt the calls but keep every assertion.
 
-- [ ] **Step 3: Run to verify failure**
+- [x] **Step 3: Run to verify failure**
 
 Run: `go test ./internal/outputs/ -v 2>&1 | head -30`
 Expected: compile FAIL (`ForEach` undefined) or assertion failures.
 
-- [ ] **Step 4: Implement in `internal/outputs/deliver.go`**
+- [x] **Step 4: Implement in `internal/outputs/deliver.go`**
 
 Replace the body of `Deliver` with a per-binding dispatch and add the fan-out path:
 
@@ -554,12 +554,12 @@ func renderParams(params map[string]any, result domain.LLMResult, promptCtx prom
 }
 ```
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 Run: `go test ./internal/outputs/ -count=1 && go build ./... && go test ./... -count=1`
 Expected: PASS everywhere (existing Deliver tests keep passing — `deliverOne` with nil item is behavior-identical).
 
-- [ ] **Step 6: TS mirror + gate**
+- [x] **Step 6: TS mirror + gate**
 
 In `web/src/api/types.ts`, extend the OutputBinding interface:
 
@@ -575,7 +575,7 @@ export interface OutputBinding {
 Run: `cd web && NODE_OPTIONS= npm run check`
 Expected: tsc + 14 vitest tests pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 gofmt -l . && go vet ./...
@@ -591,7 +591,7 @@ git commit -m "feat(sp5): for_each output fan-out with per-item delivery records
 - Modify: `internal/plugins/gitlab/gitlab.go`
 - Test: `internal/plugins/gitlab/gitlab_test.go` (extend; check existing httptest patterns first)
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Read the existing gitlab test file(s) for the httptest + plugin-init pattern (the plugin needs `token`/`baseURL` set — existing tests either call `Init` with a fake secret lookup or set fields directly; follow suit). Append:
 
@@ -758,12 +758,12 @@ func TestReplyToDiscussion(t *testing.T) {
 
 NOTE on the `{proj}` pattern: the plugin URL-encodes `/`→`%2F` in project paths. Go's ServeMux decodes `%2F` within a segment, so `{proj}` matches `org%2Frepo` as one segment. If a route fails to match in practice, fall back to a single `mux.HandleFunc("/", ...)` dispatcher switching on `r.URL.EscapedPath()` — keep the same assertions.
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `go test ./internal/plugins/gitlab/ -run 'TestPostInline|TestCreateIssue|TestReply' -v`
 Expected: FAIL — create_issue is a stub; post_inline_comment/reply_to_discussion unknown actions.
 
-- [ ] **Step 3: Implement in `internal/plugins/gitlab/gitlab.go`**
+- [x] **Step 3: Implement in `internal/plugins/gitlab/gitlab.go`**
 
 1. Add a shared request helper (and refactor `postMRComment` to use it — targeted cleanup, do not change its behavior):
 
@@ -949,12 +949,12 @@ func (g *GitLabPlugin) Actions() []plugin.Action {
 
 4. Refactor `postMRComment` to use `apiJSON` (same params/validation/behavior, body becomes two lines). Add `"net/url"` to imports.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `go test ./internal/plugins/gitlab/ -count=1`
 Expected: PASS (new + all existing — postMRComment refactor must not break its tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 gofmt -l . && go vet ./...
@@ -971,7 +971,7 @@ git commit -m "feat(sp5): gitlab post_inline_comment (with note fallback), creat
 - Modify: `internal/plugins/gitlab/events.go` (note payload handling)
 - Test: `internal/plugins/gitlab/events_test.go` (extend; follow the existing webhook fixture pattern)
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Read the existing webhook tests first (they post fixture JSON with the X-Gitlab-Token header — reuse the helper). Append:
 
@@ -1048,12 +1048,12 @@ func TestHandleWebhookNonMRNoteIgnored(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `go test ./internal/plugins/gitlab/ -run TestHandleWebhook -v`
 Expected: new tests FAIL (note payloads currently ignored as non-MR object_kind; botUsername undefined).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `gitlab.go`: add `botUsername string` to the struct; in `Init`, after poll config:
 
@@ -1159,12 +1159,12 @@ func (g *GitLabPlugin) handleNoteWebhook(body []byte) ([]domain.Event, error) {
 }
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `go test ./internal/plugins/gitlab/ -count=1 && go test ./... -count=1`
 Expected: PASS (every pre-existing webhook test must still pass — the MR path is unchanged).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 gofmt -l . && go vet ./...
@@ -1180,7 +1180,7 @@ git commit -m "feat(sp5): gitlab mr_note webhook events with bot-loop protection
 - Modify: `internal/config/config.go`
 - Test: `internal/config/config_test.go` (extend)
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```go
 func TestValidateForEach(t *testing.T) {
@@ -1215,12 +1215,12 @@ func TestValidateForEach(t *testing.T) {
 
 (Check the existing assignment-validation tests for the minimal valid Assignment shape — `Trigger.Kind` values are validated; adapt the base if "manual" requires more fields. The point under test is only the for_each format.)
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `go test ./internal/config/ -run TestValidateForEach -v`
 Expected: FAIL (no for_each validation yet; possibly compile error if ForEach not yet merged — Task 2 added it).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `internal/config/config.go`, add near the top-level vars:
 
@@ -1242,7 +1242,7 @@ Inside the existing per-assignment validation loop (find where each assignment's
 
 (`regexp` is already imported for envRefRe.)
 
-- [ ] **Step 4: Run + commit**
+- [x] **Step 4: Run + commit**
 
 Run: `go test ./internal/config/ -count=1` — PASS.
 
@@ -1260,7 +1260,7 @@ git commit -m "feat(sp5): validate for_each as a bare output key"
 - Modify: `configs/fleet.yaml` (replace the agents/duties/assignments sections; add bot_username)
 - Test: sample-config test — `grep -rn "fleet.yaml" internal/ --include=*_test.go` first; extend the existing test if one loads the sample, else create `internal/config/sample_test.go`
 
-- [ ] **Step 1: Rewrite the sample sections**
+- [x] **Step 1: Rewrite the sample sections**
 
 In `configs/fleet.yaml`, REPLACE everything from `agents:` through the end of the `assignments:` section (keep the trailing commented GitHub/Slack example block if convenient, or drop it — it's illustrative; KEEP the `plugins:` section and the commented plugin examples). The new content:
 
@@ -1507,7 +1507,7 @@ plugins:
 
 NOTE: keep `${env:...}` OUT of any comments you add (Load expands env refs on raw bytes including comments).
 
-- [ ] **Step 2: Write/extend the sample-config test**
+- [x] **Step 2: Write/extend the sample-config test**
 
 `grep -rn "fleet.yaml" internal/ --include=*_test.go`. If a test already loads the sample, extend it; otherwise create `internal/config/sample_test.go`:
 
@@ -1592,14 +1592,14 @@ func TestSampleConfig(t *testing.T) {
 
 NOTE: `{{.Event.llm_summary}}` renders empty against this context (key absent → `<no value>`)? Go templates render missing MAP keys as `<no value>` — the prompt-render check above tolerates that ONLY in duty prompts; for output params the test only checks render errors (missing keys are fine — delivery enriches the real context). If the duty-prompt `<no value>` check trips on a key the synthetic context lacks, ADD the key to the synthetic context rather than weakening the check.
 
-- [ ] **Step 3: Run**
+- [x] **Step 3: Run**
 
 Run: `go test ./internal/config/ -run TestSampleConfig -v -count=1`
 Expected: PASS (fix any template typo the test catches — that is its job).
 
 Also run the full suite: `go test ./... -count=1`. The seed path consumes the same structs — if a seed test references the old `mr-reviewer` duty by name, update it to the new duty names and note it in your report.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 gofmt -l . && go vet ./...
@@ -1613,7 +1613,7 @@ git commit -m "feat(sp5): sample developer agent with mr-review, code-audit, mr-
 
 **Files:** none new — verification only (plus fixes it surfaces).
 
-- [ ] **Step 1: Full automated gate**
+- [x] **Step 1: Full automated gate**
 
 ```bash
 NODE_OPTIONS= make test            # go test ./... + tsc + vitest
@@ -1623,7 +1623,7 @@ git diff --stat c491d29 -- go.mod go.sum   # c491d29 = SP5 spec commit (pre-impl
 NODE_OPTIONS= make build && git status --short   # clean worktree
 ```
 
-- [ ] **Step 2: Acceptance criteria map (spec §8)**
+- [x] **Step 2: Acceptance criteria map (spec §8)**
 
 1. Fan-out per-item deliveries + `{{.Item.*}}` + 50-cap + empty-list-zero: `internal/outputs` tests (Task 2).
 2. Inline comment + fallback; create_issue real; reply_to_discussion: gitlab httptest suite (Task 3).
@@ -1634,7 +1634,7 @@ NODE_OPTIONS= make build && git status --short   # clean worktree
 
 Claude-executor JSON extraction (Task 1) is the enabling work for ACs 1/5 on the default backend — confirm its tests pass in the suite run.
 
-- [ ] **Step 3: Commit any fixes**
+- [x] **Step 3: Commit any fixes**
 
 ```bash
 git add -A && git status --short   # review carefully

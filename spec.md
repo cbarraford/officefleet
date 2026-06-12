@@ -364,13 +364,15 @@ Triggers are a pluggable interface. A **Duty** declares which trigger kinds it s
   - `assignment` — the per-agent config (the `config` object + routing).
   - `state` — the assignment's private state/memory (read access).
   - `secret "ref"` — explicit, audited secret access by reference (never blindly inlined).
-  - helpers — `date`, `json`, `truncate`, and `fetch <plugin> <action> <params>` for enrichment.
+  - helpers — `date`, `json`, `truncate`, and `default`. (`fetch <plugin> <action> <params>`
+    enrichment is **deferred** — registered as a stub only; no sub-project has scoped
+    render-time plugin calls, which carry side-effect/governance questions. See §15.)
 - **Three-layer composition** (see §6): the **system prompt** is `Agent.system_prompt`; the **task
   prompt** is `Assignment.task_prompt_override ?? Duty.prompt`; and `Assignment.extra_instructions`,
   if set, is appended after the task. Every layer is a template rendered with the context above, and
   the final system prompt + final task prompt are both recorded on the Run.
-- Templates are **versioned** and **previewable** in the UI by rendering against a sample/last
-  event before saving.
+- Templates being **versioned** and **previewable** in the UI (rendering against a sample/last
+  event before saving) is **deferred** — paired with the audit-log slice (SP4b §10).
 
 ---
 
@@ -516,7 +518,8 @@ The platform is too large for one detailed spec. Build order:
   CLIs and plugin actions as model tools), safety limits (max iterations / timeouts), and transcript
   capture. Also the optional multi-model voter. Resolves the §11 tool-abstraction open question.
 - **SP3 — Event bus & plugin breadth.** Event envelope, `events` table, bus + dispatcher,
-  `event-subscription` + `continuous` triggers, more integration plugins (Slack, Discord, GitHub, Email).
+  `event-subscription` trigger (`continuous` was deferred during SP3 design — see §8/§15), more
+  integration plugins (Slack, Discord, GitHub, Email).
 - **SP4 — Web UI & operators.** API + SPA (all surfaces: dashboard, Agents employee-directory,
   Duty library, per-agent pages, integrations/settings), auth + Admin/Viewer roles, encrypted
   secrets, live dashboard via SSE; **agent personas** (name, hire date, avatar generation via
@@ -704,7 +707,10 @@ fleet schedule                             # run the cron scheduler loop (daemon
 
 ## 15. Open questions / deferred
 
-- **Inline-comment seam** (§11): structured-output vs sanctioned plugin tool — decided in SP5.
+- ~~Inline-comment seam~~ (§11) — **resolved in SP5**: structured-output fan-out (`for_each`
+  output bindings); the platform posts each item.
+- **`fetch` template helper** (§9) — deferred; registered as a stub. Render-time plugin calls
+  need a side-effects/governance design before shipping.
 - **Generic agent-loop tool abstraction** (§11): `LLMRequest.Tools` (CLI names on PATH) suffices for
   CLI backends but not endpoint backends; the loop (SP2) needs a richer tool spec + execution bridge
   + iteration/safety limits. Key open design question for SP2.
@@ -718,4 +724,4 @@ fleet schedule                             # run the cron scheduler loop (daemon
   is deferred.
 - **Cost controls / budgets** per agent or assignment — likely an SP4 settings concern.
 - **Continuous-trigger supervision/restart semantics** — designed when implemented (post-SP3).
-- **CLI binary name** — spec uses `fleet`; confirm `fleet` vs `office` before SP1 implementation.
+- ~~CLI binary name~~ — **resolved**: the binary is `fleet` (SP1 onward).

@@ -20,9 +20,9 @@ brainstorming: a **users management API** (SP4a shipped only the CLI).
 ### Decisions locked during brainstorming
 
 1. **React + TS + Vite, embedded.** `web/` holds the frontend project; `make web` builds into
-   `internal/web/dist`, which `go:embed` serves with SPA-fallback routing. A committed
-   placeholder `dist/index.html` keeps plain `go build` working ("UI not built — run
-   `make web`"). Dev loop: Vite dev server proxying `/api` and `/avatars` to `:8080` — no
+   `internal/web/dist`, which `go:embed` serves with SPA-fallback routing. Only
+   `dist/.gitkeep` is committed (see §3): when the embedded FS has no `index.html`, the
+   handler serves an inline "UI not built — run `make web`" page. Dev loop: Vite dev server proxying `/api` and `/avatars` to `:8080` — no
    CORS configuration anywhere (same-origin in prod, proxy in dev).
 2. **Users API added in SP4b** — GET/POST/DELETE under `/api/v1/users`, admin-only mutations,
    self-delete blocked.

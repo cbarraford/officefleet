@@ -74,7 +74,7 @@
 - Modify: `internal/api/middleware_test.go` (authedAPI helper)
 - Modify: `internal/repo/users.go` (add GetByID)
 
-- [ ] **Step 1: Widen the fake user store in `internal/api/api_test.go`**
+- [x] **Step 1: Widen the fake user store in `internal/api/api_test.go`**
 
 Replace the existing `fakeUserStore` block (lines 157–175: the struct, `newFakeUserStore`, and `GetByUsername`) with:
 
@@ -166,7 +166,7 @@ func (f *fakeUserStore) Delete(_ context.Context, username string) error {
 
 Add `"sort"` to the `api_test.go` import block if not already present.
 
-- [ ] **Step 2: Write the failing test for `/me` returning the username**
+- [x] **Step 2: Write the failing test for `/me` returning the username**
 
 Append to `internal/api/middleware_test.go`:
 
@@ -194,7 +194,7 @@ func TestMeReturnsUsernameAndRole(t *testing.T) {
 
 Add `"encoding/json"` to the `middleware_test.go` imports if missing. Note: `doReq` already exists in `middleware_test.go`; check its signature before use (`doReq(t, handler, method, path, token)`).
 
-- [ ] **Step 3: Update `authedAPI` in `middleware_test.go` to seed the user**
+- [x] **Step 3: Update `authedAPI` in `middleware_test.go` to seed the user**
 
 Replace the body of `authedAPI` with:
 
@@ -215,12 +215,12 @@ func authedAPI(t *testing.T, role string) (*API, string) {
 }
 ```
 
-- [ ] **Step 4: Run the new test to verify it fails**
+- [x] **Step 4: Run the new test to verify it fails**
 
 Run: `go test ./internal/api/ -run TestMeReturnsUsernameAndRole -v`
 Expected: FAIL — `username = "", want tester-admin` (current handleMe returns only role). Compile errors about the widened fake are fine to fix as they surface; the *behavioral* failure is the username assertion.
 
-- [ ] **Step 5: Widen the `UserStore` interface in `internal/api/api.go`**
+- [x] **Step 5: Widen the `UserStore` interface in `internal/api/api.go`**
 
 Replace:
 
@@ -242,7 +242,7 @@ type UserStore interface {
 }
 ```
 
-- [ ] **Step 6: Store the userID in the request context (`internal/api/middleware.go`)**
+- [x] **Step 6: Store the userID in the request context (`internal/api/middleware.go`)**
 
 The const block currently declares `ctxKeyRole` and an **unused** `ctxKeyUsername` (verify with `grep -rn ctxKeyUsername internal/` — expect only the declaration). Replace the consts with:
 
@@ -265,7 +265,7 @@ In `requireAuth`, replace the `_ = userID` line and the context wiring (currentl
 		next.ServeHTTP(w, r.WithContext(ctx))
 ```
 
-- [ ] **Step 7: `/me` returns the username (`internal/api/auth_handlers.go`)**
+- [x] **Step 7: `/me` returns the username (`internal/api/auth_handlers.go`)**
 
 Replace `handleMe` with:
 
@@ -290,7 +290,7 @@ func (a *API) handleMe(w http.ResponseWriter, r *http.Request) {
 
 Add `"github.com/google/uuid"` to the `auth_handlers.go` imports.
 
-- [ ] **Step 8: Add `GetByID` to `internal/repo/users.go`**
+- [x] **Step 8: Add `GetByID` to `internal/repo/users.go`**
 
 Insert after `GetByUsername`:
 
@@ -311,14 +311,14 @@ func (r *UserRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.User, err
 }
 ```
 
-- [ ] **Step 9: Build + full test run**
+- [x] **Step 9: Build + full test run**
 
 Run: `go build ./... && go test ./internal/api/ ./internal/repo/ -count=1`
 Expected: PASS, including `TestMeReturnsUsernameAndRole`. If any other test constructed an API with a `fakeUserStore` and now fails to compile, fix the construction (the fake's method set only grew — most failures will be missing `users.add(...)` seeding for `/me`-touching tests).
 
 Then run the whole suite: `go test ./... -count=1` — expected PASS.
 
-- [ ] **Step 10: gofmt + vet + commit**
+- [x] **Step 10: gofmt + vet + commit**
 
 ```bash
 gofmt -l . && go vet ./...
@@ -337,7 +337,7 @@ git commit -m "feat(sp4b): session userID in request context; /me returns userna
 - Create: `internal/api/users_handlers_test.go`
 - Modify: `internal/api/api.go` (`authedMux` route table)
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `internal/api/users_handlers_test.go`:
 
@@ -521,12 +521,12 @@ func TestUsersViewerRoleMatrix(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `go test ./internal/api/ -run 'TestListUsers|TestCreateUser|TestDeleteUser|TestUsersViewer' -v`
 Expected: FAIL — the GET/POST/DELETE users routes 404 (no handlers registered yet).
 
-- [ ] **Step 3: Implement the handlers**
+- [x] **Step 3: Implement the handlers**
 
 Create `internal/api/users_handlers.go`:
 
@@ -623,7 +623,7 @@ func (a *API) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-- [ ] **Step 4: Register the routes**
+- [x] **Step 4: Register the routes**
 
 In `internal/api/api.go`, inside `authedMux()` after the secrets routes, add:
 
@@ -633,12 +633,12 @@ In `internal/api/api.go`, inside `authedMux()` after the secrets routes, add:
 	m.HandleFunc("DELETE /api/v1/users/{username}", a.handleDeleteUser)
 ```
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `go test ./internal/api/ -count=1`
 Expected: PASS (all of the new tests plus the existing suite).
 
-- [ ] **Step 6: gofmt + vet + commit**
+- [x] **Step 6: gofmt + vet + commit**
 
 ```bash
 gofmt -l . && go vet ./...
@@ -657,7 +657,7 @@ git commit -m "feat(sp4b): users management API (list/create/delete, self-delete
 - Modify: `.gitignore`
 - Modify: `cmd/fleet/main.go:918` (mount `web.Mount`)
 
-- [ ] **Step 1: Create the placeholder and .gitignore entries**
+- [x] **Step 1: Create the placeholder and .gitignore entries**
 
 ```bash
 mkdir -p internal/web/dist
@@ -673,7 +673,7 @@ internal/web/dist/*
 !internal/web/dist/.gitkeep
 ```
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 Create `internal/web/web_test.go`:
 
@@ -800,12 +800,12 @@ func TestNonGetRejected(t *testing.T) {
 }
 ```
 
-- [ ] **Step 3: Run the tests to verify they fail**
+- [x] **Step 3: Run the tests to verify they fail**
 
 Run: `go test ./internal/web/ -v`
 Expected: FAIL to build — `Mount`/`mountFS` undefined.
 
-- [ ] **Step 4: Implement `internal/web/web.go`**
+- [x] **Step 4: Implement `internal/web/web.go`**
 
 ```go
 // Package web serves the embedded operator SPA. The Vite build output lives
@@ -880,12 +880,12 @@ func serveHTML(w http.ResponseWriter, page []byte) {
 }
 ```
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `go test ./internal/web/ -count=1 -v`
 Expected: PASS (all 8 tests). `TestNotBuiltServesFallbackPage` passes because dist currently holds only `.gitkeep`.
 
-- [ ] **Step 6: Wire into `fleet serve`**
+- [x] **Step 6: Wire into `fleet serve`**
 
 In `cmd/fleet/main.go`, add the import `"github.com/cbarraford/office-fleet/internal/web"` and change line 918 from:
 
@@ -899,7 +899,7 @@ to:
 			httpSrv := &http.Server{Addr: addr, Handler: server.New(ingestor).Handler(apiSrv.Mount, web.Mount)}
 ```
 
-- [ ] **Step 7: Full build + suite, then commit**
+- [x] **Step 7: Full build + suite, then commit**
 
 ```bash
 go build ./... && go test ./... -count=1
@@ -923,7 +923,7 @@ Note: `git add internal/web` picks up `dist/.gitkeep` because of the `!internal/
 
 There are no unit tests in this task; the verification steps are the build gates themselves (this is infrastructure — the rest of the plan depends on these gates passing).
 
-- [ ] **Step 1: Create `web/package.json`**
+- [x] **Step 1: Create `web/package.json`**
 
 ```json
 {
@@ -954,7 +954,7 @@ There are no unit tests in this task; the verification steps are the build gates
 }
 ```
 
-- [ ] **Step 2: Create `web/tsconfig.json`**
+- [x] **Step 2: Create `web/tsconfig.json`**
 
 ```json
 {
@@ -977,7 +977,7 @@ There are no unit tests in this task; the verification steps are the build gates
 }
 ```
 
-- [ ] **Step 3: Create `web/vite.config.ts`**
+- [x] **Step 3: Create `web/vite.config.ts`**
 
 ```ts
 /// <reference types="vitest/config" />
@@ -1004,7 +1004,7 @@ export default defineConfig({
 })
 ```
 
-- [ ] **Step 4: Create `web/index.html`**
+- [x] **Step 4: Create `web/index.html`**
 
 ```html
 <!doctype html>
@@ -1021,7 +1021,7 @@ export default defineConfig({
 </html>
 ```
 
-- [ ] **Step 5: Create the placeholder `web/src/main.tsx`**
+- [x] **Step 5: Create the placeholder `web/src/main.tsx`**
 
 (Task 8 replaces this with the real router; this keeps `vite build` green from day one.)
 
@@ -1032,7 +1032,7 @@ import './styles.css'
 createRoot(document.getElementById('root')!).render(<h1>OfficeFleet</h1>)
 ```
 
-- [ ] **Step 6: Create `web/src/styles.css` (the complete theme)**
+- [x] **Step 6: Create `web/src/styles.css` (the complete theme)**
 
 ```css
 /* OfficeFleet operator UI — single dark theme. */
@@ -1222,7 +1222,7 @@ details.fold pre {
 .mt { margin-top: 14px; }
 ```
 
-- [ ] **Step 7: Install dependencies (generates `web/package-lock.json`)**
+- [x] **Step 7: Install dependencies (generates `web/package-lock.json`)**
 
 ```bash
 cd web && NODE_OPTIONS= npm install
@@ -1230,7 +1230,7 @@ cd web && NODE_OPTIONS= npm install
 
 Expected: succeeds, `web/package-lock.json` created, `web/node_modules/` populated (and ignored by git — verify `git status --short` shows no `node_modules` entries).
 
-- [ ] **Step 8: Run the build gate**
+- [x] **Step 8: Run the build gate**
 
 ```bash
 cd web && NODE_OPTIONS= npm run build
@@ -1244,7 +1244,7 @@ git status --short
 
 Expected: only intended new files (`web/*`, `Makefile`); **no `internal/web/dist/*` entries** (ignored) and `.gitkeep` still present (`ls internal/web/dist/.gitkeep`).
 
-- [ ] **Step 9: Verify the embed picks up the build**
+- [x] **Step 9: Verify the embed picks up the build**
 
 ```bash
 go test ./internal/web/ -count=1
@@ -1283,7 +1283,7 @@ func TestNotBuiltFallbackPage(t *testing.T) {
 
 Re-run: `go test ./internal/web/ -count=1` — expected PASS.
 
-- [ ] **Step 10: Create the `Makefile`** (repo root)
+- [x] **Step 10: Create the `Makefile`** (repo root)
 
 Recipe lines MUST be indented with real TAB characters (make rejects spaces).
 
@@ -1316,7 +1316,7 @@ Verify (with the NODE_OPTIONS caveat — run `NODE_OPTIONS= make web-clean && NO
 - `make build` rebuilds the UI and produces `./fleet` (gitignored).
 - `git status --short` — still no dist or binary entries.
 
-- [ ] **Step 11: Commit**
+- [x] **Step 11: Commit**
 
 ```bash
 git add web/package.json web/package-lock.json web/tsconfig.json web/vite.config.ts web/index.html web/src Makefile
@@ -1334,7 +1334,7 @@ git commit -m "feat(sp4b): Vite scaffold, theme CSS, Makefile build pipeline"
 - Create: `web/src/api/client.ts`
 - Test: `web/src/api/client.test.ts`
 
-- [ ] **Step 1: Create `web/src/api/types.ts`** (TS mirrors of the snake_case wire format — see "API contract facts" above)
+- [x] **Step 1: Create `web/src/api/types.ts`** (TS mirrors of the snake_case wire format — see "API contract facts" above)
 
 ```ts
 // TypeScript mirrors of the /api/v1 JSON wire format (snake_case, see
@@ -1520,7 +1520,7 @@ export interface StreamMsg {
 }
 ```
 
-- [ ] **Step 2: Write the failing client tests**
+- [x] **Step 2: Write the failing client tests**
 
 Create `web/src/api/client.test.ts`:
 
@@ -1610,7 +1610,7 @@ describe('api client', () => {
 })
 ```
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [x] **Step 3: Run tests to verify they fail**
 
 ```bash
 cd web && NODE_OPTIONS= npx vitest run src/api/client.test.ts
@@ -1618,7 +1618,7 @@ cd web && NODE_OPTIONS= npx vitest run src/api/client.test.ts
 
 Expected: FAIL — `./client` module not found.
 
-- [ ] **Step 4: Implement `web/src/api/client.ts`**
+- [x] **Step 4: Implement `web/src/api/client.ts`**
 
 ```ts
 export class ApiError extends Error {
@@ -1685,7 +1685,7 @@ export const api = {
 }
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 ```bash
 cd web && NODE_OPTIONS= npx vitest run src/api/client.test.ts
@@ -1693,7 +1693,7 @@ cd web && NODE_OPTIONS= npx vitest run src/api/client.test.ts
 
 Expected: PASS (5 tests). Also run the typecheck: `cd web && NODE_OPTIONS= npx tsc --noEmit` — clean.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add web/src/api/types.ts web/src/api/client.ts web/src/api/client.test.ts
@@ -1708,7 +1708,7 @@ git commit -m "feat(sp4b): typed API client and wire-format mirrors with vitest 
 - Create: `web/src/api/sse.ts`
 - Test: `web/src/api/sse.test.ts`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `web/src/api/sse.test.ts`:
 
@@ -1827,7 +1827,7 @@ describe('connectStream', () => {
 })
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 cd web && NODE_OPTIONS= npx vitest run src/api/sse.test.ts
@@ -1835,7 +1835,7 @@ cd web && NODE_OPTIONS= npx vitest run src/api/sse.test.ts
 
 Expected: FAIL — `./sse` module not found.
 
-- [ ] **Step 3: Implement `web/src/api/sse.ts`**
+- [x] **Step 3: Implement `web/src/api/sse.ts`**
 
 ```ts
 import type { StreamMsg } from './types'
@@ -1908,7 +1908,7 @@ export function connectStream(
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 ```bash
 cd web && NODE_OPTIONS= npx vitest run src/api/
@@ -1916,7 +1916,7 @@ cd web && NODE_OPTIONS= npx vitest run src/api/
 
 Expected: PASS (client + sse suites). Typecheck: `cd web && NODE_OPTIONS= npx tsc --noEmit` — clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add web/src/api/sse.ts web/src/api/sse.test.ts
@@ -1933,7 +1933,7 @@ git commit -m "feat(sp4b): SSE wrapper with backoff reconnect and refetch signal
 
 No vitest here (component tests are explicitly deferred in the spec §8); the gate is `tsc --noEmit && vite build`. The placeholder `main.tsx` doesn't import these yet — `noUnusedLocals` only applies within modules, unimported modules still typecheck.
 
-- [ ] **Step 1: Create `web/src/lib/format.ts`**
+- [x] **Step 1: Create `web/src/lib/format.ts`**
 
 ```ts
 export function fmtDate(iso: string | null | undefined): string {
@@ -1976,7 +1976,7 @@ export function isToday(iso: string, now: Date = new Date()): boolean {
 }
 ```
 
-- [ ] **Step 2: Create `web/src/lib/toast.ts`**
+- [x] **Step 2: Create `web/src/lib/toast.ts`**
 
 ```ts
 // Minimal toast bus: pages call toast(); the <Toasts/> host renders them.
@@ -2011,7 +2011,7 @@ export function subscribe(fn: (items: ToastItem[]) => void): () => void {
 }
 ```
 
-- [ ] **Step 3: Create the components**
+- [x] **Step 3: Create the components**
 
 `web/src/components/Toasts.tsx`:
 
@@ -2268,7 +2268,7 @@ export default function JsonView({
 }
 ```
 
-- [ ] **Step 4: Gate + commit**
+- [x] **Step 4: Gate + commit**
 
 ```bash
 cd web && NODE_OPTIONS= npm run build
@@ -2291,7 +2291,7 @@ git commit -m "feat(sp4b): shared UI components, toast bus, format helpers"
 - Create: `web/src/pages/Login.tsx`
 - Create: `web/src/pages/Dashboard.tsx`, `Agents.tsx`, `AgentDetail.tsx`, `Duties.tsx`, `Settings.tsx` — **stubs** so the router compiles (each page is fleshed out in Tasks 9–13)
 
-- [ ] **Step 1: Create the page stubs**
+- [x] **Step 1: Create the page stubs**
 
 Each of the five files gets the same shape (shown for `web/src/pages/Dashboard.tsx`; repeat with the matching component name and heading for `Agents`, `AgentDetail`, `Duties`, `Settings`):
 
@@ -2301,7 +2301,7 @@ export default function Dashboard() {
 }
 ```
 
-- [ ] **Step 2: Replace `web/src/main.tsx` with the real router**
+- [x] **Step 2: Replace `web/src/main.tsx` with the real router**
 
 ```tsx
 import { StrictMode } from 'react'
@@ -2334,7 +2334,7 @@ createRoot(document.getElementById('root')!).render(
 )
 ```
 
-- [ ] **Step 3: Create `web/src/App.tsx`** (layout shell + session guard)
+- [x] **Step 3: Create `web/src/App.tsx`** (layout shell + session guard)
 
 ```tsx
 import { createContext, useContext, useEffect, useState } from 'react'
@@ -2410,7 +2410,7 @@ export default function App() {
 
 (`NavLink` applies the `active` class automatically — the CSS targets `.sidebar nav a.active`.)
 
-- [ ] **Step 4: Create `web/src/pages/Login.tsx`**
+- [x] **Step 4: Create `web/src/pages/Login.tsx`**
 
 ```tsx
 import { useState, type FormEvent } from 'react'
@@ -2468,7 +2468,7 @@ export default function Login() {
 }
 ```
 
-- [ ] **Step 5: Gate + commit**
+- [x] **Step 5: Gate + commit**
 
 ```bash
 cd web && NODE_OPTIONS= npm run build
@@ -2488,7 +2488,7 @@ git commit -m "feat(sp4b): app shell, router, session guard, login page"
 **Files:**
 - Modify: `web/src/pages/Dashboard.tsx` (replace the stub)
 
-- [ ] **Step 1: Implement the page**
+- [x] **Step 1: Implement the page**
 
 ```tsx
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -2636,7 +2636,7 @@ export default function Dashboard() {
 }
 ```
 
-- [ ] **Step 2: Gate + commit**
+- [x] **Step 2: Gate + commit**
 
 ```bash
 cd web && NODE_OPTIONS= npm run build && NODE_OPTIONS= npm run test
@@ -2656,7 +2656,7 @@ git commit -m "feat(sp4b): dashboard with live SSE feed, counters, recent runs"
 **Files:**
 - Modify: `web/src/pages/Agents.tsx` (replace the stub)
 
-- [ ] **Step 1: Implement the page**
+- [x] **Step 1: Implement the page**
 
 ```tsx
 import { useEffect, useState, type FormEvent } from 'react'
@@ -2848,7 +2848,7 @@ export default function Agents() {
 }
 ```
 
-- [ ] **Step 2: Gate + commit**
+- [x] **Step 2: Gate + commit**
 
 ```bash
 cd web && NODE_OPTIONS= npm run build
@@ -2863,7 +2863,7 @@ git commit -m "feat(sp4b): agents directory grid with create modal and pause tog
 **Files:**
 - Modify: `web/src/pages/AgentDetail.tsx` (replace the stub)
 
-- [ ] **Step 1: Implement the page**
+- [x] **Step 1: Implement the page**
 
 ```tsx
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
@@ -3190,7 +3190,7 @@ export default function AgentDetail() {
 }
 ```
 
-- [ ] **Step 2: Gate + commit**
+- [x] **Step 2: Gate + commit**
 
 ```bash
 cd web && NODE_OPTIONS= npm run build
@@ -3205,7 +3205,7 @@ git commit -m "feat(sp4b): agent detail with stats, assignments, run history dra
 **Files:**
 - Modify: `web/src/pages/Duties.tsx` (replace the stub)
 
-- [ ] **Step 1: Implement the page**
+- [x] **Step 1: Implement the page**
 
 ```tsx
 import { useEffect, useState, type FormEvent } from 'react'
@@ -3489,7 +3489,7 @@ export default function Duties() {
 }
 ```
 
-- [ ] **Step 2: Gate + commit**
+- [x] **Step 2: Gate + commit**
 
 ```bash
 cd web && NODE_OPTIONS= npm run build
@@ -3504,7 +3504,7 @@ git commit -m "feat(sp4b): duty library with create/edit modal and delete"
 **Files:**
 - Modify: `web/src/pages/Settings.tsx` (replace the stub)
 
-- [ ] **Step 1: Implement the page**
+- [x] **Step 1: Implement the page**
 
 ```tsx
 import { useEffect, useState, type FormEvent } from 'react'
@@ -3786,7 +3786,7 @@ export default function Settings() {
 }
 ```
 
-- [ ] **Step 2: Gate + commit**
+- [x] **Step 2: Gate + commit**
 
 ```bash
 cd web && NODE_OPTIONS= npm run build
@@ -3800,7 +3800,7 @@ git commit -m "feat(sp4b): settings tabs — backends, secrets, users, events wi
 
 **Files:** none new — verification only (plus any fixes it surfaces).
 
-- [ ] **Step 1: Full automated gate**
+- [x] **Step 1: Full automated gate**
 
 ```bash
 NODE_OPTIONS= make test
@@ -3814,7 +3814,7 @@ go vet ./...          # clean
 git diff --stat go.mod go.sum   # EMPTY — zero new Go deps (AC6)
 ```
 
-- [ ] **Step 2: Worktree invariant (AC1)**
+- [x] **Step 2: Worktree invariant (AC1)**
 
 ```bash
 NODE_OPTIONS= make web-clean && go build ./... && git status --short
@@ -3823,7 +3823,7 @@ NODE_OPTIONS= make build && git status --short
 
 Expected: both `git status --short` outputs show **no** modified/untracked files (dist contents and `fleet` are ignored; `.gitkeep` survives `web-clean`).
 
-- [ ] **Step 3: Manual smoke (run if a local Postgres + fleet.yaml are configured; otherwise record as deferred-to-dogfood in the final report)**
+- [x] **Step 3: Manual smoke (run if a local Postgres + fleet.yaml are configured; otherwise record as deferred-to-dogfood in the final report)**
 
 ```bash
 NODE_OPTIONS= make build && ./fleet serve
@@ -3838,7 +3838,7 @@ Click through, as the seeded admin:
 6. Settings: backends listed; set + delete a secret (encrypted badge); create a viewer user, log in as it in a private window — mutating controls are hidden and a direct POST 403s; self-delete button is disabled; events tab lists + replays.
 7. Logout: lands on `/login`; back-button does not reveal data (the /me 401 redirects).
 
-- [ ] **Step 4: Commit any fixes, then final commit if anything changed**
+- [x] **Step 4: Commit any fixes, then final commit if anything changed**
 
 ```bash
 git add -A && git status --short  # review staged set carefully first
