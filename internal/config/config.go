@@ -377,7 +377,7 @@ func Validate(cfg *Config) []error {
 			}
 		}
 		for _, out := range a.Outputs {
-			if out.ForEach != "" && !forEachKeyRe.MatchString(out.ForEach) {
+			if out.ForEach != "" && !ValidForEachKey(out.ForEach) {
 				errs = append(errs, fmt.Errorf("assignment (%s, %s): for_each %q must be a bare output key (letters, digits, underscore)", a.Agent, a.Duty, out.ForEach))
 			}
 		}
@@ -436,6 +436,12 @@ func ResolveBackend(cfg *Config, assignment AssignmentConfig) (*Backend, domain.
 // forEachKeyRe: for_each names a key of the LLM result's output object — a
 // bare identifier, never a template or path expression.
 var forEachKeyRe = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
+
+// ValidForEachKey reports whether a non-empty for_each value names a bare
+// output key. Callers should treat an empty value as "not configured".
+func ValidForEachKey(value string) bool {
+	return forEachKeyRe.MatchString(value)
+}
 
 // envRefRe matches ${env:VAR_NAME} placeholders.
 var envRefRe = regexp.MustCompile(`\$\{env:([^}]+)\}`)

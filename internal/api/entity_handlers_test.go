@@ -658,6 +658,94 @@ func TestAssignment_EventSubscription_Valid_201(t *testing.T) {
 	}
 }
 
+func TestAssignment_ForEachValidation_Create(t *testing.T) {
+	tests := []struct {
+		name       string
+		forEach    string
+		wantStatus int
+	}{
+		{name: "bare key", forEach: "issues", wantStatus: http.StatusCreated},
+		{name: "template expression", forEach: "{{.Event.x}}", wantStatus: http.StatusBadRequest},
+		{name: "path expression", forEach: "issues[0]", wantStatus: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newEntityFixture(t)
+			dutyResp := f.do(t, "POST", "/api/v1/duties", map[string]any{
+				"name":          "ForEachDuty",
+				"trigger_kinds": []string{"manual"},
+			})
+			var duty map[string]any
+			decodeBody(t, dutyResp, &duty)
+
+			agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "ForEachAgent"})
+			var agent map[string]any
+			decodeBody(t, agentResp, &agent)
+
+			resp := f.do(t, "POST", "/api/v1/assignments", map[string]any{
+				"agent_id": agent["id"].(string),
+				"duty_id":  duty["id"].(string),
+				"outputs": []map[string]any{{
+					"plugin":   "gitlab",
+					"action":   "create_issue",
+					"for_each": tt.forEach,
+				}},
+			})
+			if resp.StatusCode != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", resp.StatusCode, tt.wantStatus)
+			}
+			if tt.wantStatus == http.StatusBadRequest {
+				var body map[string]any
+				decodeBody(t, resp, &body)
+				if !strings.Contains(body["error"].(string), "for_each") {
+					t.Errorf("error should mention for_each: %v", body["error"])
+				}
+			}
+		})
+	}
+}
+
+func TestAssignment_ForEachValidation_Patch(t *testing.T) {
+	f := newEntityFixture(t)
+	dutyResp := f.do(t, "POST", "/api/v1/duties", map[string]any{
+		"name":          "PatchForEachDuty",
+		"trigger_kinds": []string{"manual"},
+	})
+	var duty map[string]any
+	decodeBody(t, dutyResp, &duty)
+
+	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "PatchForEachAgent"})
+	var agent map[string]any
+	decodeBody(t, agentResp, &agent)
+
+	createResp := f.do(t, "POST", "/api/v1/assignments", map[string]any{
+		"agent_id": agent["id"].(string),
+		"duty_id":  duty["id"].(string),
+	})
+	if createResp.StatusCode != http.StatusCreated {
+		t.Fatalf("create assignment: status = %d, want 201", createResp.StatusCode)
+	}
+	var created map[string]any
+	decodeBody(t, createResp, &created)
+
+	patchResp := f.do(t, "PATCH", "/api/v1/assignments/"+created["id"].(string), map[string]any{
+		"outputs": []map[string]any{{
+			"plugin":   "gitlab",
+			"action":   "create_issue",
+			"for_each": "issues.items",
+		}},
+	})
+	if patchResp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("patch invalid for_each: status = %d, want 400", patchResp.StatusCode)
+	}
+	var body map[string]any
+	decodeBody(t, patchResp, &body)
+	if !strings.Contains(body["error"].(string), "for_each") {
+		t.Errorf("error should mention for_each: %v", body["error"])
+	}
+}
+
 // TestAssignment_Duplicate_409 verifies that creating the same (agent_id,
 // duty_id) pair twice returns 409 Conflict.
 func TestAssignment_Duplicate_409(t *testing.T) {
