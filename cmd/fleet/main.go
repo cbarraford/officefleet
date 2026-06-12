@@ -321,7 +321,7 @@ func backendsLoginCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			backendName := args[0]
-			cfg, err := loadConfig()
+			cfg, err := loadValidatedConfig()
 			if err != nil {
 				return fmt.Errorf("load config: %w", err)
 			}
@@ -339,12 +339,25 @@ func backendsLoginCmd() *cobra.Command {
 			if backend.Auth.Mode != "subscription" {
 				return fmt.Errorf("backend %q does not use subscription auth; login is only supported for subscription backends", backendName)
 			}
-			c := exec.Command(backend.Kind, "login")
+			binary, ok := backendLoginBinary(backend.Kind)
+			if !ok {
+				return fmt.Errorf("backend %q kind %q does not support subscription login", backendName, backend.Kind)
+			}
+			c := exec.Command(binary, "login")
 			c.Stdin = os.Stdin
 			c.Stdout = os.Stdout
 			c.Stderr = os.Stderr
 			return c.Run()
 		},
+	}
+}
+
+func backendLoginBinary(kind string) (string, bool) {
+	switch kind {
+	case "claude":
+		return "claude", true
+	default:
+		return "", false
 	}
 }
 

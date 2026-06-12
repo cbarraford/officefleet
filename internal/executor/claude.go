@@ -46,6 +46,10 @@ func (c *ClaudeExecutor) Run(ctx context.Context, req LLMRequest) (domain.LLMRes
 	if req.Effort != "" {
 		args = append(args, "--effort", req.Effort)
 	}
+	if len(req.Tools) > 0 {
+		args = append(args, "--allowed-tools")
+		args = append(args, claudeAllowedTools(req.Tools)...)
+	}
 
 	combinedPrompt := buildClaudePrompt(req)
 	cmd := exec.CommandContext(ctx, "claude", args...)
@@ -54,11 +58,7 @@ func (c *ClaudeExecutor) Run(ctx context.Context, req LLMRequest) (domain.LLMRes
 	}
 	cmd.Stdin = strings.NewReader(combinedPrompt)
 
-	env := os.Environ()
-	if c.APIKey != "" {
-		env = append(env, "ANTHROPIC_API_KEY="+c.APIKey)
-	}
-	cmd.Env = env
+	cmd.Env = claudeEnv(c.APIKey)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -141,6 +141,9 @@ func parseClaudeOutput(data []byte) (domain.LLMResult, error) {
 
 func verifyTools(tools []string) error {
 	for _, tool := range tools {
+		if !toolNameRe.MatchString(tool) {
+			return fmt.Errorf("required tool %q is not a safe executable name", tool)
+		}
 		if _, err := exec.LookPath(tool); err != nil {
 			return fmt.Errorf("required tool %q not found on PATH", tool)
 		}
@@ -148,8 +151,43 @@ func verifyTools(tools []string) error {
 	return nil
 }
 
+func claudeAllowedTools(tools []string) []string {
+	allowed := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		allowed = append(allowed, fmt.Sprintf("Bash(%s *)", tool))
+	}
+	return allowed
+}
+
+func claudeEnv(apiKey string) []string {
+	allow := []string{
+		"PATH",
+		"HOME",
+		"USER",
+		"TMPDIR",
+		"TEMP",
+		"TMP",
+		"LANG",
+		"LC_ALL",
+		"SSL_CERT_FILE",
+		"SSL_CERT_DIR",
+	}
+	env := make([]string, 0, len(allow)+1)
+	for _, key := range allow {
+		if val, ok := os.LookupEnv(key); ok {
+			env = append(env, key+"="+val)
+		}
+	}
+	if apiKey != "" {
+		env = append(env, "ANTHROPIC_API_KEY="+apiKey)
+	}
+	return env
+}
+
 // jsonFenceRe captures the contents of ```json ... ``` blocks.
 var jsonFenceRe = regexp.MustCompile("(?s)```json\\s*(.*?)```")
+
+var toolNameRe = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
 // extractJSONObject pulls a structured result object from the model's final
 // text: the whole text when it is a JSON object, else the LAST fenced
