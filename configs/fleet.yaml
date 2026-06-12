@@ -211,7 +211,8 @@ duties:
 assignments:
   # MR review on every newly-opened MR. (Add a second assignment with
   # event_type: mr_updated to also re-review on new pushes.)
-  - agent: dev-1
+  - name: mr-review-opened
+    agent: dev-1
     duty: mr-review
     enabled: true
     trigger:
@@ -241,7 +242,8 @@ assignments:
 
   # Weekly security audit (Mondays 06:00). Duplicate this assignment with
   # category: correctness / performance for broader coverage.
-  - agent: dev-1
+  - name: weekly-security-audit
+    agent: dev-1
     duty: code-audit
     enabled: true
     trigger:
@@ -262,7 +264,8 @@ assignments:
 
   # Reply to MR comments (the bot's own notes are dropped at ingestion via
   # plugins.gitlab.bot_username — set it to the fleet's GitLab username).
-  - agent: dev-1
+  - name: mr-feedback-replies
+    agent: dev-1
     duty: mr-feedback
     enabled: true
     trigger:

@@ -55,6 +55,7 @@ export interface OutputBinding {
 
 export interface Assignment {
   id: string
+  name: string
   agent_id: string
   duty_id: string
   enabled: boolean

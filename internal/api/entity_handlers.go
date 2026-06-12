@@ -357,6 +357,7 @@ func (a *API) handleDeleteDuty(w http.ResponseWriter, r *http.Request) {
 // --- Assignments ---
 
 type assignmentBody struct {
+	Name               *string                `json:"name"`
 	AgentID            *uuid.UUID             `json:"agent_id"`
 	DutyID             *uuid.UUID             `json:"duty_id"`
 	Enabled            *bool                  `json:"enabled"`
@@ -391,6 +392,9 @@ func (a *API) validateAssignment(ctx context.Context, asg *domain.Assignment) er
 }
 
 func applyAssignmentBody(b *assignmentBody, asg *domain.Assignment, isCreate bool) {
+	if b.Name != nil {
+		asg.Name = *b.Name
+	}
 	if isCreate {
 		if b.AgentID != nil {
 			asg.AgentID = *b.AgentID
@@ -462,7 +466,7 @@ func (a *API) handleCreateAssignment(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := a.assignments.Insert(r.Context(), asg); err != nil {
 		if isUniqueViolation(err) {
-			writeError(w, http.StatusConflict, "an assignment for that agent and duty already exists")
+			writeError(w, http.StatusConflict, "an assignment for that agent, duty, and name already exists")
 			return
 		}
 		a.logf("api: create assignment: %v", err)

@@ -32,9 +32,10 @@ CREATE TABLE IF NOT EXISTS duties (
 
 CREATE TABLE IF NOT EXISTS assignments (
     id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name                  TEXT NOT NULL DEFAULT '',
     agent_id              UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
     duty_id               UUID NOT NULL REFERENCES duties(id) ON DELETE CASCADE,
-    CONSTRAINT assignments_agent_duty_unique UNIQUE (agent_id, duty_id),
+    CONSTRAINT assignments_agent_duty_name_unique UNIQUE (agent_id, duty_id, name),
     enabled               BOOLEAN NOT NULL DEFAULT TRUE,
     trigger               JSONB NOT NULL DEFAULT '{}',
     outputs               JSONB NOT NULL DEFAULT '[]',

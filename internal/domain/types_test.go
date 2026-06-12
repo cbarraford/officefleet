@@ -300,6 +300,7 @@ func TestAssignment_StructConstruction(t *testing.T) {
 
 	assignment := domain.Assignment{
 		ID:      uuid.New(),
+		Name:    "weekday-review",
 		AgentID: uuid.New(),
 		DutyID:  uuid.New(),
 		Enabled: true,
@@ -310,6 +311,9 @@ func TestAssignment_StructConstruction(t *testing.T) {
 
 	if assignment.Trigger.Kind != "cron" {
 		t.Errorf("Trigger.Kind: got %q, want %q", assignment.Trigger.Kind, "cron")
+	}
+	if assignment.Name != "weekday-review" {
+		t.Errorf("Name: got %q, want %q", assignment.Name, "weekday-review")
 	}
 	if assignment.Trigger.Schedule != "0 8 * * 1-5" {
 		t.Errorf("Trigger.Schedule: got %q, want %q", assignment.Trigger.Schedule, "0 8 * * 1-5")

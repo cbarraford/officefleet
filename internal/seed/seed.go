@@ -22,7 +22,7 @@ type DutySeeder interface {
 }
 
 type AssignmentSeeder interface {
-	UpsertByAgentAndDuty(ctx context.Context, a *domain.Assignment) error
+	UpsertByAgentDutyAndName(ctx context.Context, a *domain.Assignment) error
 	List(ctx context.Context) ([]*domain.Assignment, error)
 }
 
@@ -102,6 +102,7 @@ func FromConfig(ctx context.Context, cfg *config.Config,
 			return fmt.Errorf("assignment references unknown duty %q", ac.Duty)
 		}
 		assignment := &domain.Assignment{
+			Name:               defaultAssignmentName(ac),
 			AgentID:            agentID,
 			DutyID:             dutyID,
 			Enabled:            ac.Enabled,
@@ -112,9 +113,19 @@ func FromConfig(ctx context.Context, cfg *config.Config,
 			TaskPromptOverride: ac.TaskPromptOverride,
 			ExtraInstructions:  ac.ExtraInstructions,
 		}
-		if err := assignRepo.UpsertByAgentAndDuty(ctx, assignment); err != nil {
+		if err := assignRepo.UpsertByAgentDutyAndName(ctx, assignment); err != nil {
 			return fmt.Errorf("upsert assignment (agent=%q duty=%q): %w", ac.Agent, ac.Duty, err)
 		}
 	}
 	return nil
+}
+
+func defaultAssignmentName(ac config.AssignmentConfig) string {
+	if ac.Name != "" {
+		return ac.Name
+	}
+	if ac.Trigger.Kind != "" {
+		return ac.Trigger.Kind
+	}
+	return "default"
 }

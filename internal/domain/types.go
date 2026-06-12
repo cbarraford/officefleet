@@ -70,6 +70,7 @@ type OutputBinding struct {
 // Assignment binds an Agent to a Duty with per-agent config.
 type Assignment struct {
 	ID                 uuid.UUID       `db:"id" json:"id"`
+	Name               string          `db:"name" json:"name"`
 	AgentID            uuid.UUID       `db:"agent_id" json:"agent_id"`
 	DutyID             uuid.UUID       `db:"duty_id" json:"duty_id"`
 	Enabled            bool            `db:"enabled" json:"enabled"`

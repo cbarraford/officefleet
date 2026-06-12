@@ -186,9 +186,9 @@ func (f *fakeAssignmentStore) GetByID(_ context.Context, id uuid.UUID) (*domain.
 func (f *fakeAssignmentStore) Insert(_ context.Context, a *domain.Assignment) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	// Simulate unique (agent_id, duty_id) violation
+	// Simulate unique (agent_id, duty_id, name) violation.
 	for _, existing := range f.rows {
-		if existing.AgentID == a.AgentID && existing.DutyID == a.DutyID {
+		if existing.AgentID == a.AgentID && existing.DutyID == a.DutyID && existing.Name == a.Name {
 			return fmt.Errorf("duplicate: 23505 unique constraint violation")
 		}
 	}

@@ -79,6 +79,7 @@ type DutyConfig struct {
 
 // AssignmentConfig configures one assignment.
 type AssignmentConfig struct {
+	Name               string                 `yaml:"name,omitempty"`
 	Agent              string                 `yaml:"agent"`
 	Duty               string                 `yaml:"duty"`
 	Enabled            bool                   `yaml:"enabled"`
@@ -333,10 +334,18 @@ func Validate(cfg *Config) []error {
 	for _, ag := range cfg.Agents {
 		agentByName[ag.Name] = ag
 	}
+	assignmentKeys := map[string]int{}
 
 	for i, a := range cfg.Assignments {
 		agentOK := agentNames[a.Agent]
 		dutyOK := dutyNames[a.Duty]
+		assignmentName := defaultAssignmentName(a)
+		key := a.Agent + "\x00" + a.Duty + "\x00" + assignmentName
+		if prev, ok := assignmentKeys[key]; ok {
+			errs = append(errs, fmt.Errorf("duplicate assignment (agent=%q duty=%q name=%q) at indexes %d and %d", a.Agent, a.Duty, assignmentName, prev, i))
+		} else {
+			assignmentKeys[key] = i
+		}
 		if !agentOK {
 			errs = append(errs, fmt.Errorf("assignment[%d]: agent %q not defined", i, a.Agent))
 		}
@@ -436,6 +445,16 @@ func ResolveBackend(cfg *Config, assignment AssignmentConfig) (*Backend, domain.
 // forEachKeyRe: for_each names a key of the LLM result's output object — a
 // bare identifier, never a template or path expression.
 var forEachKeyRe = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
+
+func defaultAssignmentName(a AssignmentConfig) string {
+	if a.Name != "" {
+		return a.Name
+	}
+	if a.Trigger.Kind != "" {
+		return a.Trigger.Kind
+	}
+	return "default"
+}
 
 // envRefRe matches ${env:VAR_NAME} placeholders.
 var envRefRe = regexp.MustCompile(`\$\{env:([^}]+)\}`)
