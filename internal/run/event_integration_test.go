@@ -94,7 +94,7 @@ func TestEventVertical_WebhookToRun(t *testing.T) {
 			ID: dutyID, Name: "sp3-duty", Role: "dev", Description: "d",
 			Prompt: "Review MR !{{.Event.mr_iid}} by {{.Event.author}}",
 		}}},
-		buildExecutor: func(_ *config.Config, _ *config.Backend) (executor.Executor, error) {
+		buildExecutor: func(_ context.Context, _ *config.Config, _ *config.Backend, _ executor.SecretLookup) (executor.Executor, error) {
 			return fakeExec, nil
 		},
 	}

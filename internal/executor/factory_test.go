@@ -1,6 +1,8 @@
 package executor
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -37,6 +39,48 @@ func TestFromBackend_ClaudeSubscriptionNoKey(t *testing.T) {
 	}
 }
 
+func TestFromBackend_SecretRefRequiresLookup(t *testing.T) {
+	_, err := FromBackend(&config.Config{}, &config.Backend{
+		Name: "c", Kind: "claude",
+		Auth: config.BackendAuth{Mode: "api_key", APIKey: "${secret:anthropic_key}"},
+	})
+	if err == nil {
+		t.Fatal("expected missing lookup error")
+	}
+	if !strings.Contains(err.Error(), "requires a secret lookup") {
+		t.Fatalf("err = %v, want missing lookup error", err)
+	}
+}
+
+func TestFromBackendWithSecrets_ClaudeAPIKeySecretRef(t *testing.T) {
+	backend := &config.Backend{
+		Name: "c", Kind: "claude",
+		Auth: config.BackendAuth{Mode: "api_key", APIKey: "${secret:anthropic_key}"},
+	}
+	exec, err := FromBackendWithSecrets(context.Background(), &config.Config{}, backend, func(_ context.Context, name string) (string, error) {
+		if name != "anthropic_key" {
+			t.Fatalf("lookup name = %q, want anthropic_key", name)
+		}
+		return "sk-resolved", nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ce, ok := exec.(*ClaudeExecutor)
+	if !ok {
+		t.Fatalf("got %T, want *ClaudeExecutor", exec)
+	}
+	if ce.APIKey != "sk-resolved" {
+		t.Fatalf("APIKey = %q, want resolved secret", ce.APIKey)
+	}
+	if strings.Contains(ce.APIKey, "${secret:") {
+		t.Fatalf("secret ref reached Claude executor: %q", ce.APIKey)
+	}
+	if backend.Auth.APIKey != "${secret:anthropic_key}" {
+		t.Fatalf("backend config mutated to %q", backend.Auth.APIKey)
+	}
+}
+
 func TestFromBackend_Endpoint(t *testing.T) {
 	exec, err := FromBackend(&config.Config{}, &config.Backend{
 		Name: "e", Kind: "openai-compatible", BaseURI: "http://localhost:11434/v1",
@@ -47,6 +91,43 @@ func TestFromBackend_Endpoint(t *testing.T) {
 	}
 	if _, ok := exec.(*EndpointExecutor); !ok {
 		t.Fatalf("got %T, want *EndpointExecutor", exec)
+	}
+}
+
+func TestFromBackendWithSecrets_EndpointAPIKeySecretRef(t *testing.T) {
+	exec, err := FromBackendWithSecrets(context.Background(), &config.Config{}, &config.Backend{
+		Name: "e", Kind: "openai-compatible", BaseURI: "http://localhost:11434/v1",
+		Model: "llama3.1", Auth: config.BackendAuth{Mode: "api_key", APIKey: "${secret:openai_key}"},
+	}, func(_ context.Context, name string) (string, error) {
+		if name != "openai_key" {
+			t.Fatalf("lookup name = %q, want openai_key", name)
+		}
+		return "endpoint-secret", nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ee, ok := exec.(*EndpointExecutor)
+	if !ok {
+		t.Fatalf("got %T, want *EndpointExecutor", exec)
+	}
+	if ee.APIKey != "endpoint-secret" {
+		t.Fatalf("APIKey = %q, want resolved secret", ee.APIKey)
+	}
+}
+
+func TestFromBackendWithSecrets_MissingSecretFails(t *testing.T) {
+	_, err := FromBackendWithSecrets(context.Background(), &config.Config{}, &config.Backend{
+		Name: "e", Kind: "openai-compatible", BaseURI: "http://localhost:11434/v1",
+		Model: "llama3.1", Auth: config.BackendAuth{Mode: "api_key", APIKey: "${secret:missing_key}"},
+	}, func(context.Context, string) (string, error) {
+		return "", errors.New("not found")
+	})
+	if err == nil {
+		t.Fatal("expected secret lookup error")
+	}
+	if !strings.Contains(err.Error(), "missing_key") {
+		t.Fatalf("error = %v, want secret name", err)
 	}
 }
 
@@ -82,6 +163,29 @@ func TestFromBackend_Voter(t *testing.T) {
 	}
 	if v.Panel[1].Model != "llama3.1" {
 		t.Errorf("member 1 model = %q", v.Panel[1].Model)
+	}
+}
+
+func TestFromBackendWithSecrets_VoterPanelSecretRef(t *testing.T) {
+	cfg := &config.Config{
+		Backends: []config.Backend{
+			{Name: "c", Kind: "claude", Auth: config.BackendAuth{Mode: "api_key", APIKey: "${secret:anthropic_key}"}},
+		},
+	}
+	exec, err := FromBackendWithSecrets(context.Background(), cfg, &config.Backend{
+		Name: "panel", Kind: "voter", Strategy: "first_success", Panel: []string{"c"},
+	}, func(_ context.Context, name string) (string, error) {
+		if name != "anthropic_key" {
+			t.Fatalf("lookup name = %q, want anthropic_key", name)
+		}
+		return "panel-secret", nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := exec.(*VotingExecutor)
+	if got := v.Panel[0].Exec.(*ClaudeExecutor).APIKey; got != "panel-secret" {
+		t.Fatalf("panel APIKey = %q, want resolved secret", got)
 	}
 }
 
