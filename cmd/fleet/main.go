@@ -48,6 +48,9 @@ import (
 var (
 	flagConfig string
 	flagDB     string
+	version    = "dev"
+	commit     = "unknown"
+	buildDate  = "unknown"
 )
 
 func main() {
@@ -72,9 +75,24 @@ func main() {
 	root.AddCommand(seedCmd())
 	root.AddCommand(secretsCmd())
 	root.AddCommand(usersCmd())
+	root.AddCommand(versionCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
+	}
+}
+
+func versionCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Print build version information",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			out := cmd.OutOrStdout()
+			fmt.Fprintf(out, "version: %s\n", version)
+			fmt.Fprintf(out, "commit: %s\n", commit)
+			fmt.Fprintf(out, "build_date: %s\n", buildDate)
+			return nil
+		},
 	}
 }
 

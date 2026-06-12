@@ -24,8 +24,3 @@ CREATE TABLE IF NOT EXISTS poll_cursors (
     cursor      TEXT NOT NULL DEFAULT '',
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
--- +migrate Down
-
-DROP TABLE IF EXISTS poll_cursors;
-DROP TABLE IF EXISTS events;

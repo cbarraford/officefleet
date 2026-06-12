@@ -1,4 +1,9 @@
 /fleet
+*.test
+/fleet.yaml
+/fleet.*.yaml
+.env
+.env.*
 web/node_modules/
 internal/web/dist/*
 !internal/web/dist/.gitkeep

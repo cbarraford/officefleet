@@ -100,14 +100,3 @@ CREATE TABLE IF NOT EXISTS secrets (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
--- +migrate Down
-
-DROP TABLE IF EXISTS secrets;
-DROP TABLE IF EXISTS assignment_processed;
-DROP TABLE IF EXISTS assignment_notes;
-DROP TABLE IF EXISTS assignment_state;
-DROP TABLE IF EXISTS runs;
-DROP TABLE IF EXISTS assignments;
-DROP TABLE IF EXISTS duties;
-DROP TABLE IF EXISTS agents;

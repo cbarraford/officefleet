@@ -1,4 +1,2 @@
 -- +migrate Up
 ALTER TABLE runs DROP COLUMN IF EXISTS created_at;
--- +migrate Down
-ALTER TABLE runs ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
