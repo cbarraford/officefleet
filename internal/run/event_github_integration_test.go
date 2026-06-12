@@ -92,7 +92,7 @@ func TestEventVertical_GitHubWebhookToRun(t *testing.T) {
 			ID: dutyID, Name: "sp3b-duty", Role: "dev", Description: "d",
 			Prompt: "Review PR #{{.Event.pr_number}} by {{.Event.author}}",
 		}}},
-		buildExecutor: func(_ *config.Config, _ *config.Backend) (executor.Executor, error) {
+		buildExecutor: func(_ context.Context, _ *config.Config, _ *config.Backend, _ executor.SecretLookup) (executor.Executor, error) {
 			return fakeExec, nil
 		},
 	}

@@ -157,6 +157,20 @@ func buildSecretLookup(ctx context.Context, pool *pgxpool.Pool, cipher *secrets.
 	}
 }
 
+// buildBackendSecretLookup resolves backend auth secret references. Unlike the
+// plugin lookup above, backend credentials fail closed on missing or unreadable
+// secrets so placeholders never reach provider auth.
+func buildBackendSecretLookup(pool *pgxpool.Pool, cipher *secrets.Cipher) executor.SecretLookup {
+	return func(ctx context.Context, name string) (string, error) {
+		var val []byte
+		err := pool.QueryRow(ctx, "SELECT encrypted_value FROM secrets WHERE name=$1", name).Scan(&val)
+		if err != nil {
+			return "", fmt.Errorf("lookup secret %q: %w", name, err)
+		}
+		return decryptSecret(cipher, name, val)
+	}
+}
+
 // dbSecretsProvider implements run.SecretsProvider by loading all secrets from
 // the DB and decrypting FSEC1 values transparently. A single undecryptable
 // secret fails the entire Load (blast radius: all runs), which is deliberate
@@ -369,7 +383,24 @@ func backendsTestCmd() *cobra.Command {
 			if backend == nil {
 				return fmt.Errorf("backend %q not found in config", backendName)
 			}
-			ex, err := executor.FromBackend(cfg, backend)
+			var lookup executor.SecretLookup
+			if executor.BackendUsesSecretRefs(cfg, backend) {
+				dsn := resolveDSN(cfg)
+				if dsn == "" {
+					return fmt.Errorf("backend %q uses api_key secret refs but no database DSN is configured", backendName)
+				}
+				pool, err := db.New(cmd.Context(), dsn)
+				if err != nil {
+					return fmt.Errorf("open db: %w", err)
+				}
+				defer pool.Close()
+				cipher, err := loadCipher()
+				if err != nil {
+					return err
+				}
+				lookup = buildBackendSecretLookup(pool, cipher)
+			}
+			ex, err := executor.FromBackendWithSecrets(cmd.Context(), cfg, backend, lookup)
 			if err != nil {
 				return fmt.Errorf("build executor: %w", err)
 			}
@@ -675,7 +706,7 @@ func runCmd() *cobra.Command {
 					exec = executor.NewClaudeExecutor("")
 				} else {
 					var eerr error
-					exec, eerr = executor.FromBackend(cfg, resolved)
+					exec, eerr = executor.FromBackendWithSecrets(ctx, cfg, resolved, buildBackendSecretLookup(pool, cipher))
 					if eerr != nil {
 						return fmt.Errorf("build executor: %w", eerr)
 					}
@@ -773,6 +804,7 @@ func buildInvoker(cfg *config.Config, pool *pgxpool.Pool, cipher *secrets.Cipher
 	pipeline := run.NewPipeline(cfg, repo.NewRunRepo(pool), state.NewPostgresStore(pool), &dbSecretsProvider{pool: pool, cipher: cipher})
 	inv := run.NewInvoker(cfg, pipeline,
 		repo.NewAssignmentRepo(pool), repo.NewAgentRepo(pool), repo.NewDutyRepo(pool))
+	inv.SetBackendSecretLookup(buildBackendSecretLookup(pool, cipher))
 	return inv, pipeline
 }
 

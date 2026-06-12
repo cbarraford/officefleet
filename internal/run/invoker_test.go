@@ -62,7 +62,7 @@ func invokerFixture(t *testing.T) (*Invoker, *fakeRunRepo, uuid.UUID, *executor.
 		duties: &fakeDutyLister{duties: []*domain.Duty{{
 			ID: dutyID, Name: "inv-duty", Role: "t", Description: "d", Prompt: "p",
 		}}},
-		buildExecutor: func(_ *config.Config, _ *config.Backend) (executor.Executor, error) {
+		buildExecutor: func(_ context.Context, _ *config.Config, _ *config.Backend, _ executor.SecretLookup) (executor.Executor, error) {
 			return fakeExec, nil
 		},
 	}
@@ -104,7 +104,7 @@ func TestInvoker_UnknownAssignment(t *testing.T) {
 
 func TestInvoker_DefaultBuildExecutor(t *testing.T) {
 	// nil backend -> claude default; defined backend -> factory dispatch.
-	ex, err := defaultBuildExecutor(&config.Config{}, nil)
+	ex, err := defaultBuildExecutor(context.Background(), &config.Config{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,14 +112,33 @@ func TestInvoker_DefaultBuildExecutor(t *testing.T) {
 		t.Errorf("nil backend built %T, want *executor.ClaudeExecutor", ex)
 	}
 	cfg := &config.Config{}
-	ex, err = defaultBuildExecutor(cfg, &config.Backend{
+	ex, err = defaultBuildExecutor(context.Background(), cfg, &config.Backend{
 		Name: "e", Kind: "openai-compatible", BaseURI: "http://x/v1", Model: "m",
 		Auth: config.BackendAuth{Mode: "none"},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := ex.(*executor.EndpointExecutor); !ok {
 		t.Errorf("endpoint backend built %T", ex)
+	}
+}
+
+func TestInvoker_DefaultBuildExecutorResolvesBackendSecrets(t *testing.T) {
+	ex, err := defaultBuildExecutor(context.Background(), &config.Config{}, &config.Backend{
+		Name: "c", Kind: "claude",
+		Auth: config.BackendAuth{Mode: "api_key", APIKey: "${secret:anthropic_key}"},
+	}, func(_ context.Context, name string) (string, error) {
+		if name != "anthropic_key" {
+			t.Fatalf("lookup name = %q, want anthropic_key", name)
+		}
+		return "resolved-key", nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ce := ex.(*executor.ClaudeExecutor)
+	if ce.APIKey != "resolved-key" {
+		t.Fatalf("APIKey = %q, want resolved-key", ce.APIKey)
 	}
 }

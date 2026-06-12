@@ -35,7 +35,8 @@ type Invoker struct {
 	agents      AgentLister
 	duties      DutyLister
 	// buildExecutor is a test seam; defaults to factory-based resolution.
-	buildExecutor func(cfg *config.Config, b *config.Backend) (executor.Executor, error)
+	buildExecutor func(ctx context.Context, cfg *config.Config, b *config.Backend, lookup executor.SecretLookup) (executor.Executor, error)
+	secretLookup  executor.SecretLookup
 }
 
 func NewInvoker(cfg *config.Config, pipeline *Pipeline, assignments AssignmentGetter, agents AgentLister, duties DutyLister) *Invoker {
@@ -46,13 +47,19 @@ func NewInvoker(cfg *config.Config, pipeline *Pipeline, assignments AssignmentGe
 	}
 }
 
+// SetBackendSecretLookup configures backend api_key ${secret:name} resolution
+// for executor construction.
+func (inv *Invoker) SetBackendSecretLookup(lookup executor.SecretLookup) {
+	inv.secretLookup = lookup
+}
+
 // defaultBuildExecutor keeps SP1's behavior: no resolvable backend means the
 // subscription claude CLI; otherwise the factory dispatches on kind.
-func defaultBuildExecutor(cfg *config.Config, b *config.Backend) (executor.Executor, error) {
+func defaultBuildExecutor(ctx context.Context, cfg *config.Config, b *config.Backend, lookup executor.SecretLookup) (executor.Executor, error) {
 	if b == nil {
 		return executor.NewClaudeExecutor(""), nil
 	}
-	return executor.FromBackend(cfg, b)
+	return executor.FromBackendWithSecrets(ctx, cfg, b, lookup)
 }
 
 // Invoke runs one assignment end-to-end and returns the recorded Run.
@@ -103,7 +110,7 @@ func (inv *Invoker) Invoke(ctx context.Context, assignmentID uuid.UUID, triggerK
 			break
 		}
 	}
-	exec, err := inv.buildExecutor(inv.cfg, resolved)
+	exec, err := inv.buildExecutor(ctx, inv.cfg, resolved, inv.secretLookup)
 	if err != nil {
 		return nil, fmt.Errorf("build executor: %w", err)
 	}
