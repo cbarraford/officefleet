@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/cbarraford/office-fleet/internal/config"
@@ -126,8 +127,8 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 		Assignment: map[string]any(req.Assignment.Config),
 		State:      map[string]any{},
 		Now:        time.Now(),
-		Secrets:    secretsMap,
 	}
+	promptCtx = prompt.WithSecrets(promptCtx, secretsMap)
 	if promptCtx.Event == nil {
 		promptCtx.Event = map[string]any{}
 	}
@@ -185,8 +186,8 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 		DutyID:               req.Duty.ID,
 		TriggerKind:          req.TriggerKind,
 		EventID:              req.EventID,
-		RenderedSystemPrompt: systemPrompt,
-		RenderedPrompt:       taskPrompt,
+		RenderedSystemPrompt: redactSecrets(systemPrompt, secretsMap),
+		RenderedPrompt:       redactSecrets(taskPrompt, secretsMap),
 		Status:               domain.RunStatusRunning,
 		StartedAt:            time.Now(),
 	}
@@ -229,7 +230,8 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 		// The executor also returns a partial result (transcript, tokens
 		// accumulated before the failure); record it for audit alongside the
 		// error. Outputs and dedup marking are skipped, as on every failure.
-		errMsg := llmErr.Error()
+		llmResult = redactLLMResult(llmResult, secretsMap)
+		errMsg := redactSecrets(llmErr.Error(), secretsMap)
 		if uerr := p.runRepo.UpdateResult(ctx, run.ID, &llmResult, nil, domain.RunStatusFailed); uerr != nil {
 			return nil, fmt.Errorf("record run result: %w", uerr)
 		}
@@ -251,7 +253,8 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 	// skip dedup marking so the work can be retried. This also captures the
 	// claude path's is_error, which parseClaudeOutput maps to Status 1.
 	if llmResult.Status != 0 {
-		errMsg := fmt.Sprintf("llm reported failure status %d: %s", llmResult.Status, llmResult.Summary)
+		llmResult = redactLLMResult(llmResult, secretsMap)
+		errMsg := redactSecrets(fmt.Sprintf("llm reported failure status %d: %s", llmResult.Status, llmResult.Summary), secretsMap)
 		if err := p.runRepo.UpdateResult(ctx, run.ID, &llmResult, nil, domain.RunStatusFailed); err != nil {
 			return nil, fmt.Errorf("record run result: %w", err)
 		}
@@ -268,6 +271,7 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 	}
 
 	// Deliver outputs.
+	llmResult = redactLLMResult(llmResult, secretsMap)
 	deliveries := outputs.Deliver(ctx, req.Assignment.Outputs, llmResult, promptCtx)
 
 	// Record completion.
@@ -332,3 +336,43 @@ func deriveDedupKey(params map[string]any) string {
 
 // strPtr returns a pointer to the given string.
 func strPtr(s string) *string { return &s }
+
+func redactLLMResult(result domain.LLMResult, secrets map[string]string) domain.LLMResult {
+	result.Summary = redactSecrets(result.Summary, secrets)
+	result.Transcript = redactSecrets(result.Transcript, secrets)
+	if result.Output != nil {
+		result.Output = redactAny(result.Output, secrets).(map[string]any)
+	}
+	return result
+}
+
+func redactAny(v any, secrets map[string]string) any {
+	switch x := v.(type) {
+	case string:
+		return redactSecrets(x, secrets)
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, val := range x {
+			out[k] = redactAny(val, secrets)
+		}
+		return out
+	case []any:
+		out := make([]any, len(x))
+		for i, val := range x {
+			out[i] = redactAny(val, secrets)
+		}
+		return out
+	default:
+		return v
+	}
+}
+
+func redactSecrets(s string, secrets map[string]string) string {
+	for _, secret := range secrets {
+		if secret == "" {
+			continue
+		}
+		s = strings.ReplaceAll(s, secret, "[REDACTED]")
+	}
+	return s
+}

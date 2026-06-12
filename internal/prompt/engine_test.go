@@ -16,7 +16,6 @@ func testCtx() prompt.Context {
 		Assignment: map[string]any{"project": "myorg/myrepo"},
 		State:      map[string]any{},
 		Now:        time.Date(2026, 6, 7, 0, 0, 0, 0, time.UTC),
-		Secrets:    map[string]string{},
 	}
 }
 
@@ -104,8 +103,7 @@ func TestRender_JSONHelper(t *testing.T) {
 
 // TEST 2 - secret helper success (gap m8)
 func TestRender_SecretSuccess(t *testing.T) {
-	ctx := testCtx()
-	ctx.Secrets["gitlab_token"] = "tok-abc"
+	ctx := prompt.WithSecrets(testCtx(), map[string]string{"gitlab_token": "tok-abc"})
 	out, err := prompt.Render(`{{secret "gitlab_token"}}`, ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -117,11 +115,18 @@ func TestRender_SecretSuccess(t *testing.T) {
 
 // TEST 3 - secret helper missing key returns error (gap m8)
 func TestRender_SecretMissingKey(t *testing.T) {
-	ctx := testCtx()
-	// Secrets is empty map — key does not exist
+	ctx := prompt.WithSecrets(testCtx(), map[string]string{})
 	_, err := prompt.Render(`{{secret "missing"}}`, ctx)
 	if err == nil {
 		t.Fatal("expected error for missing secret key, got nil")
+	}
+}
+
+func TestRender_SecretsMapNotExposed(t *testing.T) {
+	ctx := prompt.WithSecrets(testCtx(), map[string]string{"gitlab_token": "tok-abc"})
+	_, err := prompt.Render(`{{.Secrets.gitlab_token}}`, ctx)
+	if err == nil {
+		t.Fatal("expected .Secrets access to fail")
 	}
 }
 

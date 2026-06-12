@@ -34,8 +34,8 @@ func TestSampleConfig(t *testing.T) {
 		Assignment: map[string]any{"project": "org/repo", "category": "security"},
 		State:      map[string]any{},
 		Now:        time.Now(),
-		Secrets:    map[string]string{"gitlab_token": "tok"},
 	}
+	syntheticCtx = prompt.WithSecrets(syntheticCtx, map[string]string{"gitlab_token": "tok"})
 	for _, d := range cfg.Duties {
 		if _, tracked := wantDuties[d.Name]; tracked {
 			wantDuties[d.Name] = true
