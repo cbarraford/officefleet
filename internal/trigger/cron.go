@@ -2,6 +2,8 @@ package trigger
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -15,25 +17,33 @@ type cronField struct {
 	star   bool
 }
 
-func (s *cronSchedule) Next(t time.Time) time.Time {
+func (s *cronSchedule) Next(t time.Time) (time.Time, error) {
 	// Advance by at least one minute.
 	t = t.Add(time.Minute).Truncate(time.Minute)
-	// Try up to 366*24*60 minutes to find a match (handles any valid cron).
-	for i := 0; i < 366*24*60; i++ {
+	// Try up to five years to cover valid leap-day schedules while still
+	// surfacing impossible expressions such as February 31.
+	for i := 0; i < 5*366*24*60; i++ {
 		if s.matches(t) {
-			return t
+			return t, nil
 		}
 		t = t.Add(time.Minute)
 	}
-	return time.Time{}
+	return time.Time{}, fmt.Errorf("cron schedule has no matching time in the next 5 years")
 }
 
 func (s *cronSchedule) matches(t time.Time) bool {
+	dom := s.fields[2]
+	dow := s.fields[4]
+	domMatches := s.fieldMatches(dom, t.Day())
+	dowMatches := s.fieldMatches(dow, int(t.Weekday()))
+	dayMatches := domMatches && dowMatches
+	if !dom.star && !dow.star {
+		dayMatches = domMatches || dowMatches
+	}
 	return s.fieldMatches(s.fields[0], t.Minute()) &&
 		s.fieldMatches(s.fields[1], t.Hour()) &&
-		s.fieldMatches(s.fields[2], t.Day()) &&
 		s.fieldMatches(s.fields[3], int(t.Month())) &&
-		s.fieldMatches(s.fields[4], int(t.Weekday()))
+		dayMatches
 }
 
 func (s *cronSchedule) fieldMatches(f cronField, v int) bool {
@@ -49,15 +59,14 @@ func (s *cronSchedule) fieldMatches(f cronField, v int) bool {
 }
 
 func parseCron(expr string) (*cronSchedule, error) {
-	var fields [5]string
-	n, _ := fmt.Sscanf(expr, "%s %s %s %s %s", &fields[0], &fields[1], &fields[2], &fields[3], &fields[4])
-	if n != 5 {
-		return nil, fmt.Errorf("cron expression must have 5 fields, got %d: %q", n, expr)
+	parts := strings.Fields(expr)
+	if len(parts) != 5 {
+		return nil, fmt.Errorf("cron expression must have 5 fields, got %d: %q", len(parts), expr)
 	}
 
 	bounds := [5][2]int{{0, 59}, {0, 23}, {1, 31}, {1, 12}, {0, 6}}
 	sched := &cronSchedule{}
-	for i, f := range fields {
+	for i, f := range parts {
 		cf, err := parseCronField(f, bounds[i][0], bounds[i][1])
 		if err != nil {
 			return nil, fmt.Errorf("field %d: %w", i, err)
@@ -71,11 +80,35 @@ func parseCronField(s string, min, max int) (cronField, error) {
 	if s == "*" {
 		return cronField{star: true}, nil
 	}
+	if strings.Contains(s, ",") {
+		var vals []int
+		seen := map[int]bool{}
+		for _, part := range strings.Split(s, ",") {
+			if part == "" {
+				return cronField{}, fmt.Errorf("unsupported field value %q", s)
+			}
+			cf, err := parseCronField(part, min, max)
+			if err != nil {
+				return cronField{}, err
+			}
+			if cf.star {
+				return cf, nil
+			}
+			for _, v := range cf.values {
+				if !seen[v] {
+					seen[v] = true
+					vals = append(vals, v)
+				}
+			}
+		}
+		return cronField{values: vals}, nil
+	}
 
 	// */step
 	if len(s) > 2 && s[:2] == "*/" {
 		var step int
-		if _, err := fmt.Sscanf(s[2:], "%d", &step); err != nil || step <= 0 {
+		var err error
+		if step, err = strconv.Atoi(s[2:]); err != nil || step <= 0 {
 			return cronField{}, fmt.Errorf("unsupported field value %q", s)
 		}
 		var vals []int
@@ -88,18 +121,19 @@ func parseCronField(s string, min, max int) (cronField, error) {
 	// lo-hi or lo-hi/step
 	if idx := indexByte(s, '-'); idx > 0 {
 		var lo, hi int
-		if _, err := fmt.Sscanf(s[:idx], "%d", &lo); err != nil {
+		var err error
+		if lo, err = strconv.Atoi(s[:idx]); err != nil {
 			return cronField{}, fmt.Errorf("unsupported field value %q", s)
 		}
 		rest := s[idx+1:]
 		step := 1
 		if si := indexByte(rest, '/'); si > 0 {
-			if _, err := fmt.Sscanf(rest[si+1:], "%d", &step); err != nil || step <= 0 {
+			if step, err = strconv.Atoi(rest[si+1:]); err != nil || step <= 0 {
 				return cronField{}, fmt.Errorf("unsupported field value %q", s)
 			}
 			rest = rest[:si]
 		}
-		if _, err := fmt.Sscanf(rest, "%d", &hi); err != nil {
+		if hi, err = strconv.Atoi(rest); err != nil {
 			return cronField{}, fmt.Errorf("unsupported field value %q", s)
 		}
 		if lo < min || hi > max || lo > hi {
@@ -113,8 +147,8 @@ func parseCronField(s string, min, max int) (cronField, error) {
 	}
 
 	// Single value.
-	var v int
-	if _, err := fmt.Sscanf(s, "%d", &v); err != nil {
+	v, err := strconv.Atoi(s)
+	if err != nil {
 		return cronField{}, fmt.Errorf("unsupported field value %q", s)
 	}
 	if v < min || v > max {

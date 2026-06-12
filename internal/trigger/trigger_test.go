@@ -79,6 +79,80 @@ func TestCronTrigger_StepExpression(t *testing.T) {
 	}
 }
 
+func TestCronTrigger_RejectsSixFieldExpression(t *testing.T) {
+	c := trigger.NewCron("0 0 12 * * *")
+	if err := c.Validate(); err == nil {
+		t.Fatal("expected six-field cron expression to be rejected")
+	}
+}
+
+func TestCronTrigger_CommaLists(t *testing.T) {
+	c := trigger.NewCron("0 9,17 * * *")
+	if err := c.Validate(); err != nil {
+		t.Fatalf("comma expression rejected: %v", err)
+	}
+
+	fromMorning := time.Date(2026, 6, 7, 8, 1, 0, 0, time.UTC)
+	next, err := c.Next(fromMorning)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.Hour() != 9 || next.Minute() != 0 {
+		t.Fatalf("expected 09:00, got %v", next)
+	}
+
+	fromAfternoon := time.Date(2026, 6, 7, 9, 1, 0, 0, time.UTC)
+	next, err = c.Next(fromAfternoon)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.Hour() != 17 || next.Minute() != 0 {
+		t.Fatalf("expected 17:00, got %v", next)
+	}
+}
+
+func TestCronTrigger_DayOfMonthOrDayOfWeekSemantics(t *testing.T) {
+	c := trigger.NewCron("0 9 15 * 1")
+	if err := c.Validate(); err != nil {
+		t.Fatalf("cron expression rejected: %v", err)
+	}
+
+	from := time.Date(2026, 1, 13, 10, 0, 0, 0, time.UTC)
+	next, err := c.Next(from)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDOM := time.Date(2026, 1, 15, 9, 0, 0, 0, time.UTC)
+	if !next.Equal(wantDOM) {
+		t.Fatalf("expected day-of-month match %v, got %v", wantDOM, next)
+	}
+
+	next, err = c.Next(wantDOM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDOW := time.Date(2026, 1, 19, 9, 0, 0, 0, time.UTC)
+	if !next.Equal(wantDOW) {
+		t.Fatalf("expected day-of-week match %v, got %v", wantDOW, next)
+	}
+}
+
+func TestCronTrigger_UnsatisfiableScheduleErrors(t *testing.T) {
+	c := trigger.NewCron("0 0 31 2 *")
+	next, err := c.Next(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	if err == nil {
+		t.Fatalf("expected impossible schedule to error, got next=%v", next)
+	}
+	if !next.IsZero() {
+		t.Fatalf("expected zero next time on error, got %v", next)
+	}
+
+	sched := trigger.NewScheduler()
+	if err := sched.Add("assignment-1", c, time.Now()); err == nil {
+		t.Fatal("expected scheduler to reject impossible schedule")
+	}
+}
+
 func TestScheduler_FiresDueAssignments(t *testing.T) {
 	sched := trigger.NewScheduler()
 	c := trigger.NewCron("* * * * *") // every minute
