@@ -317,7 +317,7 @@ func backendsListCmd() *cobra.Command {
 func backendsLoginCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "login <backend-name>",
-		Short: "Log in to a CLI backend (claude/codex/gemini)",
+		Short: "Log in to a Claude CLI backend",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			backendName := args[0]
@@ -336,10 +336,13 @@ func backendsLoginCmd() *cobra.Command {
 			if backend == nil {
 				return fmt.Errorf("backend %q not found in config", backendName)
 			}
+			if backend.Kind != "claude" {
+				return fmt.Errorf("backend %q has kind %q; login is only supported for claude CLI backends", backendName, backend.Kind)
+			}
 			if backend.Auth.Mode != "subscription" {
 				return fmt.Errorf("backend %q does not use subscription auth; login is only supported for subscription backends", backendName)
 			}
-			c := exec.Command(backend.Kind, "login")
+			c := exec.Command("claude", "login")
 			c.Stdin = os.Stdin
 			c.Stdout = os.Stdout
 			c.Stderr = os.Stderr
