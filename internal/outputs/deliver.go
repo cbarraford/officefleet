@@ -136,6 +136,7 @@ func renderParams(params map[string]any, result domain.LLMResult, promptCtx prom
 	enriched.Event["llm_transcript"] = result.Transcript
 	enriched.Event["llm_output"] = mustJSON(result.Output)
 	enriched.Item = item
+	enriched = prompt.WithoutSecrets(enriched)
 
 	out := make(map[string]any, len(params))
 	for k, v := range params {

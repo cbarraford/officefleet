@@ -17,15 +17,25 @@ type Context struct {
 	Assignment map[string]any
 	State      map[string]any
 	Now        time.Time
-	Secrets    map[string]string
+	secrets    map[string]string
 	// Item is the current fan-out element during for_each output delivery
 	// (nil outside fan-out rendering).
 	Item map[string]any
 }
 
+func WithSecrets(ctx Context, secrets map[string]string) Context {
+	ctx.secrets = secrets
+	return ctx
+}
+
+func WithoutSecrets(ctx Context) Context {
+	ctx.secrets = nil
+	return ctx
+}
+
 // Render executes a Go text/template with the given context.
 func Render(tmpl string, ctx Context) (string, error) {
-	t, err := template.New("prompt").Funcs(helpers(ctx.Secrets)).Parse(tmpl)
+	t, err := template.New("prompt").Funcs(helpers(ctx.secrets)).Parse(tmpl)
 	if err != nil {
 		return "", fmt.Errorf("parse template: %w", err)
 	}

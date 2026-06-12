@@ -925,15 +925,16 @@ func TestPipelineExecute_DedupSkip(t *testing.T) {
 	}
 }
 
-func TestPipelineExecute_SecretInTemplate(t *testing.T) {
+func TestPipelineExecute_RedactsSecretsInPersistedRun(t *testing.T) {
 	ctx := context.Background()
 
 	cannedResult := domain.LLMResult{
-		Status:  0,
-		Summary: "secret test summary",
-		Output:  map[string]any{},
-		Tokens:  5,
-		Cost:    0.0,
+		Status:     0,
+		Summary:    "secret test summary tok-abc123",
+		Output:     map[string]any{},
+		Transcript: "transcript includes tok-abc123",
+		Tokens:     5,
+		Cost:       0.0,
 	}
 	fakeExec := executor.NewFakeExecutor(cannedResult)
 	store := state.NewMemStore()
@@ -1006,9 +1007,21 @@ func TestPipelineExecute_SecretInTemplate(t *testing.T) {
 	if run.Status != domain.RunStatusSucceeded {
 		t.Errorf("expected status %q, got %q", domain.RunStatusSucceeded, run.Status)
 	}
-	// The rendered prompt must contain the resolved secret value, proving the gap is closed.
-	if run.RenderedPrompt != "Use token: tok-abc123" {
-		t.Errorf("expected RenderedPrompt %q, got %q", "Use token: tok-abc123", run.RenderedPrompt)
+	if fakeExec.LastReq.Prompt != "Use token: tok-abc123" {
+		t.Fatalf("executor prompt = %q, want unredacted secret for tool auth", fakeExec.LastReq.Prompt)
+	}
+	stored := rr.snapshot()[run.ID]
+	if strings.Contains(stored.RenderedPrompt, "tok-abc123") {
+		t.Fatalf("persisted prompt leaked secret: %q", stored.RenderedPrompt)
+	}
+	if stored.RenderedPrompt != "Use token: [REDACTED]" {
+		t.Fatalf("persisted prompt = %q, want redacted", stored.RenderedPrompt)
+	}
+	if stored.LLMResult == nil {
+		t.Fatal("persisted LLMResult is nil")
+	}
+	if strings.Contains(stored.LLMResult.Summary, "tok-abc123") || strings.Contains(stored.LLMResult.Transcript, "tok-abc123") {
+		t.Fatalf("persisted LLMResult leaked secret: %+v", stored.LLMResult)
 	}
 }
 

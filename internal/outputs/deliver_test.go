@@ -107,6 +107,25 @@ func TestDeliver_RenderParamsError(t *testing.T) {
 	}
 }
 
+func TestDeliver_DeniesSecretHelperInParams(t *testing.T) {
+	result := domain.LLMResult{Summary: "ok"}
+	outputBindings := []domain.OutputBinding{
+		{Plugin: "mock", Action: "post", Params: map[string]any{"body": `{{secret "api_token"}}`}},
+	}
+	ctx := prompt.WithSecrets(prompt.Context{Event: map[string]any{}}, map[string]string{"api_token": "tok-abc123"})
+
+	deliveries := outputs.Deliver(context.Background(), outputBindings, result, ctx)
+	if len(deliveries) != 1 {
+		t.Fatalf("expected 1 delivery, got %d", len(deliveries))
+	}
+	if deliveries[0].Status != "failed" {
+		t.Fatalf("expected secret helper delivery to fail, got %+v", deliveries[0])
+	}
+	if !strings.Contains(deliveries[0].Error, "secrets not available") {
+		t.Fatalf("error = %q, want secrets-denied message", deliveries[0].Error)
+	}
+}
+
 // TestDeliver_LLMOutputRenderedAsJSON asserts that {{.Event.llm_output}} produces
 // valid JSON rather than Go's map literal syntax (e.g. "map[key:value]").
 func TestDeliver_LLMOutputRenderedAsJSON(t *testing.T) {
