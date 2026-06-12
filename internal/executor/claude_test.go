@@ -1,7 +1,12 @@
 package executor
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -95,6 +100,68 @@ func TestBuildClaudePrompt_NoSystem(t *testing.T) {
 	}
 }
 
+func TestClaudeExecutorRestrictsEnvAndAllowedTools(t *testing.T) {
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	if err := os.Mkdir(binDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	argsFile := filepath.Join(dir, "args.txt")
+	envFile := filepath.Join(dir, "env.txt")
+
+	writeExecutable(t, filepath.Join(binDir, "claude"), fmt.Sprintf(`#!/bin/sh
+printf '%%s\n' "$@" > %s
+env > %s
+printf '%%s\n' '{"result":"ok","usage":{"output_tokens":1}}'
+`, shellQuote(argsFile), shellQuote(envFile)))
+	writeExecutable(t, filepath.Join(binDir, "git"), "#!/bin/sh\nexit 0\n")
+	writeExecutable(t, filepath.Join(binDir, "glab"), "#!/bin/sh\nexit 0\n")
+
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("FLEET_DATABASE_DSN", "postgres://user:secret@example/fleet")
+	t.Setenv("UNRELATED_SECRET", "do-not-leak")
+	t.Setenv("ANTHROPIC_API_KEY", "parent-env-key")
+
+	_, err := NewClaudeExecutor("explicit-api-key").Run(context.Background(), LLMRequest{
+		Prompt: "hello",
+		Tools:  []string{"git", "glab"},
+	})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	argsData, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotArgs := strings.Split(strings.TrimSpace(string(argsData)), "\n")
+	wantArgs := []string{
+		"--print",
+		"--output-format",
+		"json",
+		"--allowed-tools",
+		"Bash(git *)",
+		"Bash(glab *)",
+	}
+	if !slices.Equal(gotArgs, wantArgs) {
+		t.Fatalf("claude argv = %#v, want %#v", gotArgs, wantArgs)
+	}
+
+	envData, err := os.ReadFile(envFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := string(envData)
+	if !strings.Contains(env, "ANTHROPIC_API_KEY=explicit-api-key\n") {
+		t.Fatalf("claude env missing explicit API key: %s", env)
+	}
+	for _, leaked := range []string{"FLEET_DATABASE_DSN=", "UNRELATED_SECRET=", "ANTHROPIC_API_KEY=parent-env-key"} {
+		if strings.Contains(env, leaked) {
+			t.Fatalf("claude env leaked %q: %s", leaked, env)
+		}
+	}
+}
+
 func TestParseClaudeOutputExtractsFencedJSON(t *testing.T) {
 	resultText := "I reviewed the MR.\n\n```json\n{\"summary\": \"2 issues found\", \"comments\": [{\"path\": \"a.go\", \"line\": 7, \"body\": \"nil deref\"}]}\n```"
 	wrapper, _ := json.Marshal(map[string]any{"type": "result", "result": resultText})
@@ -117,6 +184,17 @@ func TestParseClaudeOutputExtractsFencedJSON(t *testing.T) {
 	if got.Output["raw"] != resultText {
 		t.Errorf("raw text must still be preserved alongside the parsed object")
 	}
+}
+
+func writeExecutable(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(body), 0700); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
 }
 
 func TestParseClaudeOutputWholeTextJSON(t *testing.T) {
