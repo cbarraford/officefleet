@@ -66,6 +66,7 @@ func main() {
 	root.AddCommand(dutiesCmd())
 	root.AddCommand(assignmentsCmd())
 	root.AddCommand(runCmd())
+	root.AddCommand(runsCmd())
 	root.AddCommand(scheduleCmd())
 	root.AddCommand(serveCmd())
 	root.AddCommand(eventsCmd())
@@ -731,6 +732,64 @@ func runCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&flagFake, "fake", false, "use FakeExecutor instead of ClaudeExecutor")
 
 	return cmd
+}
+
+func runsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "runs",
+		Short: "Manage recorded runs",
+	}
+	cmd.AddCommand(runsPruneCmd())
+	return cmd
+}
+
+func runsPruneCmd() *cobra.Command {
+	var olderThan string
+	cmd := &cobra.Command{
+		Use:   "prune",
+		Short: "Delete run records older than a retention duration",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			retention, err := parsePruneOlderThan(olderThan)
+			if err != nil {
+				return err
+			}
+			ctx := context.Background()
+			cfg, _ := loadConfig()
+			dsn := resolveDSN(cfg)
+			if dsn == "" {
+				return fmt.Errorf("no database DSN configured")
+			}
+			pool, err := db.New(ctx, dsn)
+			if err != nil {
+				return fmt.Errorf("open db: %w", err)
+			}
+			defer pool.Close()
+
+			cutoff := time.Now().Add(-retention)
+			deleted, err := repo.NewRunRepo(pool).PruneOlderThan(ctx, cutoff)
+			if err != nil {
+				return fmt.Errorf("prune runs: %w", err)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "pruned %d run(s) older than %s\n", deleted, retention)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&olderThan, "older-than", "2160h", "delete runs older than this Go duration (default 2160h, 90 days)")
+	return cmd
+}
+
+func parsePruneOlderThan(raw string) (time.Duration, error) {
+	if strings.TrimSpace(raw) == "" {
+		return 0, fmt.Errorf("--older-than must be set")
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("parse --older-than: %w", err)
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("--older-than must be greater than zero")
+	}
+	return d, nil
 }
 
 // scheduleCmd returns the "schedule" daemon subcommand (cron only).

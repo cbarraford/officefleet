@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"strconv"
+	"time"
 
 	"github.com/cbarraford/office-fleet/internal/domain"
 	"github.com/google/uuid"
@@ -13,6 +16,12 @@ import (
 type RunRepo struct{ db *pgxpool.Pool }
 
 func NewRunRepo(db *pgxpool.Pool) *RunRepo { return &RunRepo{db: db} }
+
+const (
+	defaultMaxTranscriptBytes = 256 * 1024
+	transcriptMaxBytesEnv     = "FLEET_MAX_TRANSCRIPT_BYTES"
+	truncatedMarker           = "...[truncated]"
+)
 
 func (r *RunRepo) Insert(ctx context.Context, run *domain.Run) error {
 	if run.ID == uuid.Nil {
@@ -34,7 +43,12 @@ func (r *RunRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status domain.
 }
 
 func (r *RunRepo) UpdateResult(ctx context.Context, id uuid.UUID, result *domain.LLMResult, outputs []domain.OutputDelivery, status domain.RunStatus) error {
-	resultJSON, err := json.Marshal(result)
+	maxTranscriptBytes, err := transcriptMaxBytes()
+	if err != nil {
+		return err
+	}
+	storedResult := prepareLLMResultForStorage(result, maxTranscriptBytes)
+	resultJSON, err := json.Marshal(storedResult)
 	if err != nil {
 		return fmt.Errorf("marshal llm_result: %w", err)
 	}
@@ -52,6 +66,14 @@ func (r *RunRepo) UpdateResult(ctx context.Context, id uuid.UUID, result *domain
 		"UPDATE runs SET llm_result=$1, outputs_delivered=$2, status=$3, tokens=$4, cost=$5, finished_at=NOW() WHERE id=$6",
 		resultJSON, outputsJSON, status, tokens, cost, id)
 	return err
+}
+
+func (r *RunRepo) PruneOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {
+	tag, err := r.db.Exec(ctx, "DELETE FROM runs WHERE started_at < $1", cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
 }
 
 func (r *RunRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Run, error) {
@@ -160,4 +182,59 @@ func scanRun(s scanner) (*domain.Run, error) {
 	}
 	_ = json.Unmarshal(outputsJSON, &run.OutputsDelivered)
 	return &run, nil
+}
+
+func transcriptMaxBytes() (int, error) {
+	raw := os.Getenv(transcriptMaxBytesEnv)
+	if raw == "" {
+		return defaultMaxTranscriptBytes, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("%s must be a non-negative integer byte count", transcriptMaxBytesEnv)
+	}
+	return n, nil
+}
+
+func prepareLLMResultForStorage(result *domain.LLMResult, maxTranscriptBytes int) *domain.LLMResult {
+	if result == nil {
+		return nil
+	}
+	stored := *result
+	stored.Transcript = truncateTranscript(result.Transcript, maxTranscriptBytes)
+	return &stored
+}
+
+func truncateTranscript(transcript string, maxBytes int) string {
+	if maxBytes < 0 || len([]byte(transcript)) <= maxBytes {
+		return transcript
+	}
+	if maxBytes == 0 {
+		return ""
+	}
+	if maxBytes <= len(truncatedMarker) {
+		return utf8Prefix(transcript, maxBytes)
+	}
+	prefixBytes := maxBytes - len(truncatedMarker)
+	return utf8Prefix(transcript, prefixBytes) + truncatedMarker
+}
+
+func utf8Prefix(s string, maxBytes int) string {
+	if maxBytes <= 0 {
+		return ""
+	}
+	if len([]byte(s)) <= maxBytes {
+		return s
+	}
+	cut := 0
+	for i := range s {
+		if i > maxBytes {
+			break
+		}
+		cut = i
+	}
+	if cut == 0 {
+		return ""
+	}
+	return s[:cut]
 }
