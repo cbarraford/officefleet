@@ -96,9 +96,9 @@ func parseClaudeOutput(data []byte) (domain.LLMResult, error) {
 	var raw map[string]any
 	if err := json.Unmarshal(last, &raw); err != nil {
 		return domain.LLMResult{
-			Status: 0, Summary: string(data),
+			Status: 1, Summary: string(data),
 			Output: map[string]any{"raw": string(data)}, Transcript: string(data),
-		}, nil
+		}, fmt.Errorf("claude: parse json output: %w", err)
 	}
 	result := domain.LLMResult{Output: map[string]any{}}
 	if isErr, ok := raw["is_error"].(bool); ok && isErr {

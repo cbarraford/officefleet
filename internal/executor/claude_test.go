@@ -23,17 +23,20 @@ func TestParseClaudeOutput_ValidJSON(t *testing.T) {
 	}
 }
 
-func TestParseClaudeOutput_NonJSON(t *testing.T) {
+func TestParseClaudeOutput_NonJSONFails(t *testing.T) {
 	input := []byte("just plain text")
 	res, err := parseClaudeOutput(input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err == nil {
+		t.Fatal("expected error for non-JSON output, got nil")
+	}
+	if !strings.Contains(err.Error(), "parse json") {
+		t.Errorf("error = %q, want it to mention JSON parsing", err.Error())
+	}
+	if res.Status != 1 {
+		t.Errorf("Status = %d, want 1", res.Status)
 	}
 	if res.Summary != string(input) {
 		t.Errorf("Summary = %q, want %q", res.Summary, string(input))
-	}
-	if res.Status != 0 {
-		t.Errorf("Status = %d, want 0", res.Status)
 	}
 }
 
