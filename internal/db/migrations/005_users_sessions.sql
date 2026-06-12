@@ -21,10 +21,3 @@ CREATE INDEX IF NOT EXISTS sessions_expires_at_idx ON sessions(expires_at);
 
 ALTER TABLE agents ADD COLUMN IF NOT EXISTS avatar_url TEXT;
 ALTER TABLE agents ADD COLUMN IF NOT EXISTS hired_at DATE;
-
--- +migrate Down
-
-ALTER TABLE agents DROP COLUMN IF EXISTS hired_at;
-ALTER TABLE agents DROP COLUMN IF EXISTS avatar_url;
-DROP TABLE IF EXISTS sessions;
-DROP TABLE IF EXISTS users;
