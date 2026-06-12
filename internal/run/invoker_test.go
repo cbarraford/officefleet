@@ -24,15 +24,43 @@ func (f *fakeAssignmentGetter) GetByID(_ context.Context, id uuid.UUID) (*domain
 	return a, nil
 }
 
-type fakeAgentLister struct{ agents []*domain.Agent }
+type fakeAgentGetter struct {
+	byID      map[uuid.UUID]*domain.Agent
+	listCalls int
+}
 
-func (f *fakeAgentLister) List(_ context.Context) ([]*domain.Agent, error) { return f.agents, nil }
+func (f *fakeAgentGetter) GetByID(_ context.Context, id uuid.UUID) (*domain.Agent, error) {
+	a, ok := f.byID[id]
+	if !ok {
+		return nil, fmt.Errorf("agent %s not found", id)
+	}
+	return a, nil
+}
 
-type fakeDutyLister struct{ duties []*domain.Duty }
+func (f *fakeAgentGetter) List(_ context.Context) ([]*domain.Agent, error) {
+	f.listCalls++
+	return nil, fmt.Errorf("List must not be used by Invoker")
+}
 
-func (f *fakeDutyLister) List(_ context.Context) ([]*domain.Duty, error) { return f.duties, nil }
+type fakeDutyGetter struct {
+	byID      map[uuid.UUID]*domain.Duty
+	listCalls int
+}
 
-func invokerFixture(t *testing.T) (*Invoker, *fakeRunRepo, uuid.UUID, *executor.FakeExecutor) {
+func (f *fakeDutyGetter) GetByID(_ context.Context, id uuid.UUID) (*domain.Duty, error) {
+	d, ok := f.byID[id]
+	if !ok {
+		return nil, fmt.Errorf("duty %s not found", id)
+	}
+	return d, nil
+}
+
+func (f *fakeDutyGetter) List(_ context.Context) ([]*domain.Duty, error) {
+	f.listCalls++
+	return nil, fmt.Errorf("List must not be used by Invoker")
+}
+
+func invokerFixture(t *testing.T) (*Invoker, *fakeRunRepo, uuid.UUID, *executor.FakeExecutor, *fakeAgentGetter, *fakeDutyGetter) {
 	t.Helper()
 	backendName := "inv-backend"
 	agentID, dutyID, assignmentID := uuid.New(), uuid.New(), uuid.New()
@@ -48,29 +76,31 @@ func invokerFixture(t *testing.T) (*Invoker, *fakeRunRepo, uuid.UUID, *executor.
 	rr := newFakeRunRepo()
 	pipeline := &Pipeline{cfg: cfg, runRepo: rr, store: state.NewMemStore()}
 	fakeExec := executor.NewFakeExecutor(domain.LLMResult{Status: 0, Summary: "invoked"})
-
-	inv := &Invoker{
-		cfg:      cfg,
-		pipeline: pipeline,
-		assignments: &fakeAssignmentGetter{byID: map[uuid.UUID]*domain.Assignment{
-			assignmentID: {ID: assignmentID, AgentID: agentID, DutyID: dutyID, Enabled: true, Config: map[string]any{}},
-		}},
-		agents: &fakeAgentLister{agents: []*domain.Agent{{
+	agents := &fakeAgentGetter{byID: map[uuid.UUID]*domain.Agent{
+		agentID: {
 			ID: agentID, Name: "inv-agent", Role: "t", SystemPrompt: "s",
 			DefaultBackend: domain.BackendRef{Name: backendName}, Enabled: true,
-		}}},
-		duties: &fakeDutyLister{duties: []*domain.Duty{{
-			ID: dutyID, Name: "inv-duty", Role: "t", Description: "d", Prompt: "p",
-		}}},
-		buildExecutor: func(_ *config.Config, _ *config.Backend) (executor.Executor, error) {
-			return fakeExec, nil
 		},
-	}
-	return inv, rr, assignmentID, fakeExec
+	}}
+	duties := &fakeDutyGetter{byID: map[uuid.UUID]*domain.Duty{
+		dutyID: {
+			ID: dutyID, Name: "inv-duty", Role: "t", Description: "d", Prompt: "p",
+		},
+	}}
+
+	inv := NewInvokerWithExecutorBuilder(cfg, pipeline,
+		&fakeAssignmentGetter{byID: map[uuid.UUID]*domain.Assignment{
+			assignmentID: {ID: assignmentID, AgentID: agentID, DutyID: dutyID, Enabled: true, Config: map[string]any{}},
+		}},
+		agents, duties,
+		func(_ *config.Config, _ *config.Backend) (executor.Executor, error) {
+			return fakeExec, nil
+		})
+	return inv, rr, assignmentID, fakeExec, agents, duties
 }
 
 func TestInvoker_Invoke(t *testing.T) {
-	inv, rr, assignmentID, fakeExec := invokerFixture(t)
+	inv, rr, assignmentID, fakeExec, agents, duties := invokerFixture(t)
 	eventID := "deadbeef-0000-0000-0000-000000000000"
 	run, err := inv.Invoke(context.Background(), assignmentID, "event-subscription",
 		&eventID, map[string]any{"mr_iid": "9"})
@@ -92,10 +122,13 @@ func TestInvoker_Invoke(t *testing.T) {
 	if len(rr.runs) != 1 {
 		t.Errorf("recorded runs = %d", len(rr.runs))
 	}
+	if agents.listCalls != 0 || duties.listCalls != 0 {
+		t.Fatalf("Invoker used List; agent calls=%d duty calls=%d", agents.listCalls, duties.listCalls)
+	}
 }
 
 func TestInvoker_UnknownAssignment(t *testing.T) {
-	inv, _, _, _ := invokerFixture(t)
+	inv, _, _, _, _, _ := invokerFixture(t)
 	_, err := inv.Invoke(context.Background(), uuid.New(), "cron", nil, map[string]any{})
 	if err == nil {
 		t.Fatal("expected error for unknown assignment")
