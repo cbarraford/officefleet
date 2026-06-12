@@ -46,6 +46,35 @@ func TestMemStore_HasProcessed(t *testing.T) {
 	}
 }
 
+func TestMemStore_ClaimProcessed(t *testing.T) {
+	ctx := context.Background()
+	s := state.NewMemStore()
+	claimed, err := s.ClaimProcessed(ctx, "a1", "sha-abc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !claimed {
+		t.Fatal("first claim should win")
+	}
+	claimed, err = s.ClaimProcessed(ctx, "a1", "sha-abc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed {
+		t.Fatal("second claim should lose")
+	}
+	if err := s.DeleteProcessed(ctx, "a1", "sha-abc"); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err = s.ClaimProcessed(ctx, "a1", "sha-abc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !claimed {
+		t.Fatal("claim should be available again after DeleteProcessed")
+	}
+}
+
 func TestMemStore_TwoAssignmentsSameKey(t *testing.T) {
 	ctx := context.Background()
 	s := state.NewMemStore()

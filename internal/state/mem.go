@@ -78,6 +78,28 @@ func (m *MemStore) MarkProcessed(_ context.Context, assignmentID, dedupKey strin
 	return nil
 }
 
+func (m *MemStore) ClaimProcessed(_ context.Context, assignmentID, dedupKey string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.processed[assignmentID] == nil {
+		m.processed[assignmentID] = map[string]bool{}
+	}
+	if m.processed[assignmentID][dedupKey] {
+		return false, nil
+	}
+	m.processed[assignmentID][dedupKey] = true
+	return true, nil
+}
+
+func (m *MemStore) DeleteProcessed(_ context.Context, assignmentID, dedupKey string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.processed[assignmentID] != nil {
+		delete(m.processed[assignmentID], dedupKey)
+	}
+	return nil
+}
+
 // NoteCount returns the number of notes stored for the given assignmentID.
 // It is provided for testing purposes.
 func (m *MemStore) NoteCount(assignmentID string) int {

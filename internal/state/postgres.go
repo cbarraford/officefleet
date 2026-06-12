@@ -83,3 +83,19 @@ func (s *PostgresStore) MarkProcessed(ctx context.Context, assignmentID, dedupKe
 		assignmentID, dedupKey)
 	return err
 }
+
+func (s *PostgresStore) ClaimProcessed(ctx context.Context, assignmentID, dedupKey string) (bool, error) {
+	tag, err := s.db.Exec(ctx,
+		"INSERT INTO assignment_processed (assignment_id, dedup_key) VALUES ($1,$2) ON CONFLICT (assignment_id, dedup_key) DO NOTHING",
+		assignmentID, dedupKey)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+func (s *PostgresStore) DeleteProcessed(ctx context.Context, assignmentID, dedupKey string) error {
+	_, err := s.db.Exec(ctx, "DELETE FROM assignment_processed WHERE assignment_id=$1 AND dedup_key=$2",
+		assignmentID, dedupKey)
+	return err
+}

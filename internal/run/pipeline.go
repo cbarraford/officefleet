@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/cbarraford/office-fleet/internal/config"
@@ -76,6 +78,7 @@ const (
 	// SkipReasonDuplicateEvent marks redeliveries collapsed by per-assignment
 	// dedup (dogfood finding: a reason-less skipped run is unreadable in the UI).
 	SkipReasonDuplicateEvent = "duplicate_event"
+	SkipReasonModelSkip      = "model_skip"
 )
 
 // Execute runs the full pipeline for one assignment and records the result.
@@ -195,17 +198,17 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 	}
 	p.emitRunUpdate(run)
 
-	// Dedup: skip if this event has already been processed for this assignment.
-	// NOTE: Insert is intentionally called before this check so that every
-	// invocation is recorded in the database for audit purposes. Duplicate
-	// events are stored with RunStatusSkipped rather than being silently dropped.
+	// Dedup: atomically claim this event for this assignment before the expensive
+	// LLM run. Insert is intentionally called before this check so duplicates are
+	// still audited as skipped runs rather than silently dropped.
 	dedupKey := deriveDedupKey(req.EventParams)
+	dedupClaimed := false
 	if dedupKey != "" {
-		already, err := p.store.HasProcessed(ctx, req.Assignment.ID.String(), dedupKey)
+		claimed, err := p.store.ClaimProcessed(ctx, req.Assignment.ID.String(), dedupKey)
 		if err != nil {
-			return nil, fmt.Errorf("dedup check: %w", err)
+			return nil, fmt.Errorf("dedup claim: %w", err)
 		}
-		if already {
+		if !claimed {
 			reason := SkipReasonDuplicateEvent
 			_ = p.runRepo.UpdateStatus(ctx, run.ID, domain.RunStatusSkipped, &reason)
 			run.Status = domain.RunStatusSkipped
@@ -213,6 +216,13 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 			p.emitRunUpdate(run)
 			return run, nil
 		}
+		dedupClaimed = true
+	}
+	releaseDedupClaim := func() error {
+		if !dedupClaimed {
+			return nil
+		}
+		return p.store.DeleteProcessed(ctx, req.Assignment.ID.String(), dedupKey)
 	}
 
 	// Execute LLM.
@@ -242,6 +252,9 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 		finished := time.Now()
 		run.FinishedAt = &finished
 		p.emitRunUpdate(run)
+		if err := releaseDedupClaim(); err != nil {
+			return run, fmt.Errorf("release dedup claim: %w", err)
+		}
 		return run, fmt.Errorf("executor: %w", llmErr)
 	}
 
@@ -264,6 +277,29 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 		finished := time.Now()
 		run.FinishedAt = &finished
 		p.emitRunUpdate(run)
+		if err := releaseDedupClaim(); err != nil {
+			return run, fmt.Errorf("release dedup claim: %w", err)
+		}
+		return run, nil
+	}
+
+	if isSkipResult(llmResult) {
+		reason := SkipReasonModelSkip
+		if err := p.runRepo.UpdateResult(ctx, run.ID, &llmResult, nil, domain.RunStatusSkipped); err != nil {
+			return nil, fmt.Errorf("record run result: %w", err)
+		}
+		_ = p.runRepo.UpdateStatus(ctx, run.ID, domain.RunStatusSkipped, &reason)
+		run.LLMResult = &llmResult
+		run.Tokens = llmResult.Tokens
+		run.Cost = llmResult.Cost
+		run.Status = domain.RunStatusSkipped
+		run.Error = &reason
+		finished := time.Now()
+		run.FinishedAt = &finished
+		p.emitRunUpdate(run)
+		if err := releaseDedupClaim(); err != nil {
+			return run, fmt.Errorf("release dedup claim: %w", err)
+		}
 		return run, nil
 	}
 
@@ -278,11 +314,23 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 			break
 		}
 	}
+	if status == domain.RunStatusSucceeded {
+		if reviewedSHA := extractReviewedSHA(llmResult); reviewedSHA != "" {
+			if err := p.store.Set(ctx, req.Assignment.ID.String(), "last_reviewed_sha", []byte(reviewedSHA)); err != nil {
+				if releaseErr := releaseDedupClaim(); releaseErr != nil {
+					return nil, fmt.Errorf("release dedup claim after state write failure: %w", releaseErr)
+				}
+				return nil, fmt.Errorf("record reviewed sha: %w", err)
+			}
+		}
+	}
 	if err := p.runRepo.UpdateResult(ctx, run.ID, &llmResult, deliveries, status); err != nil {
 		return nil, fmt.Errorf("record run result: %w", err)
 	}
-	if dedupKey != "" {
-		_ = p.store.MarkProcessed(ctx, req.Assignment.ID.String(), dedupKey)
+	if status != domain.RunStatusSucceeded {
+		if err := releaseDedupClaim(); err != nil {
+			return nil, fmt.Errorf("release dedup claim: %w", err)
+		}
 	}
 
 	run.LLMResult = &llmResult
@@ -313,19 +361,84 @@ func findAssignmentConfig(cfg *config.Config, a *domain.Assignment, agentName, d
 	return ac
 }
 
+var reviewedSHARe = regexp.MustCompile(`(?m)\bREVIEWED_SHA=([A-Za-z0-9._/-]+)\b`)
+
 // deriveDedupKey extracts a deduplication key from event params. An explicit
 // dedup_key (set by the event envelope) takes precedence over inferred keys:
 // a re-pushed MR carries a NEW dedup_key but the SAME mr_iid, and must not be
-// collapsed onto the mr_iid-derived key.
+// collapsed onto an mr_iid-only key. MR dedup is only safe when a commit SHA is
+// present; otherwise retries must run rather than skip a changed MR forever.
 func deriveDedupKey(params map[string]any) string {
-	if v, ok := params["dedup_key"]; ok {
-		return fmt.Sprintf("dedup_key:%v", v)
+	if v := paramString(params, "dedup_key"); v != "" {
+		return fmt.Sprintf("dedup_key:%s", v)
 	}
-	if v, ok := params["mr_iid"]; ok {
-		return fmt.Sprintf("mr_iid:%v", v)
+	if mr := paramString(params, "mr_iid"); mr != "" {
+		if sha := firstParamString(params, "last_commit_sha", "commit_sha", "head_sha"); sha != "" {
+			return fmt.Sprintf("mr_iid:%s:sha:%s", mr, sha)
+		}
+		return ""
 	}
-	if v, ok := params["commit_sha"]; ok {
-		return fmt.Sprintf("sha:%v", v)
+	if pr := paramString(params, "pr_number"); pr != "" {
+		if sha := firstParamString(params, "head_sha", "commit_sha", "last_commit_sha"); sha != "" {
+			return fmt.Sprintf("pr_number:%s:sha:%s", pr, sha)
+		}
+		return ""
+	}
+	if sha := firstParamString(params, "commit_sha", "last_commit_sha", "head_sha"); sha != "" {
+		return fmt.Sprintf("sha:%s", sha)
+	}
+	return ""
+}
+
+func paramString(params map[string]any, key string) string {
+	if params == nil {
+		return ""
+	}
+	v, ok := params[key]
+	if !ok || v == nil {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprintf("%v", v))
+}
+
+func firstParamString(params map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if v := paramString(params, key); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func isSkipResult(result domain.LLMResult) bool {
+	if strings.EqualFold(strings.TrimSpace(result.Summary), "SKIP") {
+		return true
+	}
+	for _, key := range []string{"summary", "result", "raw"} {
+		if v, ok := result.Output[key].(string); ok && strings.EqualFold(strings.TrimSpace(v), "SKIP") {
+			return true
+		}
+	}
+	return false
+}
+
+func extractReviewedSHA(result domain.LLMResult) string {
+	for _, key := range []string{"reviewed_sha", "REVIEWED_SHA"} {
+		if v, ok := result.Output[key].(string); ok {
+			if trimmed := strings.TrimSpace(v); trimmed != "" {
+				return trimmed
+			}
+		}
+	}
+	for _, text := range []string{result.Summary, result.Transcript} {
+		if match := reviewedSHARe.FindStringSubmatch(text); len(match) == 2 {
+			return match[1]
+		}
+	}
+	if raw, ok := result.Output["raw"].(string); ok {
+		if match := reviewedSHARe.FindStringSubmatch(raw); len(match) == 2 {
+			return match[1]
+		}
 	}
 	return ""
 }
