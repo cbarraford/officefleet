@@ -23,6 +23,17 @@ func TestParseClaudeOutput_ValidJSON(t *testing.T) {
 	}
 }
 
+func TestParseClaudeOutput_TotalCostUSD(t *testing.T) {
+	input := []byte(`{"result":"task done","total_cost_usd":0.137,"cost_usd":0.042,"usage":{"output_tokens":123}}`)
+	res, err := parseClaudeOutput(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Cost != 0.137 {
+		t.Errorf("Cost = %v, want total_cost_usd 0.137", res.Cost)
+	}
+}
+
 func TestParseClaudeOutput_NonJSON(t *testing.T) {
 	input := []byte("just plain text")
 	res, err := parseClaudeOutput(input)
