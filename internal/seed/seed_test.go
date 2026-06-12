@@ -2,6 +2,7 @@ package seed
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/cbarraford/office-fleet/internal/config"
@@ -33,10 +34,17 @@ func (f *fakeDutySeeder) List(_ context.Context) ([]*domain.Duty, error) { retur
 type fakeAssignmentSeeder struct {
 	existing []*domain.Assignment
 	upserts  int
+	rows     map[string]*domain.Assignment
 }
 
-func (f *fakeAssignmentSeeder) UpsertByAgentAndDuty(_ context.Context, a *domain.Assignment) error {
+func (f *fakeAssignmentSeeder) UpsertByAgentDutyAndName(_ context.Context, a *domain.Assignment) error {
 	f.upserts++
+	if f.rows == nil {
+		f.rows = map[string]*domain.Assignment{}
+	}
+	key := fmt.Sprintf("%s/%s/%s", a.AgentID, a.DutyID, a.Name)
+	cp := *a
+	f.rows[key] = &cp
 	return nil
 }
 func (f *fakeAssignmentSeeder) List(_ context.Context) ([]*domain.Assignment, error) {
@@ -80,5 +88,28 @@ func TestSeed_ForceOverwrites(t *testing.T) {
 	}
 	if ag.upserts != 1 {
 		t.Errorf("force must seed; agent upserts = %d", ag.upserts)
+	}
+}
+
+func TestSeed_AssignmentNamesPreserveSameAgentDutyVariants(t *testing.T) {
+	cfg := seedCfg()
+	cfg.Duties[0].TriggerKinds = []string{"manual", "cron"}
+	cfg.Assignments = []config.AssignmentConfig{
+		{Name: "manual-review", Agent: "a1", Duty: "d1", Trigger: domain.TriggerConfig{Kind: "manual"}},
+		{Name: "cron-review", Agent: "a1", Duty: "d1", Trigger: domain.TriggerConfig{Kind: "cron"}},
+	}
+	ag, du, as := &fakeAgentSeeder{}, &fakeDutySeeder{}, &fakeAssignmentSeeder{}
+	if err := FromConfig(context.Background(), cfg, ag, du, as, false); err != nil {
+		t.Fatal(err)
+	}
+	if len(as.rows) != 2 {
+		t.Fatalf("seeded assignments = %d, want 2 distinct same-agent-duty rows", len(as.rows))
+	}
+	seen := map[string]bool{}
+	for _, row := range as.rows {
+		seen[row.Name] = true
+	}
+	if !seen["manual-review"] || !seen["cron-review"] {
+		t.Fatalf("seeded assignment names = %v, want manual-review and cron-review", seen)
 	}
 }

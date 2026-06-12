@@ -808,6 +808,27 @@ func TestValidateForEach(t *testing.T) {
 	}
 }
 
+func TestValidate_AssignmentNameDisambiguatesAgentDuty(t *testing.T) {
+	base := func() *config.Config {
+		return &config.Config{
+			Backends: []config.Backend{{Name: "b", Kind: "claude", Auth: config.BackendAuth{Mode: "subscription"}}},
+			Agents:   []config.AgentConfig{{Name: "a", Enabled: true, DefaultBackend: domain.BackendRef{Name: "b"}}},
+			Duties:   []config.DutyConfig{{Name: "d", TriggerKinds: []string{"manual", "cron"}}},
+			Assignments: []config.AssignmentConfig{
+				{Name: "manual-review", Agent: "a", Duty: "d", Trigger: domain.TriggerConfig{Kind: "manual"}},
+				{Name: "cron-review", Agent: "a", Duty: "d", Trigger: domain.TriggerConfig{Kind: "cron"}},
+			},
+		}
+	}
+	if errs := config.Validate(base()); len(errs) != 0 {
+		t.Fatalf("same agent+duty with different assignment names must validate: %v", errs)
+	}
+
+	cfg := base()
+	cfg.Assignments[1].Name = "manual-review"
+	errorsContain(t, config.Validate(cfg), "duplicate assignment")
+}
+
 func TestValidate_ServeBlock(t *testing.T) {
 	cfg := eventSubConfig()
 	cfg.Serve = config.ServeConfig{Workers: -1}
