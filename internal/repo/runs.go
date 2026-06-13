@@ -4,13 +4,22 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/cbarraford/office-fleet/internal/domain"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type RunRepo struct{ db *pgxpool.Pool }
+type runDB interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+type RunRepo struct{ db runDB }
 
 func NewRunRepo(db *pgxpool.Pool) *RunRepo { return &RunRepo{db: db} }
 
@@ -31,6 +40,16 @@ func (r *RunRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status domain.
 		"UPDATE runs SET status=$1, error=$2, finished_at=NOW() WHERE id=$3",
 		status, errMsg, id)
 	return err
+}
+
+func (r *RunRepo) ReconcileStaleRunning(ctx context.Context, cutoff time.Time, reason string) (int64, error) {
+	tag, err := r.db.Exec(ctx,
+		"UPDATE runs SET status=$1, error=$2, finished_at=NOW() WHERE status=$3 AND started_at < $4",
+		domain.RunStatusFailed, reason, domain.RunStatusRunning, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("reconcile stale running runs: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }
 
 func (r *RunRepo) UpdateResult(ctx context.Context, id uuid.UUID, result *domain.LLMResult, outputs []domain.OutputDelivery, status domain.RunStatus) error {
