@@ -102,3 +102,37 @@ func TestScheduler_FiresDueAssignments(t *testing.T) {
 		t.Fatal("scheduler did not fire within timeout")
 	}
 }
+
+func TestScheduler_ShutdownReturnsAfterGraceWhenFireDoesNotExit(t *testing.T) {
+	sched := trigger.NewScheduler()
+	sched.SetShutdownGrace(20 * time.Millisecond)
+	c := trigger.NewCron("* * * * *")
+	past := time.Now().Add(-2 * time.Minute)
+	if err := sched.Add("assignment-1", c, past); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	started := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		sched.Run(ctx, func(_ context.Context, _ string) {
+			close(started)
+			select {}
+		})
+		close(done)
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("scheduler did not start due fire")
+	}
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("scheduler did not stop after shutdown grace elapsed")
+	}
+}

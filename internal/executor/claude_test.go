@@ -1,9 +1,12 @@
 package executor
 
 import (
+	"context"
 	"encoding/json"
+	"os/exec"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseClaudeOutput_ValidJSON(t *testing.T) {
@@ -183,5 +186,20 @@ func TestParseClaudeOutputJSONWithoutSummaryKeepsTextSummary(t *testing.T) {
 	}
 	if _, ok := got.Output["comments"]; !ok {
 		t.Error("parsed object must still land in Output")
+	}
+}
+
+func TestConfigureClaudeCommandReapsProcessGroup(t *testing.T) {
+	cmd := exec.CommandContext(context.Background(), "claude", "--print")
+	configureClaudeCommand(cmd)
+
+	if cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setpgid {
+		t.Fatalf("claude command must start a new process group for cancellation")
+	}
+	if cmd.Cancel == nil {
+		t.Fatalf("claude command must install process-group cancellation")
+	}
+	if cmd.WaitDelay != 5*time.Second {
+		t.Fatalf("WaitDelay = %v, want 5s", cmd.WaitDelay)
 	}
 }

@@ -741,7 +741,9 @@ func scheduleCmd() *cobra.Command {
 		Use:   "schedule",
 		Short: "Run the cron scheduler daemon (deprecated: use fleet serve)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := context.Background()
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+
 			cfg, err := loadValidatedConfig()
 			if err != nil {
 				return fmt.Errorf("load config: %w", err)
@@ -766,6 +768,40 @@ func scheduleCmd() *cobra.Command {
 	}
 }
 
+const (
+	schedulerOrphanedRunAge   = 15 * time.Minute
+	schedulerShutdownGrace    = 30 * time.Second
+	schedulerReconcileTimeout = 10 * time.Second
+	schedulerRestartError     = "orphaned by restart"
+	schedulerInterruptedError = "interrupted by shutdown"
+)
+
+type schedulerRunReconciler interface {
+	ReconcileStaleRunning(ctx context.Context, cutoff time.Time, reason string) (int64, error)
+}
+
+func reconcileSchedulerStartupRuns(ctx context.Context, runs schedulerRunReconciler, now time.Time) error {
+	n, err := runs.ReconcileStaleRunning(ctx, now.Add(-schedulerOrphanedRunAge), schedulerRestartError)
+	if err != nil {
+		return fmt.Errorf("reconcile orphaned runs: %w", err)
+	}
+	if n > 0 {
+		fmt.Printf("scheduler: marked %d orphaned running run(s) failed\n", n)
+	}
+	return nil
+}
+
+func reconcileSchedulerShutdownRuns(ctx context.Context, runs schedulerRunReconciler, shutdownStarted time.Time) error {
+	n, err := runs.ReconcileStaleRunning(ctx, shutdownStarted, schedulerInterruptedError)
+	if err != nil {
+		return fmt.Errorf("reconcile interrupted runs: %w", err)
+	}
+	if n > 0 {
+		fmt.Printf("scheduler: marked %d interrupted running run(s) failed\n", n)
+	}
+	return nil
+}
+
 // buildInvoker wires the shared assignment-execution path.
 // It returns both the Invoker and the underlying Pipeline so callers that need
 // to attach lifecycle hooks (e.g. serveCmd) can call SetRunUpdateHook.
@@ -778,11 +814,17 @@ func buildInvoker(cfg *config.Config, pool *pgxpool.Pool, cipher *secrets.Cipher
 
 // runSchedulerLoop blocks running cron-triggered assignments until ctx is done.
 func runSchedulerLoop(ctx context.Context, pool *pgxpool.Pool, inv *run.Invoker) error {
+	runRepo := repo.NewRunRepo(pool)
+	if err := reconcileSchedulerStartupRuns(ctx, runRepo, time.Now()); err != nil {
+		return err
+	}
+
 	assignments, err := repo.NewAssignmentRepo(pool).List(ctx)
 	if err != nil {
 		return fmt.Errorf("list assignments: %w", err)
 	}
 	sched := trigger.NewScheduler()
+	sched.SetShutdownGrace(schedulerShutdownGrace)
 	for _, a := range assignments {
 		if !a.Enabled || a.Trigger.Kind != "cron" {
 			continue
@@ -812,6 +854,13 @@ func runSchedulerLoop(ctx context.Context, pool *pgxpool.Pool, inv *run.Invoker)
 			fmt.Printf("scheduler: assignment %s completed with status %s\n", assignmentID, result.Status)
 		}
 	})
+	if ctx.Err() != nil {
+		reconcileCtx, cancel := context.WithTimeout(context.Background(), schedulerReconcileTimeout)
+		defer cancel()
+		if err := reconcileSchedulerShutdownRuns(reconcileCtx, runRepo, time.Now()); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

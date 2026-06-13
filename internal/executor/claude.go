@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"regexp"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/cbarraford/office-fleet/internal/domain"
 )
@@ -49,6 +52,7 @@ func (c *ClaudeExecutor) Run(ctx context.Context, req LLMRequest) (domain.LLMRes
 
 	combinedPrompt := buildClaudePrompt(req)
 	cmd := exec.CommandContext(ctx, "claude", args...)
+	configureClaudeCommand(cmd)
 	if req.Workspace != "" {
 		cmd.Dir = req.Workspace
 	}
@@ -71,6 +75,20 @@ func (c *ClaudeExecutor) Run(ctx context.Context, req LLMRequest) (domain.LLMRes
 	}
 
 	return parseClaudeOutput(stdout.Bytes())
+}
+
+func configureClaudeCommand(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return nil
+		}
+		if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+			return err
+		}
+		return nil
+	}
+	cmd.WaitDelay = 5 * time.Second
 }
 
 func buildClaudePrompt(req LLMRequest) string {

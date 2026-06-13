@@ -2,6 +2,7 @@ package trigger
 
 import (
 	"context"
+	"sync"
 	"time"
 )
 
@@ -57,7 +58,8 @@ func (c *CronTrigger) Next(t time.Time) (time.Time, error) {
 
 // Scheduler runs the cron trigger loop, calling fire for each due assignment.
 type Scheduler struct {
-	entries []schedEntry
+	entries       []schedEntry
+	shutdownGrace time.Duration
 }
 
 type schedEntry struct {
@@ -66,7 +68,13 @@ type schedEntry struct {
 	next         time.Time
 }
 
-func NewScheduler() *Scheduler { return &Scheduler{} }
+func NewScheduler() *Scheduler {
+	return &Scheduler{shutdownGrace: 30 * time.Second}
+}
+
+func (s *Scheduler) SetShutdownGrace(d time.Duration) {
+	s.shutdownGrace = d
+}
 
 func (s *Scheduler) Add(assignmentID string, t *CronTrigger, from time.Time) error {
 	next, err := t.Next(from)
@@ -79,6 +87,25 @@ func (s *Scheduler) Add(assignmentID string, t *CronTrigger, from time.Time) err
 
 // Run blocks and calls fire whenever an assignment is due. Stops when ctx is done.
 func (s *Scheduler) Run(ctx context.Context, fire func(ctx context.Context, assignmentID string)) {
+	var wg sync.WaitGroup
+	defer func() {
+		done := make(chan struct{})
+		go func() {
+			wg.Wait()
+			close(done)
+		}()
+		if s.shutdownGrace <= 0 {
+			<-done
+			return
+		}
+		timer := time.NewTimer(s.shutdownGrace)
+		defer timer.Stop()
+		select {
+		case <-done:
+		case <-timer.C:
+		}
+	}()
+
 	for {
 		now := time.Now()
 		var due []schedEntry
@@ -93,7 +120,12 @@ func (s *Scheduler) Run(ctx context.Context, fire func(ctx context.Context, assi
 		s.entries = remaining
 
 		for _, e := range due {
-			fire(ctx, e.AssignmentID)
+			assignmentID := e.AssignmentID
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				fire(ctx, assignmentID)
+			}()
 			next, err := e.trigger.Next(time.Now())
 			if err == nil {
 				e.next = next
