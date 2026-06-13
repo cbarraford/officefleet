@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -49,6 +50,52 @@ var (
 	flagConfig string
 	flagDB     string
 )
+
+func newDaemonLogger(w io.Writer) *slog.Logger {
+	return slog.New(slog.NewJSONHandler(w, &slog.HandlerOptions{Level: slog.LevelInfo}))
+}
+
+func newInteractiveLogger(w io.Writer) *slog.Logger {
+	return slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: slog.LevelInfo}))
+}
+
+func logRunCompletion(logger *slog.Logger, result *domain.Run, runErr error) {
+	if logger == nil {
+		return
+	}
+	attrs := []any{}
+	if result != nil {
+		attrs = append(attrs,
+			"run_id", result.ID.String(),
+			"assignment_id", result.AssignmentID.String(),
+			"agent", result.AgentID.String(),
+			"duty", result.DutyID.String(),
+			"trigger_kind", result.TriggerKind,
+			"status", string(result.Status),
+			"cost", result.Cost,
+		)
+		if !result.StartedAt.IsZero() {
+			finished := time.Now()
+			if result.FinishedAt != nil {
+				finished = *result.FinishedAt
+			}
+			attrs = append(attrs, "duration", finished.Sub(result.StartedAt))
+		}
+		if result.Error != nil && runErr == nil {
+			attrs = append(attrs, "error", *result.Error)
+		}
+	}
+	if runErr != nil {
+		attrs = append(attrs, "error", runErr.Error())
+		logger.Error("run failed", attrs...)
+		return
+	}
+	if result != nil && result.Status == domain.RunStatusFailed {
+		logger.Error("run completed", attrs...)
+		return
+	}
+	logger.Info("run completed", attrs...)
+}
 
 func main() {
 	root := &cobra.Command{
@@ -190,7 +237,7 @@ func (d *dbSecretsProvider) Load(ctx context.Context) (map[string]string, error)
 }
 
 // initPlugins initialises all registered plugins using config and DB secrets.
-func initPlugins(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, cipher *secrets.Cipher) {
+func initPlugins(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, cipher *secrets.Cipher) error {
 	secretLookup := buildSecretLookup(ctx, pool, cipher)
 	for _, p := range plugin.All() {
 		var pluginCfg map[string]any
@@ -204,9 +251,10 @@ func initPlugins(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, ci
 			pluginCfg = map[string]any{}
 		}
 		if err := p.Init(ctx, pluginCfg, secretLookup); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: plugin %q init failed: %v\n", p.Name(), err)
+			return fmt.Errorf("plugin %q init: %w", p.Name(), err)
 		}
 	}
+	return nil
 }
 
 // migrateCmd runs DB migrations.
@@ -648,7 +696,9 @@ func runCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			initPlugins(ctx, cfg, pool, cipher)
+			if err := initPlugins(ctx, cfg, pool, cipher); err != nil {
+				return err
+			}
 
 			// Resolve executor.
 			var exec executor.Executor
@@ -741,86 +791,7 @@ func scheduleCmd() *cobra.Command {
 		Use:   "schedule",
 		Short: "Run the cron scheduler daemon (deprecated: use fleet serve)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := context.Background()
-			cfg, err := loadValidatedConfig()
-			if err != nil {
-				return fmt.Errorf("load config: %w", err)
-			}
-			dsn := resolveDSN(cfg)
-			if dsn == "" {
-				return fmt.Errorf("no database DSN configured")
-			}
-			pool, err := db.New(ctx, dsn)
-			if err != nil {
-				return fmt.Errorf("open db: %w", err)
-			}
-			defer pool.Close()
-			cipher, err := loadCipher()
-			if err != nil {
-				return err
-			}
-			initPlugins(ctx, cfg, pool, cipher)
-			inv, _ := buildInvoker(cfg, pool, cipher)
-			return runSchedulerLoop(ctx, pool, inv)
-		},
-	}
-}
-
-// buildInvoker wires the shared assignment-execution path.
-// It returns both the Invoker and the underlying Pipeline so callers that need
-// to attach lifecycle hooks (e.g. serveCmd) can call SetRunUpdateHook.
-func buildInvoker(cfg *config.Config, pool *pgxpool.Pool, cipher *secrets.Cipher) (*run.Invoker, *run.Pipeline) {
-	pipeline := run.NewPipeline(cfg, repo.NewRunRepo(pool), state.NewPostgresStore(pool), &dbSecretsProvider{pool: pool, cipher: cipher})
-	inv := run.NewInvoker(cfg, pipeline,
-		repo.NewAssignmentRepo(pool), repo.NewAgentRepo(pool), repo.NewDutyRepo(pool))
-	return inv, pipeline
-}
-
-// runSchedulerLoop blocks running cron-triggered assignments until ctx is done.
-func runSchedulerLoop(ctx context.Context, pool *pgxpool.Pool, inv *run.Invoker) error {
-	assignments, err := repo.NewAssignmentRepo(pool).List(ctx)
-	if err != nil {
-		return fmt.Errorf("list assignments: %w", err)
-	}
-	sched := trigger.NewScheduler()
-	for _, a := range assignments {
-		if !a.Enabled || a.Trigger.Kind != "cron" {
-			continue
-		}
-		t := trigger.NewCron(a.Trigger.Schedule)
-		if err := sched.Add(a.ID.String(), t, time.Now()); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: skipping assignment %s: bad cron schedule: %v\n", a.ID, err)
-			continue
-		}
-		fmt.Printf("scheduled assignment %s (schedule: %s)\n", a.ID, a.Trigger.Schedule)
-	}
-	fmt.Println("scheduler running...")
-	sched.Run(ctx, func(runCtx context.Context, assignmentID string) {
-		id, err := uuid.Parse(assignmentID)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "scheduler: invalid assignment id %s: %v\n", assignmentID, err)
-			return
-		}
-		result, err := inv.Invoke(runCtx, id, "cron", nil, map[string]any{})
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "scheduler: execute assignment %s: %v\n", assignmentID, err)
-			return
-		}
-		if result.Error != nil {
-			fmt.Printf("scheduler: assignment %s completed with status %s (error: %s)\n", assignmentID, result.Status, *result.Error)
-		} else {
-			fmt.Printf("scheduler: assignment %s completed with status %s\n", assignmentID, result.Status)
-		}
-	})
-	return nil
-}
-
-// serveCmd returns the "serve" daemon: webhooks, polling, dispatcher, cron.
-func serveCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "serve",
-		Short: "Run the OfficeFleet daemon (webhooks, polling, event dispatch, cron)",
-		RunE: func(cmd *cobra.Command, args []string) error {
+			logger := newDaemonLogger(os.Stdout)
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
@@ -841,7 +812,108 @@ func serveCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			initPlugins(ctx, cfg, pool, cipher)
+			if err := initPlugins(ctx, cfg, pool, cipher); err != nil {
+				return err
+			}
+			inv, _ := buildInvoker(cfg, pool, cipher)
+			return runSchedulerLoop(ctx, pool, inv, logger)
+		},
+	}
+}
+
+// buildInvoker wires the shared assignment-execution path.
+// It returns both the Invoker and the underlying Pipeline so callers that need
+// to attach lifecycle hooks (e.g. serveCmd) can call SetRunUpdateHook.
+func buildInvoker(cfg *config.Config, pool *pgxpool.Pool, cipher *secrets.Cipher) (*run.Invoker, *run.Pipeline) {
+	pipeline := run.NewPipeline(cfg, repo.NewRunRepo(pool), state.NewPostgresStore(pool), &dbSecretsProvider{pool: pool, cipher: cipher})
+	inv := run.NewInvoker(cfg, pipeline,
+		repo.NewAssignmentRepo(pool), repo.NewAgentRepo(pool), repo.NewDutyRepo(pool))
+	return inv, pipeline
+}
+
+// runSchedulerLoop blocks running cron-triggered assignments until ctx is done.
+func runSchedulerLoop(ctx context.Context, pool *pgxpool.Pool, inv *run.Invoker, logger *slog.Logger) error {
+	assignments, err := repo.NewAssignmentRepo(pool).List(ctx)
+	if err != nil {
+		return fmt.Errorf("list assignments: %w", err)
+	}
+	sched := trigger.NewScheduler()
+	for _, a := range assignments {
+		if !a.Enabled || a.Trigger.Kind != "cron" {
+			continue
+		}
+		t := trigger.NewCron(a.Trigger.Schedule)
+		if err := sched.Add(a.ID.String(), t, time.Now()); err != nil {
+			logger.Warn("skipping bad cron assignment", "assignment_id", a.ID.String(), "schedule", a.Trigger.Schedule, "error", err.Error())
+			continue
+		}
+		logger.Info("scheduled assignment", "assignment_id", a.ID.String(), "trigger_kind", "cron", "schedule", a.Trigger.Schedule)
+	}
+	logger.Info("scheduler running")
+	sched.Run(ctx, func(runCtx context.Context, assignmentID string) {
+		id, err := uuid.Parse(assignmentID)
+		if err != nil {
+			logger.Error("scheduler invalid assignment id", "assignment_id", assignmentID, "error", err.Error())
+			return
+		}
+		result, err := inv.Invoke(runCtx, id, "cron", nil, map[string]any{})
+		if err != nil {
+			logger.Error("scheduler execute assignment", "assignment_id", assignmentID, "trigger_kind", "cron", "error", err.Error())
+		}
+		logRunCompletion(logger, result, err)
+	})
+	return nil
+}
+
+func runHealthHeartbeat(ctx context.Context, health *server.Health, logger *slog.Logger, interval time.Duration) {
+	if interval <= 0 {
+		interval = 30 * time.Second
+	}
+	health.Beat()
+	logger.Info("daemon heartbeat", "last_tick", health.Snapshot()["last_tick"])
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			health.Beat()
+			logger.Info("daemon heartbeat", "last_tick", health.Snapshot()["last_tick"])
+		}
+	}
+}
+
+// serveCmd returns the "serve" daemon: webhooks, polling, dispatcher, cron.
+func serveCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "serve",
+		Short: "Run the OfficeFleet daemon (webhooks, polling, event dispatch, cron)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			logger := newDaemonLogger(os.Stdout)
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+
+			cfg, err := loadValidatedConfig()
+			if err != nil {
+				return fmt.Errorf("load config: %w", err)
+			}
+			dsn := resolveDSN(cfg)
+			if dsn == "" {
+				return fmt.Errorf("no database DSN configured")
+			}
+			pool, err := db.New(ctx, dsn)
+			if err != nil {
+				return fmt.Errorf("open db: %w", err)
+			}
+			defer pool.Close()
+			cipher, err := loadCipher()
+			if err != nil {
+				return err
+			}
+			if err := initPlugins(ctx, cfg, pool, cipher); err != nil {
+				return err
+			}
 
 			// Warn about unencrypted secrets at startup.
 			if allSecrets, listErr := repo.NewSecretRepo(pool).List(ctx); listErr == nil {
@@ -853,15 +925,14 @@ func serveCmd() *cobra.Command {
 				}
 				if len(unenc) > 0 {
 					if cipher == nil {
-						fmt.Fprintf(os.Stderr, "warning: %s is not set; %d secret(s) are stored as plaintext: %s\n",
-							secrets.MasterKeyEnv, len(unenc), strings.Join(unenc, ", "))
+						logger.Warn("plaintext secrets detected",
+							"master_key_env", secrets.MasterKeyEnv, "count", len(unenc), "secrets", strings.Join(unenc, ", "))
 					} else {
-						fmt.Fprintf(os.Stderr, "warning: %d secret(s) are stored as plaintext (run 'fleet secrets encrypt-existing' to migrate): %s\n",
-							len(unenc), strings.Join(unenc, ", "))
+						logger.Warn("plaintext secrets detected", "count", len(unenc), "secrets", strings.Join(unenc, ", "))
 					}
 				}
 			} else {
-				fmt.Fprintf(os.Stderr, "warning: could not check secret encryption status: %v\n", listErr)
+				logger.Warn("could not check secret encryption status", "error", listErr.Error())
 			}
 
 			inv, pipeline := buildInvoker(cfg, pool, cipher)
@@ -899,9 +970,11 @@ func serveCmd() *cobra.Command {
 					return fmt.Errorf("avatar_prompt: %w", perr) // unreachable: validated at load
 				}
 				avatarGen = avatar.NewOpenAIImageGenerator(ib.BaseURI, ib.Model, ib.Auth.APIKey, ib.Size, promptTmpl)
-				fmt.Printf("avatar generation via image backend %q\n", ib.Name)
+				logger.Info("avatar generation configured", "backend", ib.Name)
 			}
 			avatarSvc := avatar.NewService(avatarGen, avatarStore, repo.NewAgentRepo(pool), nil)
+			health := server.NewHealth()
+			go runHealthHeartbeat(ctx, health, logger, 30*time.Second)
 
 			addr := cfg.Serve.Addr
 			if addr == "" {
@@ -912,7 +985,7 @@ func serveCmd() *cobra.Command {
 				rescan, _ = time.ParseDuration(cfg.Serve.RescanInterval) // validated at load
 			}
 
-			dispatcher := events.NewDispatcher(eventRepo, repo.NewAssignmentRepo(pool), inv, cfg.Serve.Workers, rescan)
+			dispatcher := events.NewDispatcher(eventRepo, repo.NewAssignmentRepo(pool), inv, cfg.Serve.Workers, rescan).WithLogger(logger)
 			ingestor := events.NewIngestor(eventRepo, dispatcher.Notify)
 			go dispatcher.Run(ctx)
 
@@ -923,9 +996,11 @@ func serveCmd() *cobra.Command {
 					continue
 				}
 				interval := pollInterval(cfg, p.Name())
-				fmt.Printf("polling %s every %s\n", p.Name(), interval)
+				logger.Info("polling plugin", "plugin", p.Name(), "interval", interval.String())
 				go events.RunPoller(ctx, p.Name(), src, interval, cursorRepo, ingestor.Ingest,
-					func(format string, args ...any) { fmt.Fprintf(os.Stderr, format+"\n", args...) })
+					func(format string, args ...any) {
+						logger.Warn("poller", "plugin", p.Name(), "message", fmt.Sprintf(format, args...))
+					})
 			}
 
 			// Wire the REST API. Use a typed-nil-safe pattern for the Encryptor:
@@ -951,29 +1026,29 @@ func serveCmd() *cobra.Command {
 				Notify:        dispatcher.Notify,
 				Config:        cfg,
 				SecureCookies: cfg.Serve.SecureCookies,
-			})
+			}).WithLogger(logger)
 			pipeline.SetRunUpdateHook(apiSrv.RunUpdateSink())
 
-			httpSrv := &http.Server{Addr: addr, Handler: server.New(ingestor).Handler(
+			httpSrv := &http.Server{Addr: addr, Handler: server.New(ingestor).WithHealth(health).WithLogger(logger).Handler(
 				apiSrv.Mount,
 				func(mux *http.ServeMux) { avatar.MountHTTP(mux, avatarsDir) },
 				web.Mount,
 			)}
 			go func() {
-				fmt.Printf("webhook listener on %s\n", addr)
+				logger.Info("webhook listener started", "addr", addr)
 				if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-					fmt.Fprintf(os.Stderr, "serve: http: %v\n", err)
+					logger.Error("http server failed", "error", err.Error())
 				}
 			}()
 
 			go func() {
-				if err := runSchedulerLoop(ctx, pool, inv); err != nil {
-					fmt.Fprintf(os.Stderr, "serve: scheduler: %v\n", err)
+				if err := runSchedulerLoop(ctx, pool, inv, logger); err != nil {
+					logger.Error("scheduler failed", "error", err.Error())
 				}
 			}()
 
 			<-ctx.Done()
-			fmt.Println("shutting down...")
+			logger.Info("shutting down")
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			_ = httpSrv.Shutdown(shutdownCtx)

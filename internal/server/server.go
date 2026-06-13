@@ -7,8 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
+	"sync"
+	"time"
 
 	"github.com/cbarraford/office-fleet/internal/domain"
 	"github.com/cbarraford/office-fleet/internal/plugin"
@@ -21,13 +24,61 @@ type Ingestor interface {
 
 type Server struct {
 	ingestor Ingestor
+	health   *Health
 	logf     func(format string, args ...any)
 }
 
 func New(ingestor Ingestor) *Server {
 	return &Server{
 		ingestor: ingestor,
+		health:   NewHealth(),
 		logf:     func(format string, args ...any) { fmt.Fprintf(os.Stderr, format+"\n", args...) },
+	}
+}
+
+func (s *Server) WithHealth(health *Health) *Server {
+	if health != nil {
+		s.health = health
+	}
+	return s
+}
+
+func (s *Server) WithLogger(logger *slog.Logger) *Server {
+	if logger != nil {
+		s.logf = func(format string, args ...any) {
+			logger.Error("server error", "message", fmt.Sprintf(format, args...))
+		}
+	}
+	return s
+}
+
+type Health struct {
+	mu       sync.RWMutex
+	lastTick time.Time
+}
+
+func NewHealth() *Health {
+	h := &Health{}
+	h.Beat()
+	return h
+}
+
+func (h *Health) Beat() {
+	h.BeatAt(time.Now().UTC())
+}
+
+func (h *Health) BeatAt(t time.Time) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.lastTick = t.UTC()
+}
+
+func (h *Health) Snapshot() map[string]any {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return map[string]any{
+		"status":    "ok",
+		"last_tick": h.lastTick.Format(time.RFC3339Nano),
 	}
 }
 
@@ -36,7 +87,7 @@ func New(ingestor Ingestor) *Server {
 func (s *Server) Handler(mounts ...func(*http.ServeMux)) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte("ok"))
+		writeJSON(w, http.StatusOK, s.health.Snapshot())
 	})
 	mux.HandleFunc("POST /webhooks/{plugin}", s.handleWebhook)
 	for _, mount := range mounts {
