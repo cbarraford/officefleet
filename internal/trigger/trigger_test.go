@@ -102,3 +102,104 @@ func TestScheduler_FiresDueAssignments(t *testing.T) {
 		t.Fatal("scheduler did not fire within timeout")
 	}
 }
+
+func TestScheduler_DoesNotBlockOnSlowFire(t *testing.T) {
+	sched := trigger.NewScheduler()
+	c := trigger.NewCron("* * * * *")
+	past := time.Now().Add(-2 * time.Minute)
+	if err := sched.Add("slow", c, past); err != nil {
+		t.Fatal(err)
+	}
+	if err := sched.Add("fast", c, past); err != nil {
+		t.Fatal(err)
+	}
+
+	releaseSlow := make(chan struct{})
+	fastFired := make(chan struct{}, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	go sched.Run(ctx, func(_ context.Context, id string) {
+		if id == "slow" {
+			<-releaseSlow
+			return
+		}
+		if id == "fast" {
+			fastFired <- struct{}{}
+		}
+	})
+	defer close(releaseSlow)
+
+	select {
+	case <-fastFired:
+	case <-ctx.Done():
+		t.Fatal("fast assignment did not fire while slow assignment was blocked")
+	}
+}
+
+func TestScheduler_RecoversPanics(t *testing.T) {
+	sched := trigger.NewScheduler()
+	c := trigger.NewCron("* * * * *")
+	past := time.Now().Add(-2 * time.Minute)
+	if err := sched.Add("panic", c, past); err != nil {
+		t.Fatal(err)
+	}
+	if err := sched.Add("ok", c, past); err != nil {
+		t.Fatal(err)
+	}
+
+	okFired := make(chan struct{}, 1)
+	panicSeen := make(chan any, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	go func() {
+		defer func() { panicSeen <- recover() }()
+		sched.Run(ctx, func(_ context.Context, id string) {
+			if id == "panic" {
+				panic("boom")
+			}
+			if id == "ok" {
+				okFired <- struct{}{}
+			}
+		})
+	}()
+
+	select {
+	case p := <-panicSeen:
+		if p != nil {
+			t.Fatalf("scheduler let panic escape: %v", p)
+		}
+	case <-okFired:
+	case <-ctx.Done():
+		t.Fatal("scheduler did not continue after panicking assignment")
+	}
+}
+
+func TestScheduler_RunTimeoutContext(t *testing.T) {
+	sched := trigger.NewScheduler()
+	sched.SetRunTimeout(50 * time.Millisecond)
+	c := trigger.NewCron("* * * * *")
+	if err := sched.Add("assignment-1", c, time.Now().Add(-2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+
+	deadlineSeen := make(chan time.Duration, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	go sched.Run(ctx, func(runCtx context.Context, _ string) {
+		deadline, ok := runCtx.Deadline()
+		if !ok {
+			deadlineSeen <- 0
+			return
+		}
+		deadlineSeen <- time.Until(deadline)
+	})
+
+	select {
+	case remaining := <-deadlineSeen:
+		if remaining <= 0 || remaining > 100*time.Millisecond {
+			t.Fatalf("run timeout deadline = %s, want about 50ms", remaining)
+		}
+	case <-ctx.Done():
+		t.Fatal("scheduler did not fire")
+	}
+}

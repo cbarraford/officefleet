@@ -2,6 +2,7 @@ package trigger
 
 import (
 	"context"
+	"sync"
 	"time"
 )
 
@@ -57,8 +58,17 @@ func (c *CronTrigger) Next(t time.Time) (time.Time, error) {
 
 // Scheduler runs the cron trigger loop, calling fire for each due assignment.
 type Scheduler struct {
-	entries []schedEntry
+	entries    []schedEntry
+	workers    int
+	runTimeout time.Duration
+	mu         sync.Mutex
+	inFlight   map[string]bool
 }
+
+const (
+	defaultSchedulerWorkers = 4
+	defaultRunTimeout       = 15 * time.Minute
+)
 
 type schedEntry struct {
 	AssignmentID string
@@ -66,7 +76,25 @@ type schedEntry struct {
 	next         time.Time
 }
 
-func NewScheduler() *Scheduler { return &Scheduler{} }
+func NewScheduler() *Scheduler {
+	return &Scheduler{
+		workers:    defaultSchedulerWorkers,
+		runTimeout: defaultRunTimeout,
+		inFlight:   map[string]bool{},
+	}
+}
+
+func (s *Scheduler) SetRunTimeout(timeout time.Duration) {
+	if timeout > 0 {
+		s.runTimeout = timeout
+	}
+}
+
+func (s *Scheduler) SetWorkers(workers int) {
+	if workers > 0 {
+		s.workers = workers
+	}
+}
 
 func (s *Scheduler) Add(assignmentID string, t *CronTrigger, from time.Time) error {
 	next, err := t.Next(from)
@@ -79,6 +107,11 @@ func (s *Scheduler) Add(assignmentID string, t *CronTrigger, from time.Time) err
 
 // Run blocks and calls fire whenever an assignment is due. Stops when ctx is done.
 func (s *Scheduler) Run(ctx context.Context, fire func(ctx context.Context, assignmentID string)) {
+	workers := s.workers
+	if workers <= 0 {
+		workers = defaultSchedulerWorkers
+	}
+	sem := make(chan struct{}, workers)
 	for {
 		now := time.Now()
 		var due []schedEntry
@@ -93,12 +126,12 @@ func (s *Scheduler) Run(ctx context.Context, fire func(ctx context.Context, assi
 		s.entries = remaining
 
 		for _, e := range due {
-			fire(ctx, e.AssignmentID)
-			next, err := e.trigger.Next(time.Now())
+			next, err := e.trigger.Next(e.next)
 			if err == nil {
 				e.next = next
 				s.entries = append(s.entries, e)
 			}
+			s.startRun(ctx, sem, fire, e.AssignmentID)
 		}
 
 		select {
@@ -107,4 +140,42 @@ func (s *Scheduler) Run(ctx context.Context, fire func(ctx context.Context, assi
 		case <-time.After(time.Second):
 		}
 	}
+}
+
+func (s *Scheduler) startRun(ctx context.Context, sem chan struct{}, fire func(ctx context.Context, assignmentID string), assignmentID string) bool {
+	s.mu.Lock()
+	if s.inFlight == nil {
+		s.inFlight = map[string]bool{}
+	}
+	if s.inFlight[assignmentID] {
+		s.mu.Unlock()
+		return false
+	}
+	select {
+	case sem <- struct{}{}:
+		s.inFlight[assignmentID] = true
+	default:
+		s.mu.Unlock()
+		return false
+	}
+	s.mu.Unlock()
+
+	go func() {
+		defer func() {
+			_ = recover()
+			<-sem
+			s.mu.Lock()
+			delete(s.inFlight, assignmentID)
+			s.mu.Unlock()
+		}()
+
+		runCtx := ctx
+		cancel := func() {}
+		if s.runTimeout > 0 {
+			runCtx, cancel = context.WithTimeout(ctx, s.runTimeout)
+		}
+		defer cancel()
+		fire(runCtx, assignmentID)
+	}()
+	return true
 }

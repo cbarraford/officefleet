@@ -12,10 +12,11 @@ import (
 )
 
 const (
-	busCapacity      = 256
-	defaultWorkers   = 4
-	defaultRescan    = 30 * time.Second
-	rescanBatchLimit = 100
+	busCapacity       = 256
+	defaultWorkers    = 4
+	defaultRescan     = 30 * time.Second
+	defaultRunTimeout = 15 * time.Minute
+	rescanBatchLimit  = 100
 )
 
 // AssignmentLister supplies the assignments to match against;
@@ -140,7 +141,14 @@ func (d *Dispatcher) dispatch(ctx context.Context, id uuid.UUID) {
 		go func(a *domain.Assignment) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			if _, err := d.invoker.Invoke(ctx, a.ID, "event-subscription", &eventIDStr, params); err != nil {
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					d.logf("dispatcher: event %s assignment %s panic: %v", ev.ID, a.ID, recovered)
+				}
+			}()
+			runCtx, cancel := context.WithTimeout(ctx, defaultRunTimeout)
+			defer cancel()
+			if _, err := d.invoker.Invoke(runCtx, a.ID, "event-subscription", &eventIDStr, params); err != nil {
 				d.logf("dispatcher: event %s assignment %s: %v", ev.ID, a.ID, err)
 			}
 		}(a)
