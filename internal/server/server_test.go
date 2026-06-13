@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cbarraford/office-fleet/internal/domain"
 	"github.com/cbarraford/office-fleet/internal/plugin"
@@ -63,6 +64,30 @@ func TestHealthz(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		t.Errorf("status = %d", resp.StatusCode)
+	}
+}
+
+func TestHealthzIncludesLastTick(t *testing.T) {
+	health := NewHealth()
+	lastTick := time.Date(2026, 6, 12, 10, 15, 0, 0, time.UTC)
+	health.BeatAt(lastTick)
+	srv := httptest.NewServer(New(&fakeIngestor{}).WithHealth(health).Handler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/healthz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var body map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode healthz: %v", err)
+	}
+	if body["status"] != "ok" {
+		t.Fatalf("status = %v, want ok", body["status"])
+	}
+	if body["last_tick"] != lastTick.Format(time.RFC3339Nano) {
+		t.Fatalf("last_tick = %v, want %s", body["last_tick"], lastTick.Format(time.RFC3339Nano))
 	}
 }
 

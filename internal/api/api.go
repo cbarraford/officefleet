@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"sync"
@@ -137,6 +138,15 @@ func New(d Deps) *API {
 		secureCookies: d.SecureCookies,
 		logf:          func(format string, args ...any) { fmt.Fprintf(os.Stderr, format+"\n", args...) },
 	}
+}
+
+func (a *API) WithLogger(logger *slog.Logger) *API {
+	if logger != nil {
+		a.logf = func(format string, args ...any) {
+			logger.Error("api error", "message", fmt.Sprintf(format, args...))
+		}
+	}
+	return a
 }
 
 // RunUpdateSink exposes the run-update sink for serve wiring (pipeline hook).

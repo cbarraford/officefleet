@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -29,6 +30,28 @@ import (
 type fakeRunStore struct {
 	mu   sync.Mutex
 	rows map[uuid.UUID]*domain.Run
+}
+
+func TestAPIWithLoggerWritesStructuredJSON(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, nil))
+	api := New(Deps{}).WithLogger(logger)
+
+	api.logf("api: list runs: %v", fmt.Errorf("db down"))
+
+	var got map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("api log is not JSON: %v\n%s", err, buf.String())
+	}
+	if got["level"] != "ERROR" {
+		t.Fatalf("level = %v, want ERROR", got["level"])
+	}
+	if got["msg"] != "api error" {
+		t.Fatalf("msg = %v, want api error", got["msg"])
+	}
+	if got["message"] != "api: list runs: db down" {
+		t.Fatalf("message = %v", got["message"])
+	}
 }
 
 func newFakeRunStore() *fakeRunStore {

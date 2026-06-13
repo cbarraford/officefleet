@@ -1,8 +1,11 @@
 package events
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -20,6 +23,28 @@ type fakeInvoker struct {
 	block   chan struct{} // when non-nil, Invoke waits for a receive
 	active  atomic.Int32
 	maxSeen atomic.Int32
+}
+
+func TestDispatcherWithLoggerWritesStructuredJSON(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, nil))
+	d := NewDispatcher(NewMemStore(), &fakeAssignments{}, &fakeInvoker{}, 1, time.Hour).WithLogger(logger)
+
+	d.logf("dispatcher: rescan: %v", fmt.Errorf("db down"))
+
+	var got map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("dispatcher log is not JSON: %v\n%s", err, buf.String())
+	}
+	if got["level"] != "WARN" {
+		t.Fatalf("level = %v, want WARN", got["level"])
+	}
+	if got["msg"] != "dispatcher" {
+		t.Fatalf("msg = %v, want dispatcher", got["msg"])
+	}
+	if got["message"] != "dispatcher: rescan: db down" {
+		t.Fatalf("message = %v", got["message"])
+	}
 }
 
 type invokeCall struct {

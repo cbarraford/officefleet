@@ -3,6 +3,7 @@ package events
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"sync"
 	"time"
@@ -58,6 +59,15 @@ func NewDispatcher(store EventStore, assignments AssignmentLister, invoker Invok
 		bus:  make(chan uuid.UUID, busCapacity),
 		logf: func(format string, args ...any) { fmt.Fprintf(os.Stderr, format+"\n", args...) },
 	}
+}
+
+func (d *Dispatcher) WithLogger(logger *slog.Logger) *Dispatcher {
+	if logger != nil {
+		d.logf = func(format string, args ...any) {
+			logger.Warn("dispatcher", "message", fmt.Sprintf(format, args...))
+		}
+	}
+	return d
 }
 
 // Notify wakes the dispatcher for a newly ingested event. Never blocks: if
