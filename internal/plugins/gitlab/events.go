@@ -251,7 +251,7 @@ func (g *GitLabPlugin) fetchUpdatedMRs(ctx context.Context, project, since strin
 		return nil, fmt.Errorf("gitlab: build poll request: %w", err)
 	}
 	req.Header.Set("PRIVATE-TOKEN", g.token)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := gitlabHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("gitlab: poll %s: %w", project, err)
 	}

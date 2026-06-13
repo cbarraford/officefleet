@@ -2,8 +2,10 @@ package executor
 
 import (
 	"encoding/json"
+	"os/exec"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseClaudeOutput_ValidJSON(t *testing.T) {
@@ -20,6 +22,20 @@ func TestParseClaudeOutput_ValidJSON(t *testing.T) {
 	}
 	if res.Tokens != 123 {
 		t.Errorf("Tokens = %d, want 123", res.Tokens)
+	}
+}
+
+func TestConfigureClaudeCommandReapsProcessGroup(t *testing.T) {
+	cmd := exec.Command("claude")
+	configureClaudeCommand(cmd)
+	if cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setpgid {
+		t.Fatalf("SysProcAttr = %+v, want Setpgid", cmd.SysProcAttr)
+	}
+	if cmd.WaitDelay <= 0 || cmd.WaitDelay > 10*time.Second {
+		t.Fatalf("WaitDelay = %s, want bounded positive delay", cmd.WaitDelay)
+	}
+	if cmd.Cancel == nil {
+		t.Fatal("Cancel is nil, want process-group killer")
 	}
 }
 
