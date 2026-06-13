@@ -83,21 +83,19 @@ func TestEventVertical_WebhookToRun(t *testing.T) {
 			Params: map[string]any{"body": "{{.Event.llm_summary}}", "mr": "{{.Event.mr_iid}}"},
 		}},
 	}
-	inv := &Invoker{
-		cfg: cfg, pipeline: pipeline,
-		assignments: &fakeAssignmentGetter{byID: map[uuid.UUID]*domain.Assignment{assignmentID: assignment}},
-		agents: &fakeAgentLister{agents: []*domain.Agent{{
+	inv := NewInvokerWithExecutorBuilder(cfg, pipeline,
+		&fakeAssignmentGetter{byID: map[uuid.UUID]*domain.Assignment{assignmentID: assignment}},
+		&fakeAgentGetter{byID: map[uuid.UUID]*domain.Agent{agentID: {
 			ID: agentID, Name: "sp3-agent", Role: "dev", SystemPrompt: "reviewer",
 			DefaultBackend: domain.BackendRef{Name: backendName}, Enabled: true,
 		}}},
-		duties: &fakeDutyLister{duties: []*domain.Duty{{
+		&fakeDutyGetter{byID: map[uuid.UUID]*domain.Duty{dutyID: {
 			ID: dutyID, Name: "sp3-duty", Role: "dev", Description: "d",
 			Prompt: "Review MR !{{.Event.mr_iid}} by {{.Event.author}}",
 		}}},
-		buildExecutor: func(_ *config.Config, _ *config.Backend) (executor.Executor, error) {
+		func(_ *config.Config, _ *config.Backend) (executor.Executor, error) {
 			return fakeExec, nil
-		},
-	}
+		})
 
 	// --- real eventing core over MemStore ---
 	store := events.NewMemStore()

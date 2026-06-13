@@ -67,6 +67,7 @@ type ExecuteRequest struct {
 	EventID     *string        // id of the triggering event, if any (event-subscription)
 	EventParams map[string]any // operator params for manual; event payload for event-subscription
 	Executor    executor.Executor
+	Backend     *config.Backend
 }
 
 // Skip reasons recorded on a Run when the pause gate prevents execution.
@@ -164,10 +165,12 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 		return nil, fmt.Errorf("compose prompts: %w", err)
 	}
 
-	// Resolve backend model/effort from config.
-	backend, _, err := config.ResolveBackend(p.cfg, findAssignmentConfig(p.cfg, req.Assignment, req.Agent.Name, req.Duty.Name))
-	if err != nil {
-		return nil, fmt.Errorf("resolve backend: %w", err)
+	backend := req.Backend
+	if backend == nil {
+		backend, err = resolveDomainBackend(p.cfg, req.Assignment, req.Agent, req.Duty)
+		if err != nil {
+			return nil, fmt.Errorf("resolve backend: %w", err)
+		}
 	}
 
 	// Create workspace.
@@ -294,23 +297,6 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 	run.FinishedAt = &finished
 	p.emitRunUpdate(run)
 	return run, nil
-}
-
-// findAssignmentConfig maps a domain.Assignment back to its config.AssignmentConfig for backend resolution.
-func findAssignmentConfig(cfg *config.Config, a *domain.Assignment, agentName, dutyName string) config.AssignmentConfig {
-	for _, ac := range cfg.Assignments {
-		if ac.Agent == agentName && ac.Duty == dutyName {
-			return ac
-		}
-	}
-	// Return a minimal AssignmentConfig so ResolveBackend can still work via Agent/Duty fallback.
-	var ac config.AssignmentConfig
-	ac.Agent = agentName
-	ac.Duty = dutyName
-	if a.Backend != nil {
-		ac.Backend = a.Backend
-	}
-	return ac
 }
 
 // deriveDedupKey extracts a deduplication key from event params. An explicit

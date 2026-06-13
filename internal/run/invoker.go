@@ -10,19 +10,19 @@ import (
 	"github.com/google/uuid"
 )
 
-// AssignmentGetter, AgentLister, and DutyLister are the repo capabilities the
+// AssignmentGetter, AgentGetter, and DutyGetter are the repo capabilities the
 // Invoker needs; *repo.AssignmentRepo, *repo.AgentRepo, *repo.DutyRepo satisfy
 // them structurally.
 type AssignmentGetter interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Assignment, error)
 }
 
-type AgentLister interface {
-	List(ctx context.Context) ([]*domain.Agent, error)
+type AgentGetter interface {
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.Agent, error)
 }
 
-type DutyLister interface {
-	List(ctx context.Context) ([]*domain.Duty, error)
+type DutyGetter interface {
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.Duty, error)
 }
 
 // Invoker executes one assignment by id: it loads the assignment/agent/duty,
@@ -32,17 +32,31 @@ type Invoker struct {
 	cfg         *config.Config
 	pipeline    *Pipeline
 	assignments AssignmentGetter
-	agents      AgentLister
-	duties      DutyLister
+	agents      AgentGetter
+	duties      DutyGetter
 	// buildExecutor is a test seam; defaults to factory-based resolution.
 	buildExecutor func(cfg *config.Config, b *config.Backend) (executor.Executor, error)
 }
 
-func NewInvoker(cfg *config.Config, pipeline *Pipeline, assignments AssignmentGetter, agents AgentLister, duties DutyLister) *Invoker {
+func NewInvoker(cfg *config.Config, pipeline *Pipeline, assignments AssignmentGetter, agents AgentGetter, duties DutyGetter) *Invoker {
+	return NewInvokerWithExecutorBuilder(cfg, pipeline, assignments, agents, duties, defaultBuildExecutor)
+}
+
+func NewInvokerWithExecutorBuilder(
+	cfg *config.Config,
+	pipeline *Pipeline,
+	assignments AssignmentGetter,
+	agents AgentGetter,
+	duties DutyGetter,
+	buildExecutor func(cfg *config.Config, b *config.Backend) (executor.Executor, error),
+) *Invoker {
+	if buildExecutor == nil {
+		buildExecutor = defaultBuildExecutor
+	}
 	return &Invoker{
 		cfg: cfg, pipeline: pipeline,
 		assignments: assignments, agents: agents, duties: duties,
-		buildExecutor: defaultBuildExecutor,
+		buildExecutor: buildExecutor,
 	}
 }
 
@@ -50,7 +64,7 @@ func NewInvoker(cfg *config.Config, pipeline *Pipeline, assignments AssignmentGe
 // subscription claude CLI; otherwise the factory dispatches on kind.
 func defaultBuildExecutor(cfg *config.Config, b *config.Backend) (executor.Executor, error) {
 	if b == nil {
-		return executor.NewClaudeExecutor(""), nil
+		return nil, fmt.Errorf("no backend resolved")
 	}
 	return executor.FromBackend(cfg, b)
 }
@@ -62,46 +76,19 @@ func (inv *Invoker) Invoke(ctx context.Context, assignmentID uuid.UUID, triggerK
 		return nil, fmt.Errorf("get assignment: %w", err)
 	}
 
-	allAgents, err := inv.agents.List(ctx)
+	agent, err := inv.agents.GetByID(ctx, assignment.AgentID)
 	if err != nil {
-		return nil, fmt.Errorf("list agents: %w", err)
-	}
-	var agent *domain.Agent
-	for _, a := range allAgents {
-		if a.ID == assignment.AgentID {
-			agent = a
-			break
-		}
-	}
-	if agent == nil {
-		return nil, fmt.Errorf("agent %s not found", assignment.AgentID)
+		return nil, fmt.Errorf("get agent: %w", err)
 	}
 
-	allDuties, err := inv.duties.List(ctx)
+	duty, err := inv.duties.GetByID(ctx, assignment.DutyID)
 	if err != nil {
-		return nil, fmt.Errorf("list duties: %w", err)
-	}
-	var duty *domain.Duty
-	for _, d := range allDuties {
-		if d.ID == assignment.DutyID {
-			duty = d
-			break
-		}
-	}
-	if duty == nil {
-		return nil, fmt.Errorf("duty %s not found", assignment.DutyID)
+		return nil, fmt.Errorf("get duty: %w", err)
 	}
 
-	// Resolve the named backend from config (nil when this assignment has no
-	// config counterpart, e.g. DB-only seeds).
-	var resolved *config.Backend
-	for _, ac := range inv.cfg.Assignments {
-		if ac.Agent == agent.Name && ac.Duty == duty.Name {
-			if b, _, berr := config.ResolveBackend(inv.cfg, ac); berr == nil {
-				resolved = b
-			}
-			break
-		}
+	resolved, err := resolveDomainBackend(inv.cfg, assignment, agent, duty)
+	if err != nil {
+		return nil, fmt.Errorf("resolve backend: %w", err)
 	}
 	exec, err := inv.buildExecutor(inv.cfg, resolved)
 	if err != nil {
@@ -116,5 +103,33 @@ func (inv *Invoker) Invoke(ctx context.Context, assignmentID uuid.UUID, triggerK
 		EventID:     eventID,
 		EventParams: params,
 		Executor:    exec,
+		Backend:     resolved,
 	})
+}
+
+func resolveDomainBackend(cfg *config.Config, assignment *domain.Assignment, agent *domain.Agent, duty *domain.Duty) (*config.Backend, error) {
+	ref := domain.BackendRef{}
+	switch {
+	case assignment.Backend != nil && assignment.Backend.Name != "":
+		ref = *assignment.Backend
+	case duty.Backend != nil && duty.Backend.Name != "":
+		ref = *duty.Backend
+	case agent.DefaultBackend.Name != "":
+		ref = agent.DefaultBackend
+	default:
+		return nil, fmt.Errorf("assignment %s has no backend ref", assignment.ID)
+	}
+	for i := range cfg.Backends {
+		if cfg.Backends[i].Name == ref.Name {
+			backend := cfg.Backends[i]
+			if ref.Model != "" {
+				backend.Model = ref.Model
+			}
+			if ref.Effort != "" {
+				backend.DefaultEffort = ref.Effort
+			}
+			return &backend, nil
+		}
+	}
+	return nil, fmt.Errorf("backend %q not found in config", ref.Name)
 }
