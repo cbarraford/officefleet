@@ -2,7 +2,6 @@ package repo
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/cbarraford/office-fleet/internal/domain"
@@ -18,8 +17,11 @@ func (r *AgentRepo) Insert(ctx context.Context, a *domain.Agent) error {
 	if a.ID == uuid.Nil {
 		a.ID = uuid.New()
 	}
-	backendJSON, _ := json.Marshal(a.DefaultBackend)
-	_, err := r.db.Exec(ctx,
+	backendJSON, err := marshalJSONField("default_backend", a.DefaultBackend)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx,
 		"INSERT INTO agents (id, name, role, system_prompt, default_backend, enabled, avatar_url, hired_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
 		a.ID, a.Name, a.Role, a.SystemPrompt, backendJSON, a.Enabled, a.AvatarURL, a.HiredAt)
 	return err
@@ -29,7 +31,10 @@ func (r *AgentRepo) UpsertByName(ctx context.Context, a *domain.Agent) error {
 	if a.ID == uuid.Nil {
 		a.ID = uuid.New()
 	}
-	backendJSON, _ := json.Marshal(a.DefaultBackend)
+	backendJSON, err := marshalJSONField("default_backend", a.DefaultBackend)
+	if err != nil {
+		return err
+	}
 	return r.db.QueryRow(ctx,
 		`INSERT INTO agents (id, name, role, system_prompt, default_backend, enabled, avatar_url, hired_at)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
@@ -77,7 +82,10 @@ func (r *AgentRepo) List(ctx context.Context) ([]*domain.Agent, error) {
 // Update persists every editable field by id (PATCH semantics live in the API
 // layer: it loads, applies provided fields, then calls Update).
 func (r *AgentRepo) Update(ctx context.Context, a *domain.Agent) error {
-	backendJSON, _ := json.Marshal(a.DefaultBackend)
+	backendJSON, err := marshalJSONField("default_backend", a.DefaultBackend)
+	if err != nil {
+		return err
+	}
 	tag, err := r.db.Exec(ctx,
 		`UPDATE agents SET name=$2, role=$3, system_prompt=$4, default_backend=$5,
 		   enabled=$6, avatar_url=$7, hired_at=$8, updated_at=NOW() WHERE id=$1`,
@@ -127,6 +135,8 @@ func scanAgent(s scanner) (*domain.Agent, error) {
 		&a.AvatarURL, &a.HiredAt, &a.CreatedAt, &a.UpdatedAt); err != nil {
 		return nil, fmt.Errorf("scan agent: %w", err)
 	}
-	_ = json.Unmarshal(backendJSON, &a.DefaultBackend)
+	if err := unmarshalJSONField("agent default_backend", backendJSON, &a.DefaultBackend); err != nil {
+		return nil, err
+	}
 	return &a, nil
 }

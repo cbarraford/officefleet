@@ -47,8 +47,10 @@ func (m *mockPlugin) Do(_ context.Context, _ string, _ map[string]any) (map[stri
 // mu guards runs so that the dispatcher's worker goroutines (integration test)
 // and the test goroutine can access the map concurrently without a race.
 type fakeRunRepo struct {
-	mu   sync.Mutex
-	runs map[uuid.UUID]*domain.Run
+	mu              sync.Mutex
+	runs            map[uuid.UUID]*domain.Run
+	updateStatusErr error
+	updateResultErr error
 }
 
 func newFakeRunRepo() *fakeRunRepo {
@@ -66,6 +68,9 @@ func (f *fakeRunRepo) Insert(_ context.Context, run *domain.Run) error {
 }
 
 func (f *fakeRunRepo) UpdateStatus(_ context.Context, id uuid.UUID, status domain.RunStatus, errMsg *string) error {
+	if f.updateStatusErr != nil {
+		return f.updateStatusErr
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if r, ok := f.runs[id]; ok {
@@ -76,6 +81,9 @@ func (f *fakeRunRepo) UpdateStatus(_ context.Context, id uuid.UUID, status domai
 }
 
 func (f *fakeRunRepo) UpdateResult(_ context.Context, id uuid.UUID, result *domain.LLMResult, outputs []domain.OutputDelivery, status domain.RunStatus) error {
+	if f.updateResultErr != nil {
+		return f.updateResultErr
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if r, ok := f.runs[id]; ok {
@@ -86,6 +94,25 @@ func (f *fakeRunRepo) UpdateResult(_ context.Context, id uuid.UUID, result *doma
 		r.FinishedAt = &finished
 	}
 	return nil
+}
+
+type markProcessedErrorStore struct {
+	state.Store
+	err error
+}
+
+func (m *markProcessedErrorStore) MarkProcessed(context.Context, string, string) error {
+	return m.err
+}
+
+type transactionalFakeRunRepo struct {
+	*fakeRunRepo
+	called bool
+}
+
+func (f *transactionalFakeRunRepo) UpdateResultAndMarkProcessed(ctx context.Context, id uuid.UUID, result *domain.LLMResult, outputs []domain.OutputDelivery, status domain.RunStatus, _ uuid.UUID, _ string) error {
+	f.called = true
+	return f.UpdateResult(ctx, id, result, outputs, status)
 }
 
 // snapshot returns a map of Run copies for concurrent polling.
@@ -1114,6 +1141,19 @@ func TestPipelineExecute_AgentPausedSkip(t *testing.T) {
 	assertPausedSkip(t, run, rr, fakeExec, "agent_paused")
 }
 
+func TestPipelineExecute_PausedSkipStatusUpdateError(t *testing.T) {
+	pipeline, req, rr, _ := pausedTestFixture(false, true)
+	rr.updateStatusErr = fmt.Errorf("status update failed")
+
+	_, err := pipeline.Execute(context.Background(), req)
+	if err == nil {
+		t.Fatal("expected skipped status update error")
+	}
+	if !strings.Contains(err.Error(), "record skipped run status") {
+		t.Fatalf("err = %v, want skipped status context", err)
+	}
+}
+
 func TestPipelineExecute_AssignmentPausedSkip(t *testing.T) {
 	pipeline, req, rr, fakeExec := pausedTestFixture(true, false)
 
@@ -1228,6 +1268,37 @@ func TestPipelineExecute_ModelReportedFailure(t *testing.T) {
 	}
 }
 
+func TestPipelineExecute_ModelFailureStatusUpdateError(t *testing.T) {
+	ctx := context.Background()
+	fakeExec := executor.NewFakeExecutor(domain.LLMResult{Status: 1, Summary: "model failed"})
+	store := state.NewMemStore()
+	backendName := "model-fail-status-backend"
+	cfg := &config.Config{Backends: []config.Backend{{
+		Name: backendName, Kind: "claude", Model: "claude-3-5-sonnet",
+		DefaultEffort: "normal", Auth: config.BackendAuth{Mode: "subscription"},
+	}}}
+	rr := newFakeRunRepo()
+	rr.updateStatusErr = fmt.Errorf("status update failed")
+	pipeline := &Pipeline{cfg: cfg, runRepo: rr, store: store}
+
+	agentID, dutyID := uuid.New(), uuid.New()
+	_, err := pipeline.Execute(ctx, ExecuteRequest{
+		Assignment: &domain.Assignment{
+			ID: uuid.New(), AgentID: agentID, DutyID: dutyID, Enabled: true,
+			Backend: &domain.BackendRef{Name: backendName}, Config: map[string]any{},
+		},
+		Agent:       &domain.Agent{ID: agentID, Name: "mf-agent", Role: "t", SystemPrompt: "s", Enabled: true},
+		Duty:        &domain.Duty{ID: dutyID, Name: "mf-duty", Role: "t", Description: "d", Prompt: "p"},
+		TriggerKind: "manual", EventParams: map[string]any{}, Executor: fakeExec,
+	})
+	if err == nil {
+		t.Fatal("expected failed status update error")
+	}
+	if !strings.Contains(err.Error(), "record failed run status") {
+		t.Fatalf("err = %v, want failed status context", err)
+	}
+}
+
 func TestPipelineExecute_ZeroStatusStillSucceeds(t *testing.T) {
 	// Guard: the new Status check must not affect the success path.
 	ctx := context.Background()
@@ -1256,6 +1327,74 @@ func TestPipelineExecute_ZeroStatusStillSucceeds(t *testing.T) {
 	}
 	if run.Status != domain.RunStatusSucceeded {
 		t.Errorf("status = %q, want succeeded", run.Status)
+	}
+}
+
+func TestPipelineExecute_MarkProcessedErrorPropagates(t *testing.T) {
+	ctx := context.Background()
+	fakeExec := executor.NewFakeExecutor(domain.LLMResult{Status: 0, Summary: "ok"})
+	baseStore := state.NewMemStore()
+	store := &markProcessedErrorStore{Store: baseStore, err: fmt.Errorf("dedup write failed")}
+	backendName := "mark-backend"
+	cfg := &config.Config{Backends: []config.Backend{{
+		Name: backendName, Kind: "claude", Model: "claude-3-5-sonnet",
+		DefaultEffort: "normal", Auth: config.BackendAuth{Mode: "subscription"},
+	}}}
+	rr := newFakeRunRepo()
+	pipeline := &Pipeline{cfg: cfg, runRepo: rr, store: store}
+
+	agentID, dutyID := uuid.New(), uuid.New()
+	run, err := pipeline.Execute(ctx, ExecuteRequest{
+		Assignment: &domain.Assignment{
+			ID: uuid.New(), AgentID: agentID, DutyID: dutyID, Enabled: true,
+			Backend: &domain.BackendRef{Name: backendName}, Config: map[string]any{},
+		},
+		Agent:       &domain.Agent{ID: agentID, Name: "mark-agent", Role: "t", SystemPrompt: "s", Enabled: true},
+		Duty:        &domain.Duty{ID: dutyID, Name: "mark-duty", Role: "t", Description: "d", Prompt: "p"},
+		TriggerKind: "event", EventParams: map[string]any{"mr_iid": "42"}, Executor: fakeExec,
+	})
+	if err == nil {
+		t.Fatal("expected mark processed error")
+	}
+	if !strings.Contains(err.Error(), "mark dedup processed") {
+		t.Fatalf("err = %v, want mark dedup context", err)
+	}
+	if run == nil || run.Status != domain.RunStatusSucceeded {
+		t.Fatalf("run = %+v, want succeeded run returned with persistence error", run)
+	}
+}
+
+func TestPipelineExecute_UsesTransactionalResultMarker(t *testing.T) {
+	ctx := context.Background()
+	fakeExec := executor.NewFakeExecutor(domain.LLMResult{Status: 0, Summary: "ok"})
+	baseStore := state.NewMemStore()
+	store := &markProcessedErrorStore{Store: baseStore, err: fmt.Errorf("separate mark should not run")}
+	backendName := "tx-backend"
+	cfg := &config.Config{Backends: []config.Backend{{
+		Name: backendName, Kind: "claude", Model: "claude-3-5-sonnet",
+		DefaultEffort: "normal", Auth: config.BackendAuth{Mode: "subscription"},
+	}}}
+	rr := &transactionalFakeRunRepo{fakeRunRepo: newFakeRunRepo()}
+	pipeline := &Pipeline{cfg: cfg, runRepo: rr, store: store}
+
+	agentID, dutyID := uuid.New(), uuid.New()
+	run, err := pipeline.Execute(ctx, ExecuteRequest{
+		Assignment: &domain.Assignment{
+			ID: uuid.New(), AgentID: agentID, DutyID: dutyID, Enabled: true,
+			Backend: &domain.BackendRef{Name: backendName}, Config: map[string]any{},
+		},
+		Agent:       &domain.Agent{ID: agentID, Name: "tx-agent", Role: "t", SystemPrompt: "s", Enabled: true},
+		Duty:        &domain.Duty{ID: dutyID, Name: "tx-duty", Role: "t", Description: "d", Prompt: "p"},
+		TriggerKind: "event", EventParams: map[string]any{"mr_iid": "42"}, Executor: fakeExec,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run == nil || run.Status != domain.RunStatusSucceeded {
+		t.Fatalf("run = %+v, want succeeded", run)
+	}
+	if !rr.called {
+		t.Fatal("transactional result+dedup marker was not used")
 	}
 }
 
