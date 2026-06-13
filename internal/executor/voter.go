@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/cbarraford/office-fleet/internal/domain"
 )
@@ -27,6 +28,8 @@ type VotingExecutor struct {
 	Panel    []PanelMember
 	Strategy string // first_success | majority
 }
+
+var firstSuccessDrainTimeout = 100 * time.Millisecond
 
 func NewVotingExecutor(panel []PanelMember, strategy string) *VotingExecutor {
 	return &VotingExecutor{Panel: panel, Strategy: strategy}
@@ -72,45 +75,70 @@ func (v *VotingExecutor) Run(ctx context.Context, req LLMRequest) (domain.LLMRes
 
 	switch v.Strategy {
 	case "first_success":
-		return v.firstSuccess(ch)
+		return v.firstSuccess(ch, cancel)
 	default: // "majority" — FromBackend rejects unknown strategies at construction
 		return v.majority(ch)
 	}
 }
 
 // firstSuccess returns the first completed result with Status == 0, cancelling
-// the rest. Tokens/cost are summed over results received up to and including
-// the winner (cancelled members never report). If no member succeeds, the
-// last-completed failure is returned; if every member also errored, an error.
-func (v *VotingExecutor) firstSuccess(ch <-chan memberOutcome) (domain.LLMResult, error) {
-	tokens, cost := 0, 0.0
+// the rest. After a winner, it briefly drains results from already-started
+// members so token/cost accounting and the transcript panel summary include
+// every member that reported before the cancellation grace period expires.
+func (v *VotingExecutor) firstSuccess(ch <-chan memberOutcome, cancel context.CancelFunc) (domain.LLMResult, error) {
+	outcomes := make([]memberOutcome, 0, len(v.Panel))
 	var last memberOutcome
 	allErrored := true
 	for range v.Panel {
 		out := <-ch
-		tokens += out.result.Tokens
-		cost += out.result.Cost
+		outcomes = append(outcomes, out)
 		last = out
 		if !out.hadErr {
 			allErrored = false
 		}
 		if !out.hadErr && out.result.Status == 0 {
+			cancel()
+			outcomes = v.drainAfterWinner(ch, outcomes)
+			tokens, cost := sumUsage(outcomes)
 			win := out.result
 			win.Tokens = tokens
 			win.Cost = cost
-			// Losing goroutines may outlive this return (cancellation is
-			// advisory); their tool I/O can race the pipeline's workspace
-			// cleanup and fail harmlessly as observations.
+			win.Transcript = v.panelSummary(outcomes) + win.Transcript
 			return win, nil
 		}
 	}
+	tokens, cost := sumUsage(outcomes)
 	res := last.result
 	res.Tokens = tokens
 	res.Cost = cost
+	res.Transcript = v.panelSummary(outcomes) + res.Transcript
 	if allErrored {
 		return res, fmt.Errorf("all %d panel members failed", len(v.Panel))
 	}
 	return res, nil
+}
+
+func (v *VotingExecutor) drainAfterWinner(ch <-chan memberOutcome, outcomes []memberOutcome) []memberOutcome {
+	timer := time.NewTimer(firstSuccessDrainTimeout)
+	defer timer.Stop()
+	for len(outcomes) < len(v.Panel) {
+		select {
+		case out := <-ch:
+			outcomes = append(outcomes, out)
+		case <-timer.C:
+			return outcomes
+		}
+	}
+	return outcomes
+}
+
+func sumUsage(outcomes []memberOutcome) (int, float64) {
+	tokens, cost := 0, 0.0
+	for _, out := range outcomes {
+		tokens += out.result.Tokens
+		cost += out.result.Cost
+	}
+	return tokens, cost
 }
 
 // majority waits for all members, then takes a plurality vote on Status. Ties
@@ -167,11 +195,13 @@ func (v *VotingExecutor) majority(ch <-chan memberOutcome) (domain.LLMResult, er
 	return res, nil
 }
 
-// panelSummary renders one line per member: name -> status/tokens.
-// It requires the COMPLETE outcome set (all panel members drained), so only
-// majority may call it — firstSuccess returns with partial outcomes.
+// panelSummary renders one line per member: name -> status/tokens. Members
+// that did not report before first_success' drain timeout are marked canceled.
 func (v *VotingExecutor) panelSummary(outcomes []memberOutcome) string {
 	lines := make([]string, len(v.Panel))
+	for i, member := range v.Panel {
+		lines[i] = fmt.Sprintf("panel %s: status=canceled tokens=0", member.Name)
+	}
 	for _, out := range outcomes {
 		lines[out.idx] = fmt.Sprintf("panel %s: status=%d tokens=%d", v.Panel[out.idx].Name, out.result.Status, out.result.Tokens)
 	}
