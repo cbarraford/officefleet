@@ -113,6 +113,8 @@ func scanEvent(s scanner) (*domain.Event, error) {
 		return nil, fmt.Errorf("scan event: %w", err)
 	}
 	ev.PayloadRaw = json.RawMessage(rawJSON)
-	_ = json.Unmarshal(normJSON, &ev.PayloadNorm)
+	if err := unmarshalJSONField("event payload_norm", normJSON, &ev.PayloadNorm); err != nil {
+		return nil, err
+	}
 	return &ev, nil
 }

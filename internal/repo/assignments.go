@@ -2,7 +2,6 @@ package repo
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/cbarraford/office-fleet/internal/domain"
@@ -18,30 +17,47 @@ func (r *AssignmentRepo) Insert(ctx context.Context, a *domain.Assignment) error
 	if a.ID == uuid.Nil {
 		a.ID = uuid.New()
 	}
-	triggerJSON, _ := json.Marshal(a.Trigger)
-	outputsJSON, _ := json.Marshal(a.Outputs)
-	configJSON, _ := json.Marshal(a.Config)
-	var backendJSON []byte
-	if a.Backend != nil {
-		backendJSON, _ = json.Marshal(a.Backend)
+	triggerJSON, outputsJSON, configJSON, backendJSON, err := marshalAssignment(a)
+	if err != nil {
+		return err
 	}
-	_, err := r.db.Exec(ctx,
+	_, err = r.db.Exec(ctx,
 		"INSERT INTO assignments (id, agent_id, duty_id, enabled, trigger, outputs, config, backend, task_prompt_override, extra_instructions) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
 		a.ID, a.AgentID, a.DutyID, a.Enabled, triggerJSON, outputsJSON, configJSON,
 		backendJSON, a.TaskPromptOverride, a.ExtraInstructions)
 	return err
 }
 
+func marshalAssignment(a *domain.Assignment) ([]byte, []byte, []byte, []byte, error) {
+	triggerJSON, err := marshalJSONField("assignment trigger", a.Trigger)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	outputsJSON, err := marshalJSONField("assignment outputs", a.Outputs)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	configJSON, err := marshalJSONField("assignment config", a.Config)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	var backendJSON []byte
+	if a.Backend != nil {
+		backendJSON, err = marshalJSONField("assignment backend", a.Backend)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+	}
+	return triggerJSON, outputsJSON, configJSON, backendJSON, nil
+}
+
 func (r *AssignmentRepo) UpsertByAgentAndDuty(ctx context.Context, a *domain.Assignment) error {
 	if a.ID == uuid.Nil {
 		a.ID = uuid.New()
 	}
-	triggerJSON, _ := json.Marshal(a.Trigger)
-	outputsJSON, _ := json.Marshal(a.Outputs)
-	configJSON, _ := json.Marshal(a.Config)
-	var backendJSON []byte
-	if a.Backend != nil {
-		backendJSON, _ = json.Marshal(a.Backend)
+	triggerJSON, outputsJSON, configJSON, backendJSON, err := marshalAssignment(a)
+	if err != nil {
+		return err
 	}
 	return r.db.QueryRow(ctx,
 		`INSERT INTO assignments (id, agent_id, duty_id, enabled, trigger, outputs, config, backend, task_prompt_override, extra_instructions)
@@ -92,12 +108,9 @@ func (r *AssignmentRepo) List(ctx context.Context) ([]*domain.Assignment, error)
 }
 
 func (r *AssignmentRepo) Update(ctx context.Context, a *domain.Assignment) error {
-	triggerJSON, _ := json.Marshal(a.Trigger)
-	outputsJSON, _ := json.Marshal(a.Outputs)
-	configJSON, _ := json.Marshal(a.Config)
-	var backendJSON []byte
-	if a.Backend != nil {
-		backendJSON, _ = json.Marshal(a.Backend)
+	triggerJSON, outputsJSON, configJSON, backendJSON, err := marshalAssignment(a)
+	if err != nil {
+		return err
 	}
 	tag, err := r.db.Exec(ctx,
 		`UPDATE assignments SET enabled=$2, trigger=$3, outputs=$4, config=$5, backend=$6,
@@ -133,12 +146,20 @@ func scanAssignment(s scanner) (*domain.Assignment, error) {
 		&a.CreatedAt, &a.UpdatedAt); err != nil {
 		return nil, fmt.Errorf("scan assignment: %w", err)
 	}
-	_ = json.Unmarshal(triggerJSON, &a.Trigger)
-	_ = json.Unmarshal(outputsJSON, &a.Outputs)
-	_ = json.Unmarshal(configJSON, &a.Config)
-	if len(backendJSON) > 2 {
+	if err := unmarshalJSONField("assignment trigger", triggerJSON, &a.Trigger); err != nil {
+		return nil, err
+	}
+	if err := unmarshalJSONField("assignment outputs", outputsJSON, &a.Outputs); err != nil {
+		return nil, err
+	}
+	if err := unmarshalJSONField("assignment config", configJSON, &a.Config); err != nil {
+		return nil, err
+	}
+	if !isJSONNull(backendJSON) {
 		var b domain.BackendRef
-		_ = json.Unmarshal(backendJSON, &b)
+		if err := unmarshalJSONField("assignment backend", backendJSON, &b); err != nil {
+			return nil, err
+		}
 		a.Backend = &b
 	}
 	return &a, nil

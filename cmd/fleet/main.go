@@ -97,6 +97,17 @@ func loadValidatedConfig() (*config.Config, error) {
 	return cfg, nil
 }
 
+func loadMigrateConfig() (*config.Config, bool, error) {
+	cfg, err := loadConfig()
+	if err == nil {
+		return cfg, true, nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, false, nil
+	}
+	return nil, false, err
+}
+
 // resolveDSN returns the effective DSN: --db flag > config DSN > FLEET_DATABASE_DSN env.
 func resolveDSN(cfg *config.Config) string {
 	if flagDB != "" {
@@ -216,7 +227,10 @@ func migrateCmd() *cobra.Command {
 		Short: "Run database migrations",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
-			cfg, _ := loadConfig() // config is optional; DSN may come from env
+			cfg, haveConfig, err := loadMigrateConfig()
+			if err != nil {
+				return fmt.Errorf("load config: %w", err)
+			}
 			dsn := resolveDSN(cfg)
 			if dsn == "" {
 				return fmt.Errorf("no database DSN configured (set --db, database.dsn in fleet.yaml, or FLEET_DATABASE_DSN env)")
@@ -229,15 +243,17 @@ func migrateCmd() *cobra.Command {
 			if err := db.Migrate(ctx, pool); err != nil {
 				return fmt.Errorf("migrate: %w", err)
 			}
-			if cfg != nil {
+			if haveConfig {
 				agentRepo := repo.NewAgentRepo(pool)
 				dutyRepo := repo.NewDutyRepo(pool)
 				assignmentRepo := repo.NewAssignmentRepo(pool)
 				if err := seed.FromConfig(ctx, cfg, agentRepo, dutyRepo, assignmentRepo, false); err != nil {
 					return fmt.Errorf("seed: %w", err)
 				}
+				fmt.Println("schema migrated and config seeded")
+			} else {
+				fmt.Printf("schema migrated; config %q not found, seed skipped\n", flagConfig)
 			}
-			fmt.Println("schema migrated and config seeded")
 			return nil
 		},
 	}

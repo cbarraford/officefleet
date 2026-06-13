@@ -3,6 +3,7 @@ package run
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -23,6 +24,10 @@ type runRepo interface {
 	Insert(ctx context.Context, run *domain.Run) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status domain.RunStatus, errMsg *string) error
 	UpdateResult(ctx context.Context, id uuid.UUID, result *domain.LLMResult, outputs []domain.OutputDelivery, status domain.RunStatus) error
+}
+
+type transactionalResultMarker interface {
+	UpdateResultAndMarkProcessed(ctx context.Context, id uuid.UUID, result *domain.LLMResult, outputs []domain.OutputDelivery, status domain.RunStatus, assignmentID uuid.UUID, dedupKey string) error
 }
 
 // SecretsProvider loads all named secrets into a map for prompt rendering.
@@ -103,7 +108,9 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 		}
 		// Insert does not persist the error column; UpdateStatus records the
 		// skip reason and finished_at.
-		_ = p.runRepo.UpdateStatus(ctx, run.ID, domain.RunStatusSkipped, &reason)
+		if err := p.runRepo.UpdateStatus(ctx, run.ID, domain.RunStatusSkipped, &reason); err != nil {
+			return nil, fmt.Errorf("record skipped run status: %w", err)
+		}
 		p.emitRunUpdate(run)
 		return run, nil
 	}
@@ -207,7 +214,9 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 		}
 		if already {
 			reason := SkipReasonDuplicateEvent
-			_ = p.runRepo.UpdateStatus(ctx, run.ID, domain.RunStatusSkipped, &reason)
+			if err := p.runRepo.UpdateStatus(ctx, run.ID, domain.RunStatusSkipped, &reason); err != nil {
+				return nil, fmt.Errorf("record skipped run status: %w", err)
+			}
 			run.Status = domain.RunStatusSkipped
 			run.Error = &reason
 			p.emitRunUpdate(run)
@@ -233,7 +242,6 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 		if uerr := p.runRepo.UpdateResult(ctx, run.ID, &llmResult, nil, domain.RunStatusFailed); uerr != nil {
 			return nil, fmt.Errorf("record run result: %w", uerr)
 		}
-		_ = p.runRepo.UpdateStatus(ctx, run.ID, domain.RunStatusFailed, &errMsg)
 		run.LLMResult = &llmResult
 		run.Tokens = llmResult.Tokens
 		run.Cost = llmResult.Cost
@@ -241,6 +249,9 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 		run.Error = &errMsg
 		finished := time.Now()
 		run.FinishedAt = &finished
+		if serr := p.runRepo.UpdateStatus(ctx, run.ID, domain.RunStatusFailed, &errMsg); serr != nil {
+			return run, errors.Join(fmt.Errorf("executor: %w", llmErr), fmt.Errorf("record failed run status: %w", serr))
+		}
 		p.emitRunUpdate(run)
 		return run, fmt.Errorf("executor: %w", llmErr)
 	}
@@ -255,7 +266,6 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 		if err := p.runRepo.UpdateResult(ctx, run.ID, &llmResult, nil, domain.RunStatusFailed); err != nil {
 			return nil, fmt.Errorf("record run result: %w", err)
 		}
-		_ = p.runRepo.UpdateStatus(ctx, run.ID, domain.RunStatusFailed, &errMsg)
 		run.LLMResult = &llmResult
 		run.Tokens = llmResult.Tokens
 		run.Cost = llmResult.Cost
@@ -263,6 +273,9 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 		run.Error = &errMsg
 		finished := time.Now()
 		run.FinishedAt = &finished
+		if err := p.runRepo.UpdateStatus(ctx, run.ID, domain.RunStatusFailed, &errMsg); err != nil {
+			return run, fmt.Errorf("record failed run status: %w", err)
+		}
 		p.emitRunUpdate(run)
 		return run, nil
 	}
@@ -278,13 +291,21 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 			break
 		}
 	}
-	if err := p.runRepo.UpdateResult(ctx, run.ID, &llmResult, deliveries, status); err != nil {
-		return nil, fmt.Errorf("record run result: %w", err)
-	}
 	if dedupKey != "" {
-		_ = p.store.MarkProcessed(ctx, req.Assignment.ID.String(), dedupKey)
+		if txRepo, ok := p.runRepo.(transactionalResultMarker); ok {
+			if err := txRepo.UpdateResultAndMarkProcessed(ctx, run.ID, &llmResult, deliveries, status, req.Assignment.ID, dedupKey); err != nil {
+				return nil, fmt.Errorf("record run result and dedup: %w", err)
+			}
+		} else {
+			if err := p.runRepo.UpdateResult(ctx, run.ID, &llmResult, deliveries, status); err != nil {
+				return nil, fmt.Errorf("record run result: %w", err)
+			}
+		}
+	} else {
+		if err := p.runRepo.UpdateResult(ctx, run.ID, &llmResult, deliveries, status); err != nil {
+			return nil, fmt.Errorf("record run result: %w", err)
+		}
 	}
-
 	run.LLMResult = &llmResult
 	run.Tokens = llmResult.Tokens
 	run.Cost = llmResult.Cost
@@ -292,6 +313,13 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 	run.Status = status
 	finished := time.Now()
 	run.FinishedAt = &finished
+	if dedupKey != "" {
+		if _, ok := p.runRepo.(transactionalResultMarker); !ok {
+			if err := p.store.MarkProcessed(ctx, req.Assignment.ID.String(), dedupKey); err != nil {
+				return run, fmt.Errorf("mark dedup processed: %w", err)
+			}
+		}
+	}
 	p.emitRunUpdate(run)
 	return run, nil
 }

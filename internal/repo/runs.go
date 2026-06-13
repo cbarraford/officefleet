@@ -2,7 +2,6 @@ package repo
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/cbarraford/office-fleet/internal/domain"
@@ -18,8 +17,11 @@ func (r *RunRepo) Insert(ctx context.Context, run *domain.Run) error {
 	if run.ID == uuid.Nil {
 		run.ID = uuid.New()
 	}
-	outputsJSON, _ := json.Marshal(run.OutputsDelivered)
-	_, err := r.db.Exec(ctx,
+	outputsJSON, err := marshalJSONField("outputs_delivered", run.OutputsDelivered)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx,
 		"INSERT INTO runs (id, assignment_id, agent_id, duty_id, trigger_kind, event_id, rendered_system_prompt, rendered_prompt, outputs_delivered, status, started_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
 		run.ID, run.AssignmentID, run.AgentID, run.DutyID, run.TriggerKind, run.EventID,
 		run.RenderedSystemPrompt, run.RenderedPrompt, outputsJSON, run.Status, run.StartedAt)
@@ -34,13 +36,50 @@ func (r *RunRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status domain.
 }
 
 func (r *RunRepo) UpdateResult(ctx context.Context, id uuid.UUID, result *domain.LLMResult, outputs []domain.OutputDelivery, status domain.RunStatus) error {
-	resultJSON, err := json.Marshal(result)
+	resultJSON, outputsJSON, tokens, cost, err := marshalRunResult(result, outputs)
 	if err != nil {
-		return fmt.Errorf("marshal llm_result: %w", err)
+		return err
 	}
-	outputsJSON, err := json.Marshal(outputs)
+	_, err = r.db.Exec(ctx,
+		"UPDATE runs SET llm_result=$1, outputs_delivered=$2, status=$3, tokens=$4, cost=$5, finished_at=NOW() WHERE id=$6",
+		resultJSON, outputsJSON, status, tokens, cost, id)
+	return err
+}
+
+func (r *RunRepo) UpdateResultAndMarkProcessed(ctx context.Context, id uuid.UUID, result *domain.LLMResult, outputs []domain.OutputDelivery, status domain.RunStatus, assignmentID uuid.UUID, dedupKey string) error {
+	resultJSON, outputsJSON, tokens, cost, err := marshalRunResult(result, outputs)
 	if err != nil {
-		return fmt.Errorf("marshal outputs_delivered: %w", err)
+		return err
+	}
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin run result transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx,
+		"UPDATE runs SET llm_result=$1, outputs_delivered=$2, status=$3, tokens=$4, cost=$5, finished_at=NOW() WHERE id=$6",
+		resultJSON, outputsJSON, status, tokens, cost, id); err != nil {
+		return fmt.Errorf("update run result: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		"INSERT INTO assignment_processed (assignment_id, dedup_key) VALUES ($1,$2) ON CONFLICT (assignment_id, dedup_key) DO NOTHING",
+		assignmentID, dedupKey); err != nil {
+		return fmt.Errorf("mark processed: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit run result transaction: %w", err)
+	}
+	return nil
+}
+
+func marshalRunResult(result *domain.LLMResult, outputs []domain.OutputDelivery) ([]byte, []byte, int, float64, error) {
+	resultJSON, err := marshalJSONField("llm_result", result)
+	if err != nil {
+		return nil, nil, 0, 0, err
+	}
+	outputsJSON, err := marshalJSONField("outputs_delivered", outputs)
+	if err != nil {
+		return nil, nil, 0, 0, err
 	}
 	var tokens int
 	var cost float64
@@ -48,10 +87,7 @@ func (r *RunRepo) UpdateResult(ctx context.Context, id uuid.UUID, result *domain
 		tokens = result.Tokens
 		cost = result.Cost
 	}
-	_, err = r.db.Exec(ctx,
-		"UPDATE runs SET llm_result=$1, outputs_delivered=$2, status=$3, tokens=$4, cost=$5, finished_at=NOW() WHERE id=$6",
-		resultJSON, outputsJSON, status, tokens, cost, id)
-	return err
+	return resultJSON, outputsJSON, tokens, cost, nil
 }
 
 func (r *RunRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Run, error) {
@@ -153,11 +189,15 @@ func scanRun(s scanner) (*domain.Run, error) {
 		&run.StartedAt, &run.FinishedAt, &run.Error); err != nil {
 		return nil, fmt.Errorf("scan run: %w", err)
 	}
-	if len(llmResultJSON) > 0 {
+	if !isJSONNull(llmResultJSON) {
 		var r domain.LLMResult
-		_ = json.Unmarshal(llmResultJSON, &r)
+		if err := unmarshalJSONField("run llm_result", llmResultJSON, &r); err != nil {
+			return nil, err
+		}
 		run.LLMResult = &r
 	}
-	_ = json.Unmarshal(outputsJSON, &run.OutputsDelivered)
+	if err := unmarshalJSONField("run outputs_delivered", outputsJSON, &run.OutputsDelivered); err != nil {
+		return nil, err
+	}
 	return &run, nil
 }
