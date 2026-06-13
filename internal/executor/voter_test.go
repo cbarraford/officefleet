@@ -36,6 +36,18 @@ func (s *slowFake) Run(ctx context.Context, req LLMRequest) (domain.LLMResult, e
 	return s.result, s.err
 }
 
+type ignoringCancelFake struct {
+	result domain.LLMResult
+	delay  time.Duration
+}
+
+func (i *ignoringCancelFake) Kind() string { return "fake" }
+
+func (i *ignoringCancelFake) Run(context.Context, LLMRequest) (domain.LLMResult, error) {
+	time.Sleep(i.delay)
+	return i.result, nil
+}
+
 func TestVoter_FirstSuccess_CompletionOrder(t *testing.T) {
 	slow := &slowFake{result: domain.LLMResult{Status: 0, Summary: "slow-winner"}, delay: 500 * time.Millisecond}
 	fast := &slowFake{result: domain.LLMResult{Status: 0, Summary: "fast-winner"}, delay: 5 * time.Millisecond}
@@ -68,6 +80,39 @@ func TestVoter_FirstSuccess_SkipsFailures(t *testing.T) {
 	}
 	if res.Summary != "ok" {
 		t.Errorf("Summary = %q, want ok", res.Summary)
+	}
+}
+
+func TestVoter_FirstSuccess_DrainsAccountingAndTranscript(t *testing.T) {
+	fast := &slowFake{
+		result: domain.LLMResult{Status: 0, Summary: "fast", Transcript: "WIN", Tokens: 10, Cost: 0.1},
+		delay:  time.Millisecond,
+	}
+	late := &ignoringCancelFake{
+		result: domain.LLMResult{Status: 1, Summary: "late", Transcript: "LATE", Tokens: 20, Cost: 0.2},
+		delay:  5 * time.Millisecond,
+	}
+	v := &VotingExecutor{
+		Strategy: "first_success",
+		Panel:    []PanelMember{{Name: "fast", Exec: fast}, {Name: "late", Exec: late}},
+	}
+	res, err := v.Run(context.Background(), LLMRequest{Prompt: "p"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Summary != "fast" {
+		t.Fatalf("Summary = %q, want fast", res.Summary)
+	}
+	if res.Tokens != 30 {
+		t.Fatalf("Tokens = %d, want 30", res.Tokens)
+	}
+	if res.Cost < 0.29 || res.Cost > 0.31 {
+		t.Fatalf("Cost = %v, want 0.3", res.Cost)
+	}
+	for _, want := range []string{"=== voter panel ===", "panel fast", "panel late", "=== representative transcript ===", "WIN"} {
+		if !strings.Contains(res.Transcript, want) {
+			t.Fatalf("Transcript = %q, want %q", res.Transcript, want)
+		}
 	}
 }
 
