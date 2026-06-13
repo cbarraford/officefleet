@@ -48,6 +48,17 @@ func (m *MemStore) AppendNote(_ context.Context, assignmentID string, note any) 
 	return nil
 }
 
+func (m *MemStore) ListNotes(_ context.Context, assignmentID string) ([]json.RawMessage, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	notes := m.notes[assignmentID]
+	out := make([]json.RawMessage, len(notes))
+	for i, note := range notes {
+		out[i] = append(json.RawMessage(nil), note...)
+	}
+	return out, nil
+}
+
 func (m *MemStore) List(_ context.Context, assignmentID string) (map[string][]byte, error) {
 	prefix := assignmentID + ":"
 	m.mu.Lock()

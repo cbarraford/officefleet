@@ -12,6 +12,7 @@ import StatusPill from '../components/StatusPill'
 import Table from '../components/Table'
 import { fmtCost, fmtDate, fmtDateTime, fmtPercent } from '../lib/format'
 import { toast } from '../lib/toast'
+import { assignmentFormToPayload, assignmentToForm, emptyAssignmentForm, type AssignmentForm } from './assignmentEditor'
 
 function triggerSummary(a: Assignment): string {
   switch (a.trigger.kind) {
@@ -66,6 +67,293 @@ function RunNowModal({ assignment, onClose, onRan }: { assignment: Assignment; o
           </button>
         </div>
       </form>
+    </Modal>
+  )
+}
+
+function AssignmentEditorModal({
+  agentID,
+  duties,
+  assignment,
+  onClose,
+  onSaved,
+}: {
+  agentID: string
+  duties: Duty[]
+  assignment: Assignment | null
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [form, setForm] = useState<AssignmentForm>(() =>
+    assignment ? assignmentToForm(assignment) : emptyAssignmentForm(agentID, duties[0]?.id ?? ''),
+  )
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const selectedDuty = duties.find((d) => d.id === form.dutyID)
+  const triggerKinds = selectedDuty?.trigger_kinds?.length ? selectedDuty.trigger_kinds : ['manual', 'cron', 'event-subscription', 'continuous']
+
+  const setField = <K extends keyof AssignmentForm>(key: K, value: AssignmentForm[K]) => {
+    setForm((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    setError('')
+    let payload: ReturnType<typeof assignmentFormToPayload>
+    try {
+      payload = assignmentFormToPayload(form, !assignment)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'invalid assignment fields')
+      return
+    }
+    setBusy(true)
+    try {
+      if (assignment) {
+        await api.patch(`/api/v1/assignments/${assignment.id}`, payload)
+      } else {
+        await api.post('/api/v1/assignments', payload)
+      }
+      onSaved()
+    } catch (err) {
+      setBusy(false)
+      setError(err instanceof ApiError ? err.message : 'save failed')
+    }
+  }
+
+  const deleteAssignment = async () => {
+    if (!assignment) return
+    if (!confirmDelete) {
+      setConfirmDelete(true)
+      return
+    }
+    setBusy(true)
+    try {
+      await api.del(`/api/v1/assignments/${assignment.id}`)
+      onSaved()
+    } catch (err) {
+      setBusy(false)
+      setError(err instanceof ApiError ? err.message : 'delete failed')
+    }
+  }
+
+  return (
+    <Modal title={assignment ? 'Edit assignment' : 'New assignment'} onClose={onClose}>
+      <form onSubmit={submit}>
+        <label className="field">
+          <span>Duty</span>
+          <select value={form.dutyID} onChange={(e) => setField('dutyID', e.target.value)} disabled={!!assignment}>
+            <option value="">Select duty</option>
+            {duties.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="row mb">
+          <label className="row" style={{ width: 'auto', gap: 6 }}>
+            <input
+              type="checkbox"
+              style={{ width: 'auto' }}
+              checked={form.enabled}
+              onChange={(e) => setField('enabled', e.target.checked)}
+            />
+            Enabled
+          </label>
+        </div>
+        <label className="field">
+          <span>Trigger</span>
+          <select value={form.triggerKind} onChange={(e) => setField('triggerKind', e.target.value)}>
+            {triggerKinds.map((kind) => (
+              <option key={kind} value={kind}>
+                {kind}
+              </option>
+            ))}
+          </select>
+        </label>
+        {form.triggerKind === 'cron' && (
+          <label className="field">
+            <span>Cron schedule</span>
+            <input value={form.schedule} onChange={(e) => setField('schedule', e.target.value)} placeholder="0 9 * * 1-5" />
+          </label>
+        )}
+        {form.triggerKind === 'event-subscription' && (
+          <label className="field">
+            <span>Event filter (JSON)</span>
+            <textarea className="mono" rows={5} value={form.filterJson} onChange={(e) => setField('filterJson', e.target.value)} />
+          </label>
+        )}
+        <label className="field">
+          <span>Outputs (JSON array)</span>
+          <textarea className="mono" rows={5} value={form.outputsJson} onChange={(e) => setField('outputsJson', e.target.value)} />
+        </label>
+        <label className="field">
+          <span>Config (JSON object)</span>
+          <textarea className="mono" rows={4} value={form.configJson} onChange={(e) => setField('configJson', e.target.value)} />
+        </label>
+        <div className="row">
+          <label className="field" style={{ flex: 1 }}>
+            <span>Backend</span>
+            <input value={form.backendName} onChange={(e) => setField('backendName', e.target.value)} placeholder="default" />
+          </label>
+          <label className="field" style={{ flex: 1 }}>
+            <span>Model</span>
+            <input value={form.backendModel} onChange={(e) => setField('backendModel', e.target.value)} />
+          </label>
+          <label className="field" style={{ flex: 1 }}>
+            <span>Effort</span>
+            <input value={form.backendEffort} onChange={(e) => setField('backendEffort', e.target.value)} />
+          </label>
+        </div>
+        <label className="field">
+          <span>Task prompt override</span>
+          <textarea rows={4} value={form.taskPromptOverride} onChange={(e) => setField('taskPromptOverride', e.target.value)} />
+        </label>
+        <label className="field">
+          <span>Extra instructions</span>
+          <textarea rows={4} value={form.extraInstructions} onChange={(e) => setField('extraInstructions', e.target.value)} />
+        </label>
+        {error && <div className="form-error">{error}</div>}
+        <div className="row">
+          <button className="primary" type="submit" disabled={busy || !form.dutyID}>
+            {busy ? 'Saving…' : 'Save'}
+          </button>
+          {assignment && (
+            <button type="button" className={`danger ${confirmDelete ? 'confirming' : ''}`} disabled={busy} onClick={deleteAssignment}>
+              {confirmDelete ? 'Confirm?' : 'Delete'}
+            </button>
+          )}
+          <button type="button" onClick={onClose}>
+            Cancel
+          </button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+function parseInspectorValue(text: string): unknown {
+  const trimmed = text.trim()
+  if (!trimmed) return ''
+  try {
+    return JSON.parse(trimmed)
+  } catch {
+    return text
+  }
+}
+
+function AssignmentStateModal({ assignment, isAdmin, onClose }: { assignment: Assignment; isAdmin: boolean; onClose: () => void }) {
+  const [stateData, setStateData] = useState<Record<string, unknown> | null>(null)
+  const [memory, setMemory] = useState<unknown[] | null>(null)
+  const [stateKey, setStateKey] = useState('')
+  const [stateValue, setStateValue] = useState('')
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const load = useCallback(() => {
+    Promise.all([
+      api.get<Record<string, unknown>>(`/api/v1/assignments/${assignment.id}/state`),
+      api.get<unknown[]>(`/api/v1/assignments/${assignment.id}/memory`),
+    ]).then(
+      ([s, m]) => {
+        setStateData(s ?? {})
+        setMemory(m ?? [])
+      },
+      (err) => setError(err instanceof ApiError ? err.message : 'failed to load state'),
+    )
+  }, [assignment.id])
+
+  useEffect(load, [load])
+
+  const saveState = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!stateKey.trim()) return
+    setBusy(true)
+    setError('')
+    try {
+      await api.put(`/api/v1/assignments/${assignment.id}/state/${encodeURIComponent(stateKey.trim())}`, {
+        value: parseInspectorValue(stateValue),
+      })
+      setStateKey('')
+      setStateValue('')
+      load()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'save failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const deleteState = async (key: string) => {
+    setBusy(true)
+    setError('')
+    try {
+      await api.del(`/api/v1/assignments/${assignment.id}/state/${encodeURIComponent(key)}`)
+      load()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'delete failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const appendMemory = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!note.trim()) return
+    setBusy(true)
+    setError('')
+    try {
+      await api.post(`/api/v1/assignments/${assignment.id}/memory`, { note: parseInspectorValue(note) })
+      setNote('')
+      load()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'append failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal title="Assignment state" onClose={onClose}>
+      {error && <div className="form-error">{error}</div>}
+      <JsonView label="State" value={stateData ?? {}} open />
+      {stateData &&
+        Object.keys(stateData).map((key) => (
+          <div className="row mb" key={key}>
+            <span className="mono">{key}</span>
+            <div className="spacer" />
+            {isAdmin && (
+              <button className="small danger" disabled={busy} onClick={() => deleteState(key)}>
+                Delete
+              </button>
+            )}
+          </div>
+        ))}
+      {isAdmin && (
+        <form onSubmit={saveState} className="mb">
+          <div className="row">
+            <input placeholder="state key" value={stateKey} onChange={(e) => setStateKey(e.target.value)} />
+            <input placeholder="value or JSON" value={stateValue} onChange={(e) => setStateValue(e.target.value)} />
+            <button className="primary" type="submit" disabled={busy || !stateKey.trim()}>
+              Save
+            </button>
+          </div>
+        </form>
+      )}
+      <JsonView label="Memory" value={memory ?? []} open />
+      {isAdmin && (
+        <form onSubmit={appendMemory}>
+          <label className="field">
+            <span>Append memory note</span>
+            <textarea className="mono" rows={4} value={note} onChange={(e) => setNote(e.target.value)} />
+          </label>
+          <button className="primary" type="submit" disabled={busy || !note.trim()}>
+            Append
+          </button>
+        </form>
+      )}
     </Modal>
   )
 }
@@ -140,6 +428,8 @@ export default function AgentDetail() {
   const [runs, setRuns] = useState<Run[]>([])
   const [statusFilter, setStatusFilter] = useState('')
   const [runningAssignment, setRunningAssignment] = useState<Assignment | null>(null)
+  const [editingAssignment, setEditingAssignment] = useState<Assignment | null | undefined>(undefined)
+  const [stateAssignment, setStateAssignment] = useState<Assignment | null>(null)
   const [openRun, setOpenRun] = useState<Run | null>(null)
 
   const load = useCallback(() => {
@@ -283,6 +573,13 @@ export default function AgentDetail() {
       )}
 
       <Card title="Assignments" className="mb">
+        {isAdmin && (
+          <div className="row mb">
+            <button className="primary" onClick={() => setEditingAssignment(null)}>
+              New assignment
+            </button>
+          </div>
+        )}
         <Table
           columns={[
             { header: 'Duty', render: (a: Assignment) => dutyName(a.duty_id) },
@@ -294,6 +591,7 @@ export default function AgentDetail() {
                 </>
               ),
             },
+            { header: 'Backend', render: (a: Assignment) => a.backend?.name ?? 'default' },
             {
               header: 'Enabled',
               render: (a: Assignment) =>
@@ -309,10 +607,22 @@ export default function AgentDetail() {
               header: '',
               render: (a: Assignment) =>
                 isAdmin ? (
-                  <button className="small" onClick={() => setRunningAssignment(a)}>
-                    Run now
+                  <div className="row wrap">
+                    <button className="small" onClick={() => setEditingAssignment(a)}>
+                      Edit
+                    </button>
+                    <button className="small" onClick={() => setStateAssignment(a)}>
+                      State
+                    </button>
+                    <button className="small" onClick={() => setRunningAssignment(a)}>
+                      Run now
+                    </button>
+                  </div>
+                ) : (
+                  <button className="small" onClick={() => setStateAssignment(a)}>
+                    State
                   </button>
-                ) : null,
+                ),
             },
           ]}
           rows={assignments}
@@ -358,6 +668,19 @@ export default function AgentDetail() {
           }}
         />
       )}
+      {editingAssignment !== undefined && (
+        <AssignmentEditorModal
+          agentID={agent.id}
+          duties={duties}
+          assignment={editingAssignment}
+          onClose={() => setEditingAssignment(undefined)}
+          onSaved={() => {
+            setEditingAssignment(undefined)
+            load()
+          }}
+        />
+      )}
+      {stateAssignment && <AssignmentStateModal assignment={stateAssignment} isAdmin={isAdmin} onClose={() => setStateAssignment(null)} />}
       {openRun && <RunDrawer run={openRun} onClose={() => setOpenRun(null)} />}
     </>
   )

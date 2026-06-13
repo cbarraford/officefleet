@@ -15,6 +15,7 @@ import (
 	"github.com/cbarraford/office-fleet/internal/auth"
 	"github.com/cbarraford/office-fleet/internal/config"
 	"github.com/cbarraford/office-fleet/internal/domain"
+	"github.com/cbarraford/office-fleet/internal/state"
 	"github.com/google/uuid"
 )
 
@@ -248,6 +249,7 @@ type entityFixture struct {
 	duties *fakeDutyStore
 	asgns  *fakeAssignmentStore
 	runs   *fakeRunStoreEntity
+	state  *state.MemStore
 	srv    *httptest.Server
 	token  string
 }
@@ -258,6 +260,7 @@ func newEntityFixture(t *testing.T) *entityFixture {
 	duties := newFakeDutyStore()
 	asgns := newFakeAssignmentStore()
 	runs := &fakeRunStoreEntity{}
+	stateStore := state.NewMemStore()
 
 	sessions := auth.NewSessions(newMemSessionStore(domain.RoleAdmin))
 	token, err := sessions.Start(context.Background(), uuid.New())
@@ -277,6 +280,7 @@ func newEntityFixture(t *testing.T) *entityFixture {
 		Duties:      duties,
 		Assignments: asgns,
 		Runs:        runs,
+		State:       stateStore,
 		Sessions:    sessions,
 		Config:      cfg,
 	})
@@ -292,6 +296,7 @@ func newEntityFixture(t *testing.T) *entityFixture {
 		duties: duties,
 		asgns:  asgns,
 		runs:   runs,
+		state:  stateStore,
 		srv:    srv,
 		token:  token,
 	}
@@ -321,6 +326,37 @@ func (f *entityFixture) do(t *testing.T, method, path string, body any) *http.Re
 	}
 	t.Cleanup(func() { resp.Body.Close() })
 	return resp
+}
+
+func (f *entityFixture) createAssignment(t *testing.T, agentName, dutyName string) string {
+	t.Helper()
+	dutyResp := f.do(t, "POST", "/api/v1/duties", map[string]any{
+		"name":          dutyName,
+		"trigger_kinds": []string{"manual"},
+	})
+	if dutyResp.StatusCode != http.StatusCreated {
+		t.Fatalf("create duty: status = %d", dutyResp.StatusCode)
+	}
+	var duty map[string]any
+	decodeBody(t, dutyResp, &duty)
+
+	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": agentName})
+	if agentResp.StatusCode != http.StatusCreated {
+		t.Fatalf("create agent: status = %d", agentResp.StatusCode)
+	}
+	var agent map[string]any
+	decodeBody(t, agentResp, &agent)
+
+	assignmentResp := f.do(t, "POST", "/api/v1/assignments", map[string]any{
+		"agent_id": agent["id"].(string),
+		"duty_id":  duty["id"].(string),
+	})
+	if assignmentResp.StatusCode != http.StatusCreated {
+		t.Fatalf("create assignment: status = %d", assignmentResp.StatusCode)
+	}
+	var assignment map[string]any
+	decodeBody(t, assignmentResp, &assignment)
+	return assignment["id"].(string)
 }
 
 func decodeBody(t *testing.T, resp *http.Response, out any) {
@@ -737,6 +773,86 @@ func TestAssignment_UnknownAgentID_400(t *testing.T) {
 	decodeBody(t, resp, &body)
 	if !strings.Contains(body["error"].(string), "agent_id") {
 		t.Errorf("error should mention 'agent_id': %v", body["error"])
+	}
+}
+
+func TestAssignmentStateAndMemoryEndpoints(t *testing.T) {
+	f := newEntityFixture(t)
+	assignmentID := f.createAssignment(t, "StateAgent", "StateDuty")
+	if err := f.state.Set(context.Background(), assignmentID, "cursor", []byte(`{"sha":"abc123"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.state.Set(context.Background(), assignmentID, "plain", []byte(`hello`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.state.AppendNote(context.Background(), assignmentID, map[string]string{"msg": "remember this"}); err != nil {
+		t.Fatal(err)
+	}
+
+	stateResp := f.do(t, "GET", "/api/v1/assignments/"+assignmentID+"/state", nil)
+	if stateResp.StatusCode != http.StatusOK {
+		t.Fatalf("state status = %d, want 200", stateResp.StatusCode)
+	}
+	var stateBody map[string]any
+	decodeBody(t, stateResp, &stateBody)
+	if stateBody["plain"] != "hello" {
+		t.Fatalf("plain state = %v, want hello", stateBody["plain"])
+	}
+	cursor := stateBody["cursor"].(map[string]any)
+	if cursor["sha"] != "abc123" {
+		t.Fatalf("cursor.sha = %v", cursor["sha"])
+	}
+
+	memResp := f.do(t, "GET", "/api/v1/assignments/"+assignmentID+"/memory", nil)
+	if memResp.StatusCode != http.StatusOK {
+		t.Fatalf("memory status = %d, want 200", memResp.StatusCode)
+	}
+	var notes []map[string]any
+	decodeBody(t, memResp, &notes)
+	if len(notes) != 1 || notes[0]["msg"] != "remember this" {
+		t.Fatalf("notes = %#v", notes)
+	}
+}
+
+func TestAssignmentStateAndMemoryMutationEndpoints(t *testing.T) {
+	f := newEntityFixture(t)
+	assignmentID := f.createAssignment(t, "MutableStateAgent", "MutableStateDuty")
+
+	putResp := f.do(t, "PUT", "/api/v1/assignments/"+assignmentID+"/state/cursor", map[string]any{
+		"value": map[string]any{"sha": "def456"},
+	})
+	if putResp.StatusCode != http.StatusOK {
+		t.Fatalf("put state status = %d, want 200", putResp.StatusCode)
+	}
+	getResp := f.do(t, "GET", "/api/v1/assignments/"+assignmentID+"/state", nil)
+	var stateBody map[string]any
+	decodeBody(t, getResp, &stateBody)
+	if stateBody["cursor"].(map[string]any)["sha"] != "def456" {
+		t.Fatalf("state after put = %#v", stateBody)
+	}
+
+	deleteResp := f.do(t, "DELETE", "/api/v1/assignments/"+assignmentID+"/state/cursor", nil)
+	if deleteResp.StatusCode != http.StatusOK {
+		t.Fatalf("delete state status = %d, want 200", deleteResp.StatusCode)
+	}
+	getResp = f.do(t, "GET", "/api/v1/assignments/"+assignmentID+"/state", nil)
+	stateBody = map[string]any{}
+	decodeBody(t, getResp, &stateBody)
+	if _, ok := stateBody["cursor"]; ok {
+		t.Fatalf("cursor still present after delete: %#v", stateBody)
+	}
+
+	noteResp := f.do(t, "POST", "/api/v1/assignments/"+assignmentID+"/memory", map[string]any{
+		"note": map[string]any{"msg": "operator note"},
+	})
+	if noteResp.StatusCode != http.StatusCreated {
+		t.Fatalf("append memory status = %d, want 201", noteResp.StatusCode)
+	}
+	notesResp := f.do(t, "GET", "/api/v1/assignments/"+assignmentID+"/memory", nil)
+	var notes []map[string]any
+	decodeBody(t, notesResp, &notes)
+	if len(notes) != 1 || notes[0]["msg"] != "operator note" {
+		t.Fatalf("notes after append = %#v", notes)
 	}
 }
 

@@ -60,6 +60,15 @@ type SecretStore interface {
 	Delete(ctx context.Context, name string) error
 }
 
+type AssignmentStateStore interface {
+	Get(ctx context.Context, assignmentID, key string) ([]byte, bool, error)
+	Set(ctx context.Context, assignmentID, key string, val []byte) error
+	Delete(ctx context.Context, assignmentID, key string) error
+	List(ctx context.Context, assignmentID string) (map[string][]byte, error)
+	AppendNote(ctx context.Context, assignmentID string, note any) error
+	ListNotes(ctx context.Context, assignmentID string) ([]json.RawMessage, error)
+}
+
 type UserStore interface {
 	GetByUsername(ctx context.Context, username string) (*domain.User, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error)
@@ -92,6 +101,7 @@ type API struct {
 	runs          RunStore
 	events        EventStore
 	secretsRepo   SecretStore
+	state         AssignmentStateStore
 	users         UserStore
 	sessions      *auth.Sessions
 	invoker       Invoker
@@ -115,6 +125,7 @@ type Deps struct {
 	Runs          RunStore
 	Events        EventStore
 	Secrets       SecretStore
+	State         AssignmentStateStore
 	Users         UserStore
 	Sessions      *auth.Sessions
 	Invoker       Invoker
@@ -129,7 +140,7 @@ type Deps struct {
 func New(d Deps) *API {
 	return &API{
 		agents: d.Agents, duties: d.Duties, assignments: d.Assignments,
-		runs: d.Runs, events: d.Events, secretsRepo: d.Secrets, users: d.Users,
+		runs: d.Runs, events: d.Events, secretsRepo: d.Secrets, state: d.State, users: d.Users,
 		sessions: d.Sessions, invoker: d.Invoker, encryptor: d.Encryptor,
 		isEncrypted: d.IsEncrypted, notify: d.Notify, cfg: d.Config,
 		avatars:       d.Avatars,
@@ -177,6 +188,11 @@ func (a *API) authedMux() *http.ServeMux {
 	m.HandleFunc("PATCH /api/v1/assignments/{id}", a.handlePatchAssignment)
 	m.HandleFunc("DELETE /api/v1/assignments/{id}", a.handleDeleteAssignment)
 	m.HandleFunc("POST /api/v1/assignments/{id}/run", a.handleRunNow)
+	m.HandleFunc("GET /api/v1/assignments/{id}/state", a.handleListAssignmentState)
+	m.HandleFunc("PUT /api/v1/assignments/{id}/state/{key}", a.handlePutAssignmentState)
+	m.HandleFunc("DELETE /api/v1/assignments/{id}/state/{key}", a.handleDeleteAssignmentState)
+	m.HandleFunc("GET /api/v1/assignments/{id}/memory", a.handleListAssignmentMemory)
+	m.HandleFunc("POST /api/v1/assignments/{id}/memory", a.handleAppendAssignmentMemory)
 
 	m.HandleFunc("GET /api/v1/runs", a.handleListRuns)
 	m.HandleFunc("GET /api/v1/runs/{id}", a.handleGetRun)

@@ -111,3 +111,24 @@ func TestMemStore_AppendNote(t *testing.T) {
 		t.Fatalf("assign-2 note count: want 1, got %d", got)
 	}
 }
+
+func TestMemStore_ListNotes(t *testing.T) {
+	ctx := context.Background()
+	s := state.NewMemStore()
+	if err := s.AppendNote(ctx, "assign-1", map[string]string{"msg": "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AppendNote(ctx, "assign-1", map[string]string{"msg": "second"}); err != nil {
+		t.Fatal(err)
+	}
+	notes, err := s.ListNotes(ctx, "assign-1")
+	if err != nil {
+		t.Fatalf("ListNotes: %v", err)
+	}
+	if len(notes) != 2 {
+		t.Fatalf("notes len = %d, want 2", len(notes))
+	}
+	if string(notes[0]) != `{"msg":"hello"}` {
+		t.Fatalf("first note = %s", notes[0])
+	}
+}

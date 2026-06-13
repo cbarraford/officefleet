@@ -66,6 +66,23 @@ func (s *PostgresStore) AppendNote(ctx context.Context, assignmentID string, not
 	return err
 }
 
+func (s *PostgresStore) ListNotes(ctx context.Context, assignmentID string) ([]json.RawMessage, error) {
+	rows, err := s.db.Query(ctx, "SELECT note FROM assignment_notes WHERE assignment_id=$1 ORDER BY created_at ASC, id ASC", assignmentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []json.RawMessage
+	for rows.Next() {
+		var note json.RawMessage
+		if err := rows.Scan(&note); err != nil {
+			return nil, err
+		}
+		out = append(out, append(json.RawMessage(nil), note...))
+	}
+	return out, rows.Err()
+}
+
 func (s *PostgresStore) HasProcessed(ctx context.Context, assignmentID, dedupKey string) (bool, error) {
 	var exists bool
 	err := s.db.QueryRow(ctx,

@@ -1,6 +1,9 @@
 package state
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+)
 
 // Store provides per-assignment private state: KV and structured notes.
 // Keyed by assignmentID, not dutyID — two agents running the same duty need independent state.
@@ -15,6 +18,8 @@ type Store interface {
 
 	// AppendNote adds a structured memory row for an assignment.
 	AppendNote(ctx context.Context, assignmentID string, note any) error
+	// ListNotes returns structured memory rows for an assignment, oldest first.
+	ListNotes(ctx context.Context, assignmentID string) ([]json.RawMessage, error)
 
 	// HasProcessed returns true if the given dedupKey has already been recorded.
 	HasProcessed(ctx context.Context, assignmentID, dedupKey string) (bool, error)
