@@ -943,6 +943,7 @@ func serveCmd() *cobra.Command {
 				Events:        eventRepo,
 				Runs:          repo.NewRunRepo(pool),
 				Secrets:       repo.NewSecretRepo(pool),
+				State:         state.NewPostgresStore(pool),
 				Users:         repo.NewUserRepo(pool),
 				Sessions:      auth.NewSessions(repo.NewSessionRepo(pool)),
 				Invoker:       inv,
