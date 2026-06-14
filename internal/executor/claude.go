@@ -128,7 +128,12 @@ func parseClaudeOutput(data []byte) (domain.LLMResult, error) {
 			}
 		}
 	}
-	if v, ok := raw["cost_usd"].(float64); ok {
+	// The claude CLI emits total_cost_usd; older versions used cost_usd. Prefer
+	// the current field and fall back to the legacy one (issue #1) — reading the
+	// wrong field recorded every run's cost as $0.
+	if v, ok := raw["total_cost_usd"].(float64); ok {
+		result.Cost = v
+	} else if v, ok := raw["cost_usd"].(float64); ok {
 		result.Cost = v
 	}
 	if v, ok := raw["usage"].(map[string]any); ok {

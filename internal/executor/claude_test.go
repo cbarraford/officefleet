@@ -23,6 +23,31 @@ func TestParseClaudeOutput_ValidJSON(t *testing.T) {
 	}
 }
 
+func TestParseClaudeOutput_TotalCostUSD(t *testing.T) {
+	// The claude CLI emits total_cost_usd; reading the wrong field recorded
+	// every run's cost as $0 (issue #1).
+	input := []byte(`{"result":"done","total_cost_usd":0.137,"usage":{"output_tokens":5}}`)
+	res, err := parseClaudeOutput(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Cost != 0.137 {
+		t.Errorf("Cost = %v, want 0.137 (from total_cost_usd)", res.Cost)
+	}
+}
+
+func TestParseClaudeOutput_TotalCostPreferredOverLegacy(t *testing.T) {
+	// When both are present total_cost_usd wins; cost_usd is only a legacy fallback.
+	input := []byte(`{"result":"done","total_cost_usd":0.20,"cost_usd":0.05}`)
+	res, err := parseClaudeOutput(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Cost != 0.20 {
+		t.Errorf("Cost = %v, want 0.20 (total_cost_usd preferred)", res.Cost)
+	}
+}
+
 func TestParseClaudeOutput_NonJSONFails(t *testing.T) {
 	// The CLI is invoked with --output-format json, so the final line must be a
 	// JSON object. Unparseable output (warnings, partial output, a crash) is a
