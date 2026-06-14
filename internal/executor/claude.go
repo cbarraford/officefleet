@@ -95,10 +95,15 @@ func parseClaudeOutput(data []byte) (domain.LLMResult, error) {
 	}
 	var raw map[string]any
 	if err := json.Unmarshal(last, &raw); err != nil {
+		// --output-format json guarantees a JSON object on the final line.
+		// Unparseable output (a warning, partial output, a crash) is a failure,
+		// not a success — fabricating Status:0 here would post the garbage to
+		// the integration and record the run as succeeded (issue #2). Return
+		// Status:1 + a non-nil error; the raw output is preserved for audit.
 		return domain.LLMResult{
-			Status: 0, Summary: string(data),
+			Status: 1, Summary: string(data),
 			Output: map[string]any{"raw": string(data)}, Transcript: string(data),
-		}, nil
+		}, fmt.Errorf("claude: output is not valid JSON (%d bytes)", len(data))
 	}
 	result := domain.LLMResult{Output: map[string]any{}}
 	if isErr, ok := raw["is_error"].(bool); ok && isErr {
