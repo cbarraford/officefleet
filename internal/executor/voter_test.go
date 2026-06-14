@@ -217,6 +217,57 @@ func TestVoter_FirstSuccess_CancelsLosers(t *testing.T) {
 	}
 }
 
+func TestVoter_FirstSuccess_TranscriptAndAccounting(t *testing.T) {
+	// A member that fails fast still ran, so its tokens count and it appears in
+	// the panel summary; the winner's transcript is prefixed with that summary.
+	failing := &slowFake{result: domain.LLMResult{Status: 1, Summary: "f", Tokens: 10}, delay: time.Millisecond}
+	ok := &slowFake{result: domain.LLMResult{Status: 0, Summary: "ok", Tokens: 20, Transcript: "INNER-OK"}, delay: 20 * time.Millisecond}
+	v := &VotingExecutor{
+		Strategy: "first_success",
+		Panel:    []PanelMember{{Name: "f", Exec: failing}, {Name: "ok", Exec: ok}},
+	}
+	res, err := v.Run(context.Background(), LLMRequest{Prompt: "p"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Summary != "ok" {
+		t.Fatalf("Summary = %q, want ok", res.Summary)
+	}
+	if res.Tokens != 30 {
+		t.Errorf("Tokens = %d, want 30 (both members ran before the winner)", res.Tokens)
+	}
+	if !strings.HasPrefix(res.Transcript, "=== voter panel") {
+		t.Errorf("first_success transcript must be prefixed with the panel summary, got %q", res.Transcript)
+	}
+	if !strings.Contains(res.Transcript, "INNER-OK") {
+		t.Error("winning transcript content must be preserved after the summary")
+	}
+	if !strings.Contains(res.Transcript, "panel f: status=1") || !strings.Contains(res.Transcript, "panel ok: status=0") {
+		t.Errorf("panel summary must list both members, got %q", res.Transcript)
+	}
+}
+
+func TestVoter_FirstSuccess_MarksCancelledInSummary(t *testing.T) {
+	// The slow member is cancelled when the fast one wins; the summary must mark
+	// it cancelled rather than omit it (otherwise the audit silently under-reports).
+	slow := &slowFake{result: domain.LLMResult{Status: 0, Summary: "slow"}, delay: 10 * time.Second}
+	fast := &slowFake{result: domain.LLMResult{Status: 0, Summary: "fast", Tokens: 7}, delay: time.Millisecond}
+	v := &VotingExecutor{
+		Strategy: "first_success",
+		Panel:    []PanelMember{{Name: "slow", Exec: slow}, {Name: "fast", Exec: fast}},
+	}
+	res, err := v.Run(context.Background(), LLMRequest{Prompt: "p"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res.Transcript, "panel slow: cancelled") {
+		t.Errorf("cancelled member must be marked in the summary, got %q", res.Transcript)
+	}
+	if !strings.Contains(res.Transcript, "panel fast: status=0") {
+		t.Errorf("winning member must appear in the summary, got %q", res.Transcript)
+	}
+}
+
 func TestVoter_KindAndTranscriptPrefix(t *testing.T) {
 	m1 := &slowFake{result: domain.LLMResult{Status: 0, Summary: "x", Transcript: "INNER", Tokens: 5}, delay: time.Millisecond}
 	v := &VotingExecutor{Strategy: "majority", Panel: []PanelMember{{Name: "m1", Exec: m1}}}

@@ -80,16 +80,21 @@ func (v *VotingExecutor) Run(ctx context.Context, req LLMRequest) (domain.LLMRes
 
 // firstSuccess returns the first completed result with Status == 0, cancelling
 // the rest. Tokens/cost are summed over results received up to and including
-// the winner (cancelled members never report). If no member succeeds, the
-// last-completed failure is returned; if every member also errored, an error.
+// the winner; members cancelled before completing cannot report tokens, so they
+// are marked "cancelled" in the panel summary instead of being silently dropped
+// from the audit. The returned transcript is prefixed with that summary (SP2),
+// just like majority. If no member succeeds, the last-completed failure is
+// returned; if every member also errored, an error.
 func (v *VotingExecutor) firstSuccess(ch <-chan memberOutcome) (domain.LLMResult, error) {
 	tokens, cost := 0, 0.0
+	received := make([]memberOutcome, 0, len(v.Panel))
 	var last memberOutcome
 	allErrored := true
 	for range v.Panel {
 		out := <-ch
 		tokens += out.result.Tokens
 		cost += out.result.Cost
+		received = append(received, out)
 		last = out
 		if !out.hadErr {
 			allErrored = false
@@ -98,6 +103,7 @@ func (v *VotingExecutor) firstSuccess(ch <-chan memberOutcome) (domain.LLMResult
 			win := out.result
 			win.Tokens = tokens
 			win.Cost = cost
+			win.Transcript = v.panelSummary(received) + win.Transcript
 			// Losing goroutines may outlive this return (cancellation is
 			// advisory); their tool I/O can race the pipeline's workspace
 			// cleanup and fail harmlessly as observations.
@@ -107,6 +113,7 @@ func (v *VotingExecutor) firstSuccess(ch <-chan memberOutcome) (domain.LLMResult
 	res := last.result
 	res.Tokens = tokens
 	res.Cost = cost
+	res.Transcript = v.panelSummary(received) + res.Transcript
 	if allErrored {
 		return res, fmt.Errorf("all %d panel members failed", len(v.Panel))
 	}
@@ -167,11 +174,15 @@ func (v *VotingExecutor) majority(ch <-chan memberOutcome) (domain.LLMResult, er
 	return res, nil
 }
 
-// panelSummary renders one line per member: name -> status/tokens.
-// It requires the COMPLETE outcome set (all panel members drained), so only
-// majority may call it — firstSuccess returns with partial outcomes.
+// panelSummary renders one line per panel member: name -> status/tokens.
+// It tolerates a PARTIAL outcome set: members not present (e.g. first_success
+// cancelled them before they completed) are marked "cancelled" so the audit
+// shows every launched member rather than silently omitting the cancelled ones.
 func (v *VotingExecutor) panelSummary(outcomes []memberOutcome) string {
 	lines := make([]string, len(v.Panel))
+	for i := range v.Panel {
+		lines[i] = fmt.Sprintf("panel %s: cancelled", v.Panel[i].Name)
+	}
 	for _, out := range outcomes {
 		lines[out.idx] = fmt.Sprintf("panel %s: status=%d tokens=%d", v.Panel[out.idx].Name, out.result.Status, out.result.Tokens)
 	}
