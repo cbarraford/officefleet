@@ -79,6 +79,76 @@ func TestCronTrigger_StepExpression(t *testing.T) {
 	}
 }
 
+func TestCronTrigger_UnsatisfiableErrors(t *testing.T) {
+	// Feb 31 never occurs. Next must return an error, not the zero time — a
+	// zero time reads as "always due" and fires a paid run every tick (issue #9).
+	c := trigger.NewCron("0 0 31 2 *")
+	from := time.Date(2026, 6, 7, 8, 0, 0, 0, time.UTC)
+	if _, err := c.Next(from); err == nil {
+		t.Error("Next on an unsatisfiable schedule must return an error")
+	}
+	if err := c.Validate(); err == nil {
+		t.Error("Validate must reject an unsatisfiable schedule")
+	}
+}
+
+func TestCronTrigger_RareScheduleStillValid(t *testing.T) {
+	// Feb 29 is rare but valid; it must NOT be flagged unsatisfiable.
+	c := trigger.NewCron("0 0 29 2 *")
+	if err := c.Validate(); err != nil {
+		t.Fatalf("valid leap-day schedule rejected: %v", err)
+	}
+	from := time.Date(2026, 6, 14, 0, 0, 0, 0, time.UTC)
+	next, err := c.Next(from)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.Year() != 2028 || next.Month() != time.February || next.Day() != 29 {
+		t.Fatalf("expected 2028-02-29, got %v", next)
+	}
+}
+
+func TestCronTrigger_CommaList(t *testing.T) {
+	// "0 9,17 * * *" fires at 09:00 AND 17:00. The old fmt.Sscanf parse silently
+	// dropped the 17:00 firing (issue #9).
+	c := trigger.NewCron("0 9,17 * * *")
+	if err := c.Validate(); err != nil {
+		t.Fatalf("comma list rejected: %v", err)
+	}
+	from := time.Date(2026, 6, 7, 9, 30, 0, 0, time.UTC)
+	next, err := c.Next(from)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.Day() != 7 || next.Hour() != 17 || next.Minute() != 0 {
+		t.Fatalf("expected same-day 17:00, got %v", next)
+	}
+}
+
+func TestCronTrigger_DOMorDOW(t *testing.T) {
+	// Standard cron: when BOTH day-of-month and day-of-week are restricted, fire
+	// when EITHER matches. "0 0 13 * 5" => the 13th OR any Friday.
+	c := trigger.NewCron("0 0 13 * 5")
+	// From 2026-06-01 (a Monday), the next firing is Friday 2026-06-05 (a Friday
+	// that is NOT the 13th) — only the OR rule produces this.
+	from := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	next, err := c.Next(from)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.Month() != time.June || next.Day() != 5 || next.Weekday() != time.Friday {
+		t.Fatalf("expected Friday 2026-06-05 (OR semantics), got %v (weekday %v)", next, next.Weekday())
+	}
+}
+
+func TestCronTrigger_SixFieldsRejected(t *testing.T) {
+	// A 6-field expression was silently truncated to 5, shifting field meanings.
+	c := trigger.NewCron("0 0 * * * *")
+	if err := c.Validate(); err == nil {
+		t.Error("a 6-field cron expression must be rejected, not truncated")
+	}
+}
+
 func TestScheduler_FiresDueAssignments(t *testing.T) {
 	sched := trigger.NewScheduler()
 	c := trigger.NewCron("* * * * *") // every minute

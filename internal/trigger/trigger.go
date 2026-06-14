@@ -2,6 +2,8 @@ package trigger
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"time"
 )
 
@@ -40,19 +42,28 @@ func NewCron(schedule string) *CronTrigger {
 
 func (c *CronTrigger) Kind() string { return "cron" }
 
-// Validate checks the cron expression is parseable.
+// Validate checks the cron expression is parseable and actually satisfiable.
 func (c *CronTrigger) Validate() error {
-	_, err := parseCron(c.Schedule)
-	return err
+	sched, err := parseCron(c.Schedule)
+	if err != nil {
+		return err
+	}
+	// Reject unsatisfiable schedules (e.g. Feb 31) at config time rather than
+	// letting them slip through to the scheduler (issue #9).
+	if _, err := sched.Next(time.Now()); err != nil {
+		return err
+	}
+	return nil
 }
 
-// Next returns the next scheduled time after t.
+// Next returns the next scheduled time after t, or an error for an
+// unsatisfiable schedule.
 func (c *CronTrigger) Next(t time.Time) (time.Time, error) {
 	sched, err := parseCron(c.Schedule)
 	if err != nil {
 		return time.Time{}, err
 	}
-	return sched.Next(t), nil
+	return sched.Next(t)
 }
 
 // Scheduler runs the cron trigger loop, calling fire for each due assignment.
@@ -95,10 +106,14 @@ func (s *Scheduler) Run(ctx context.Context, fire func(ctx context.Context, assi
 		for _, e := range due {
 			fire(ctx, e.AssignmentID)
 			next, err := e.trigger.Next(time.Now())
-			if err == nil {
-				e.next = next
-				s.entries = append(s.entries, e)
+			if err != nil {
+				// The schedule no longer matches any time; drop it rather than
+				// busy-loop re-firing on the zero time (issue #9).
+				fmt.Fprintf(os.Stderr, "warning: dropping assignment %s from scheduler: %v\n", e.AssignmentID, err)
+				continue
 			}
+			e.next = next
+			s.entries = append(s.entries, e)
 		}
 
 		select {
