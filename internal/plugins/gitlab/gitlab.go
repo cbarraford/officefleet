@@ -66,6 +66,10 @@ func (g *GitLabPlugin) Init(_ context.Context, cfg map[string]any, secrets plugi
 	if err != nil {
 		return fmt.Errorf("gitlab: resolve secret gitlab_token: %w", err)
 	}
+	if tok == "" {
+		// Fail closed: a tokenless client only 401s after a paid LLM run.
+		return fmt.Errorf("gitlab: secret gitlab_token is empty (set it with 'fleet secrets set gitlab_token')")
+	}
 	g.token = tok
 	if u, ok := cfg["base_url"].(string); ok && u != "" {
 		g.baseURL = strings.TrimRight(u, "/")

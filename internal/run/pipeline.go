@@ -11,6 +11,7 @@ import (
 	"github.com/cbarraford/office-fleet/internal/domain"
 	"github.com/cbarraford/office-fleet/internal/executor"
 	"github.com/cbarraford/office-fleet/internal/outputs"
+	"github.com/cbarraford/office-fleet/internal/plugin"
 	"github.com/cbarraford/office-fleet/internal/prompt"
 	"github.com/cbarraford/office-fleet/internal/repo"
 	"github.com/cbarraford/office-fleet/internal/state"
@@ -213,6 +214,27 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 			p.emitRunUpdate(run)
 			return run, nil
 		}
+	}
+
+	// Fail fast before spending an LLM call if any plugin this assignment will
+	// deliver to failed to initialize (issue #3). Otherwise the misconfiguration
+	// (e.g. an empty gitlab_token) only surfaces as a delivery error AFTER the
+	// paid run has executed.
+	for _, out := range req.Assignment.Outputs {
+		ierr := plugin.InitError(out.Plugin)
+		if ierr == nil {
+			continue
+		}
+		errMsg := fmt.Sprintf("output plugin %q is not usable: %v", out.Plugin, ierr)
+		if uerr := p.runRepo.UpdateStatus(ctx, run.ID, domain.RunStatusFailed, &errMsg); uerr != nil {
+			return nil, fmt.Errorf("record run failure: %w", uerr)
+		}
+		run.Status = domain.RunStatusFailed
+		run.Error = &errMsg
+		finished := time.Now()
+		run.FinishedAt = &finished
+		p.emitRunUpdate(run)
+		return run, nil
 	}
 
 	// Execute LLM.

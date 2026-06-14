@@ -25,6 +25,21 @@ func TestGitLabPlugin_InitSecretError(t *testing.T) {
 	}
 }
 
+func TestGitLabPlugin_InitEmptyToken(t *testing.T) {
+	p, ok := plugin.Get("gitlab")
+	if !ok {
+		t.Fatal("gitlab plugin not registered")
+	}
+	// The secret resolves successfully but to an empty string (unset secret /
+	// missing row). Init must fail closed rather than register a tokenless
+	// client that 401s only after a paid LLM run (issue #3).
+	secrets := func(name string) (string, error) { return "", nil }
+	err := p.Init(context.Background(), nil, secrets)
+	if err == nil {
+		t.Fatal("expected error when gitlab_token resolves empty, got nil")
+	}
+}
+
 func TestGitLabPlugin_PostMRComment(t *testing.T) {
 	var capturedBody string
 	var capturedPath string

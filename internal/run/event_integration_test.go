@@ -49,7 +49,7 @@ func TestEventVertical_WebhookToRun(t *testing.T) {
 		if name == "gitlab_webhook_secret" {
 			return "integration-secret", nil
 		}
-		return "", nil
+		return "integration-token", nil
 	}
 	if err := gl.Init(ctx, map[string]any{}, secrets); err != nil {
 		t.Fatal(err)

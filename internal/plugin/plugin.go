@@ -79,3 +79,25 @@ func All() []Plugin {
 	}
 	return out
 }
+
+// initErrors records the outcome of each plugin's most recent Init call.
+var initErrors = map[string]error{}
+
+// RecordInit stores the outcome of a plugin's Init call; a nil err clears any
+// previously recorded failure. The run pipeline consults InitError to fail fast
+// before an expensive LLM call when an assignment's output plugin is unusable,
+// while the daemon itself keeps running — one broken, unused plugin must not
+// take down `fleet serve`.
+func RecordInit(name string, err error) {
+	if err != nil {
+		initErrors[name] = err
+	} else {
+		delete(initErrors, name)
+	}
+}
+
+// InitError returns the recorded Init failure for a plugin, or nil if it
+// initialized successfully or was never initialized.
+func InitError(name string) error {
+	return initErrors[name]
+}

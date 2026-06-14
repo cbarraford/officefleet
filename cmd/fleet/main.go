@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
 
@@ -144,14 +145,20 @@ func decryptSecret(c *secrets.Cipher, name string, stored []byte) (string, error
 }
 
 // buildSecretLookup returns a SecretLookup that queries the secrets table and
-// decrypts FSEC1 values transparently. Missing secrets return ("", nil) so
-// --fake runs remain usable without seeded secrets.
+// decrypts FSEC1 values transparently. A genuinely absent secret returns
+// ("", nil) so --fake runs and optional secrets remain usable, but a real DB
+// error (connection failure, missing table) is PROPAGATED rather than masked
+// as an empty value (issue #3) — otherwise a plugin treats token="" as success
+// and the failure only surfaces as a 401 after a paid LLM run.
 func buildSecretLookup(ctx context.Context, pool *pgxpool.Pool, cipher *secrets.Cipher) plugin.SecretLookup {
 	return func(name string) (string, error) {
 		var val []byte
 		err := pool.QueryRow(ctx, "SELECT encrypted_value FROM secrets WHERE name=$1", name).Scan(&val)
-		if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return "", nil
+		}
+		if err != nil {
+			return "", fmt.Errorf("lookup secret %q: %w", name, err)
 		}
 		return decryptSecret(cipher, name, val)
 	}
@@ -203,7 +210,12 @@ func initPlugins(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, ci
 		if pluginCfg == nil {
 			pluginCfg = map[string]any{}
 		}
-		if err := p.Init(ctx, pluginCfg, secretLookup); err != nil {
+		err := p.Init(ctx, pluginCfg, secretLookup)
+		// Record the outcome so the run pipeline can fail fast before an LLM
+		// call when an assignment delivers to this plugin (issue #3). The
+		// daemon still continues: an unused, broken plugin must not stop serve.
+		plugin.RecordInit(p.Name(), err)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: plugin %q init failed: %v\n", p.Name(), err)
 		}
 	}

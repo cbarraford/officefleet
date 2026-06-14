@@ -2,6 +2,7 @@ package run
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -41,6 +42,19 @@ func (m *mockPlugin) Init(_ context.Context, _ map[string]any, _ plugin.SecretLo
 func (m *mockPlugin) Do(_ context.Context, _ string, _ map[string]any) (map[string]any, error) {
 	m.called = true
 	return map[string]any{}, nil
+}
+
+// recordingExecutor records whether Run was invoked, so tests can assert that
+// the pipeline failed fast before spending an LLM call.
+type recordingExecutor struct {
+	called bool
+	result domain.LLMResult
+}
+
+func (r *recordingExecutor) Kind() string { return "recording" }
+func (r *recordingExecutor) Run(_ context.Context, _ executor.LLMRequest) (domain.LLMResult, error) {
+	r.called = true
+	return r.result, nil
 }
 
 // fakeRunRepo is an in-memory implementation of runRepo for tests.
@@ -1122,6 +1136,58 @@ func TestPipelineExecute_AssignmentPausedSkip(t *testing.T) {
 		t.Fatalf("Execute returned error: %v", err)
 	}
 	assertPausedSkip(t, run, rr, fakeExec, "assignment_paused")
+}
+
+func TestPipelineExecute_FailsFastOnUninitializedPlugin(t *testing.T) {
+	ctx := context.Background()
+
+	// A plugin that registered but failed Init (e.g. empty gitlab_token).
+	mock := &mockPlugin{name: "uninit-plugin"}
+	plugin.Register(mock)
+	plugin.RecordInit("uninit-plugin", errors.New("missing token"))
+	defer plugin.RecordInit("uninit-plugin", nil)
+
+	exec := &recordingExecutor{result: domain.LLMResult{Status: 0, Output: map[string]any{}}}
+	store := state.NewMemStore()
+
+	backendName := "uninit-backend"
+	cfg := &config.Config{
+		Backends: []config.Backend{{
+			Name: backendName, Kind: "claude", Model: "m",
+			Auth: config.BackendAuth{Mode: "subscription"},
+		}},
+	}
+	rr := newFakeRunRepo()
+	pipeline := &Pipeline{cfg: cfg, runRepo: rr, store: store}
+
+	agentID, dutyID, assignmentID := uuid.New(), uuid.New(), uuid.New()
+	agent := &domain.Agent{ID: agentID, Name: "a", Role: "r", SystemPrompt: "s", Enabled: true}
+	duty := &domain.Duty{ID: dutyID, Name: "d", Role: "r", Description: "x", Prompt: "Do it."}
+	assignment := &domain.Assignment{
+		ID: assignmentID, AgentID: agentID, DutyID: dutyID, Enabled: true,
+		Backend: &domain.BackendRef{Name: backendName}, Config: map[string]any{},
+		Outputs: []domain.OutputBinding{
+			{Plugin: "uninit-plugin", Action: "notify", Params: map[string]any{"m": "x"}},
+		},
+	}
+	req := ExecuteRequest{
+		Assignment: assignment, Agent: agent, Duty: duty,
+		TriggerKind: "manual", Executor: exec,
+	}
+
+	run, err := pipeline.Execute(ctx, req)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v (a misconfigured plugin must fail the run, not the pipeline)", err)
+	}
+	if run.Status != domain.RunStatusFailed {
+		t.Errorf("status = %q, want failed", run.Status)
+	}
+	if exec.called {
+		t.Error("executor.Run must NOT be called when a referenced plugin failed Init (the LLM cost is wasted)")
+	}
+	if run.Error == nil || !strings.Contains(*run.Error, "uninit-plugin") {
+		t.Errorf("run.Error = %v, want it to name the broken plugin", run.Error)
+	}
 }
 
 func TestPipelineExecute_ModelReportedFailure(t *testing.T) {
