@@ -196,17 +196,25 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 	}
 	p.emitRunUpdate(run)
 
-	// Dedup: skip if this event has already been processed for this assignment.
-	// NOTE: Insert is intentionally called before this check so that every
-	// invocation is recorded in the database for audit purposes. Duplicate
-	// events are stored with RunStatusSkipped rather than being silently dropped.
+	// Dedup: atomically CLAIM this event for this assignment. The claim happens
+	// BEFORE the (multi-minute) LLM run, so a concurrent re-fire loses the race
+	// here rather than both running and double-posting (issue #5, TOCTOU). The
+	// claim is RELEASED on any failure below so a failed event can be retried;
+	// only a successful run keeps it. Insert is intentionally before this check
+	// so every invocation is recorded; duplicates are stored as RunStatusSkipped.
 	dedupKey := deriveDedupKey(req.EventParams)
-	if dedupKey != "" {
-		already, err := p.store.HasProcessed(ctx, req.Assignment.ID.String(), dedupKey)
-		if err != nil {
-			return nil, fmt.Errorf("dedup check: %w", err)
+	claimedDedup := false
+	releaseDedup := func() {
+		if claimedDedup {
+			_ = p.store.UnmarkProcessed(ctx, req.Assignment.ID.String(), dedupKey)
 		}
-		if already {
+	}
+	if dedupKey != "" {
+		claimed, err := p.store.ClaimProcessed(ctx, req.Assignment.ID.String(), dedupKey)
+		if err != nil {
+			return nil, fmt.Errorf("dedup claim: %w", err)
+		}
+		if !claimed {
 			reason := SkipReasonDuplicateEvent
 			_ = p.runRepo.UpdateStatus(ctx, run.ID, domain.RunStatusSkipped, &reason)
 			run.Status = domain.RunStatusSkipped
@@ -214,6 +222,7 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 			p.emitRunUpdate(run)
 			return run, nil
 		}
+		claimedDedup = true
 	}
 
 	// Fail fast before spending an LLM call if any plugin this assignment will
@@ -233,6 +242,7 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 		run.Error = &errMsg
 		finished := time.Now()
 		run.FinishedAt = &finished
+		releaseDedup()
 		p.emitRunUpdate(run)
 		return run, nil
 	}
@@ -250,7 +260,8 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 	if llmErr != nil {
 		// The executor also returns a partial result (transcript, tokens
 		// accumulated before the failure); record it for audit alongside the
-		// error. Outputs and dedup marking are skipped, as on every failure.
+		// error. Outputs are skipped and the dedup claim is released so the
+		// event can be retried, as on every failure.
 		errMsg := llmErr.Error()
 		if uerr := p.runRepo.UpdateResult(ctx, run.ID, &llmResult, nil, domain.RunStatusFailed); uerr != nil {
 			return nil, fmt.Errorf("record run result: %w", uerr)
@@ -263,6 +274,7 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 		run.Error = &errMsg
 		finished := time.Now()
 		run.FinishedAt = &finished
+		releaseDedup()
 		p.emitRunUpdate(run)
 		return run, fmt.Errorf("executor: %w", llmErr)
 	}
@@ -270,7 +282,7 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 	// Model-reported failure: a nonzero status means the work did not succeed.
 	// Record the full result for audit (including the transcript) but skip
 	// output delivery — a failed run must not post half-formed outputs — and
-	// skip dedup marking so the work can be retried. This also captures the
+	// release the dedup claim so the work can be retried. This also captures the
 	// claude path's is_error, which parseClaudeOutput maps to Status 1.
 	if llmResult.Status != 0 {
 		errMsg := fmt.Sprintf("llm reported failure status %d: %s", llmResult.Status, llmResult.Summary)
@@ -285,6 +297,7 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 		run.Error = &errMsg
 		finished := time.Now()
 		run.FinishedAt = &finished
+		releaseDedup()
 		p.emitRunUpdate(run)
 		return run, nil
 	}
@@ -303,8 +316,10 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 	if err := p.runRepo.UpdateResult(ctx, run.ID, &llmResult, deliveries, status); err != nil {
 		return nil, fmt.Errorf("record run result: %w", err)
 	}
-	if dedupKey != "" {
-		_ = p.store.MarkProcessed(ctx, req.Assignment.ID.String(), dedupKey)
+	// Keep the dedup claim only on success; release it on a delivery failure so
+	// the event can be retried (issue #5).
+	if status != domain.RunStatusSucceeded {
+		releaseDedup()
 	}
 
 	run.LLMResult = &llmResult

@@ -1138,6 +1138,100 @@ func TestPipelineExecute_AssignmentPausedSkip(t *testing.T) {
 	assertPausedSkip(t, run, rr, fakeExec, "assignment_paused")
 }
 
+func TestPipelineExecute_DeliveryFailureReleasesDedupClaim(t *testing.T) {
+	ctx := context.Background()
+	store := state.NewMemStore()
+
+	// LLM succeeds, but delivery fails (output targets an unregistered plugin).
+	okResult := domain.LLMResult{Status: 0, Summary: "ok", Output: map[string]any{}}
+	exec := executor.NewFakeExecutor(okResult)
+
+	backendName := "dedup-rel-backend"
+	cfg := &config.Config{Backends: []config.Backend{{
+		Name: backendName, Kind: "claude", Model: "m",
+		Auth: config.BackendAuth{Mode: "subscription"},
+	}}}
+	rr := newFakeRunRepo()
+	pipeline := &Pipeline{cfg: cfg, runRepo: rr, store: store}
+
+	agentID, dutyID, assignmentID := uuid.New(), uuid.New(), uuid.New()
+	agent := &domain.Agent{ID: agentID, Name: "a", Role: "r", SystemPrompt: "s", Enabled: true}
+	duty := &domain.Duty{ID: dutyID, Name: "d", Role: "r", Description: "x", Prompt: "Do it."}
+	assignment := &domain.Assignment{
+		ID: assignmentID, AgentID: agentID, DutyID: dutyID, Enabled: true,
+		Backend: &domain.BackendRef{Name: backendName}, Config: map[string]any{},
+		Outputs: []domain.OutputBinding{
+			{Plugin: "unregistered-delivery-plugin", Action: "x", Params: map[string]any{"m": "y"}},
+		},
+	}
+	req := ExecuteRequest{
+		Assignment: assignment, Agent: agent, Duty: duty,
+		TriggerKind: "event", EventParams: map[string]any{"dedup_key": "evt-fail"},
+		Executor: exec,
+	}
+
+	run, err := pipeline.Execute(ctx, req)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if run.Status != domain.RunStatusFailed {
+		t.Fatalf("status = %q, want failed (delivery failed)", run.Status)
+	}
+	// A failed run must NOT remain marked processed, or the event is blocked
+	// from retry forever (issue #5).
+	processed, err := store.HasProcessed(ctx, assignmentID.String(), "dedup_key:evt-fail")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if processed {
+		t.Error("a failed run must release its dedup claim")
+	}
+}
+
+func TestPipelineExecute_SuccessKeepsDedupClaim(t *testing.T) {
+	ctx := context.Background()
+	store := state.NewMemStore()
+
+	okResult := domain.LLMResult{Status: 0, Summary: "ok", Output: map[string]any{}}
+	exec := executor.NewFakeExecutor(okResult)
+
+	backendName := "dedup-keep-backend"
+	cfg := &config.Config{Backends: []config.Backend{{
+		Name: backendName, Kind: "claude", Model: "m",
+		Auth: config.BackendAuth{Mode: "subscription"},
+	}}}
+	rr := newFakeRunRepo()
+	pipeline := &Pipeline{cfg: cfg, runRepo: rr, store: store}
+
+	agentID, dutyID, assignmentID := uuid.New(), uuid.New(), uuid.New()
+	agent := &domain.Agent{ID: agentID, Name: "a", Role: "r", SystemPrompt: "s", Enabled: true}
+	duty := &domain.Duty{ID: dutyID, Name: "d", Role: "r", Description: "x", Prompt: "Do it."}
+	assignment := &domain.Assignment{
+		ID: assignmentID, AgentID: agentID, DutyID: dutyID, Enabled: true,
+		Backend: &domain.BackendRef{Name: backendName}, Config: map[string]any{},
+	}
+	req := ExecuteRequest{
+		Assignment: assignment, Agent: agent, Duty: duty,
+		TriggerKind: "event", EventParams: map[string]any{"dedup_key": "evt-ok"},
+		Executor: exec,
+	}
+
+	run, err := pipeline.Execute(ctx, req)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if run.Status != domain.RunStatusSucceeded {
+		t.Fatalf("status = %q, want succeeded", run.Status)
+	}
+	processed, err := store.HasProcessed(ctx, assignmentID.String(), "dedup_key:evt-ok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !processed {
+		t.Error("a successful run must keep its dedup claim so duplicates skip")
+	}
+}
+
 func TestPipelineExecute_FailsFastOnUninitializedPlugin(t *testing.T) {
 	ctx := context.Background()
 

@@ -58,6 +58,31 @@ func TestMemStore_TwoAssignmentsSameKey(t *testing.T) {
 	}
 }
 
+func TestMemStore_ClaimProcessed(t *testing.T) {
+	ctx := context.Background()
+	s := state.NewMemStore()
+
+	// The first claim of a key wins.
+	got, err := s.ClaimProcessed(ctx, "a1", "k1")
+	if err != nil || !got {
+		t.Fatalf("first claim should win: got=%v err=%v", got, err)
+	}
+	// A second claim of the same key loses — this is the atomic guard against
+	// the TOCTOU double-fire (issue #5).
+	got, err = s.ClaimProcessed(ctx, "a1", "k1")
+	if err != nil || got {
+		t.Fatalf("second claim should lose: got=%v err=%v", got, err)
+	}
+	// Releasing the claim (on a failed run) lets the key be re-claimed.
+	if err := s.UnmarkProcessed(ctx, "a1", "k1"); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.ClaimProcessed(ctx, "a1", "k1")
+	if err != nil || !got {
+		t.Fatalf("claim after release should win: got=%v err=%v", got, err)
+	}
+}
+
 func TestMemStore_ProcessedIsolation(t *testing.T) {
 	ctx := context.Background()
 	s := state.NewMemStore()
