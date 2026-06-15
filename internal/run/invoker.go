@@ -17,19 +17,19 @@ import (
 // (issue #8). Cancellation reaps the claude process group (see claude.go).
 const defaultRunTimeout = 15 * time.Minute
 
-// AssignmentGetter, AgentLister, and DutyLister are the repo capabilities the
+// AssignmentGetter, AgentGetter, and DutyGetter are the repo capabilities the
 // Invoker needs; *repo.AssignmentRepo, *repo.AgentRepo, *repo.DutyRepo satisfy
-// them structurally.
+// them structurally. Direct id lookups replace the former List()+loop scans.
 type AssignmentGetter interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Assignment, error)
 }
 
-type AgentLister interface {
-	List(ctx context.Context) ([]*domain.Agent, error)
+type AgentGetter interface {
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.Agent, error)
 }
 
-type DutyLister interface {
-	List(ctx context.Context) ([]*domain.Duty, error)
+type DutyGetter interface {
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.Duty, error)
 }
 
 // Invoker executes one assignment by id: it loads the assignment/agent/duty,
@@ -39,14 +39,16 @@ type Invoker struct {
 	cfg         *config.Config
 	pipeline    *Pipeline
 	assignments AssignmentGetter
-	agents      AgentLister
-	duties      DutyLister
+	agents      AgentGetter
+	duties      DutyGetter
 	secrets     SecretsProvider // resolves ${secret:...} backend api_keys; may be nil in tests
 	// buildExecutor is a test seam; defaults to factory-based resolution.
 	buildExecutor func(cfg *config.Config, b *config.Backend) (executor.Executor, error)
+	// forcedExecutor, when set, bypasses backend resolution (used by run --fake).
+	forcedExecutor executor.Executor
 }
 
-func NewInvoker(cfg *config.Config, pipeline *Pipeline, assignments AssignmentGetter, agents AgentLister, duties DutyLister, secrets SecretsProvider) *Invoker {
+func NewInvoker(cfg *config.Config, pipeline *Pipeline, assignments AssignmentGetter, agents AgentGetter, duties DutyGetter, secrets SecretsProvider) *Invoker {
 	return &Invoker{
 		cfg: cfg, pipeline: pipeline,
 		assignments: assignments, agents: agents, duties: duties,
@@ -54,6 +56,11 @@ func NewInvoker(cfg *config.Config, pipeline *Pipeline, assignments AssignmentGe
 		buildExecutor: defaultBuildExecutor,
 	}
 }
+
+// UseExecutor forces every run to use ex and skips backend resolution. The
+// `fleet run --fake` path uses it so a manual run shares the Invoker wiring
+// (timeout, panic recovery, dedup, redaction) without needing a real backend.
+func (inv *Invoker) UseExecutor(ex executor.Executor) { inv.forcedExecutor = ex }
 
 // secretRefRe matches ${secret:name} references in backend auth config.
 var secretRefRe = regexp.MustCompile(`\$\{secret:([^}]+)\}`)
@@ -97,34 +104,22 @@ func (inv *Invoker) Invoke(ctx context.Context, assignmentID uuid.UUID, triggerK
 		return nil, fmt.Errorf("get assignment: %w", err)
 	}
 
-	allAgents, err := inv.agents.List(ctx)
+	agent, err := inv.agents.GetByID(ctx, assignment.AgentID)
 	if err != nil {
-		return nil, fmt.Errorf("list agents: %w", err)
+		return nil, fmt.Errorf("get agent %s: %w", assignment.AgentID, err)
 	}
-	var agent *domain.Agent
-	for _, a := range allAgents {
-		if a.ID == assignment.AgentID {
-			agent = a
-			break
-		}
-	}
-	if agent == nil {
-		return nil, fmt.Errorf("agent %s not found", assignment.AgentID)
+	duty, err := inv.duties.GetByID(ctx, assignment.DutyID)
+	if err != nil {
+		return nil, fmt.Errorf("get duty %s: %w", assignment.DutyID, err)
 	}
 
-	allDuties, err := inv.duties.List(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list duties: %w", err)
-	}
-	var duty *domain.Duty
-	for _, d := range allDuties {
-		if d.ID == assignment.DutyID {
-			duty = d
-			break
-		}
-	}
-	if duty == nil {
-		return nil, fmt.Errorf("duty %s not found", assignment.DutyID)
+	// run --fake forces a fake executor and skips backend resolution entirely.
+	if inv.forcedExecutor != nil {
+		return inv.pipeline.Execute(ctx, ExecuteRequest{
+			Assignment: assignment, Agent: agent, Duty: duty,
+			TriggerKind: triggerKind, EventID: eventID, EventParams: params,
+			Executor: inv.forcedExecutor,
+		})
 	}
 
 	// Resolve the backend from the DB rows themselves (the single source of

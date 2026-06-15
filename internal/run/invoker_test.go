@@ -52,11 +52,25 @@ func (f *fakeAssignmentGetter) GetByID(_ context.Context, id uuid.UUID) (*domain
 
 type fakeAgentLister struct{ agents []*domain.Agent }
 
-func (f *fakeAgentLister) List(_ context.Context) ([]*domain.Agent, error) { return f.agents, nil }
+func (f *fakeAgentLister) GetByID(_ context.Context, id uuid.UUID) (*domain.Agent, error) {
+	for _, a := range f.agents {
+		if a.ID == id {
+			return a, nil
+		}
+	}
+	return nil, fmt.Errorf("agent %s not found", id)
+}
 
 type fakeDutyLister struct{ duties []*domain.Duty }
 
-func (f *fakeDutyLister) List(_ context.Context) ([]*domain.Duty, error) { return f.duties, nil }
+func (f *fakeDutyLister) GetByID(_ context.Context, id uuid.UUID) (*domain.Duty, error) {
+	for _, d := range f.duties {
+		if d.ID == id {
+			return d, nil
+		}
+	}
+	return nil, fmt.Errorf("duty %s not found", id)
+}
 
 func invokerFixture(t *testing.T) (*Invoker, *fakeRunRepo, uuid.UUID, *executor.FakeExecutor) {
 	t.Helper()
