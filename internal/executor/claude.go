@@ -68,11 +68,11 @@ func (c *ClaudeExecutor) Run(ctx context.Context, req LLMRequest) (domain.LLMRes
 	}
 	cmd.WaitDelay = 5 * time.Second
 
-	env := os.Environ()
-	if c.APIKey != "" {
-		env = append(env, "ANTHROPIC_API_KEY="+c.APIKey)
-	}
-	cmd.Env = env
+	// The agent is driven by untrusted content (MR diffs, comments), so it does
+	// NOT inherit the daemon's full environment — that carries FLEET_DATABASE_DSN
+	// (DB password) and FLEET_MASTER_KEY (secrets key), a prompt-injection
+	// exfiltration vector. Pass only what the toolchain needs (issue #13).
+	cmd.Env = minimalChildEnv(c.APIKey)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -161,6 +161,50 @@ func parseClaudeOutput(data []byte) (domain.LLMResult, error) {
 	}
 	result.Transcript = string(data)
 	return result, nil
+}
+
+// childEnvAllow is the exact set of environment variables passed to the agent
+// child. The daemon's full env is NOT inherited because it carries fleet
+// secrets the untrusted-content-driven agent must never see (issue #13).
+var childEnvAllow = map[string]bool{
+	"PATH": true, "HOME": true, "USER": true, "LOGNAME": true,
+	"SHELL": true, "LANG": true, "LANGUAGE": true, "LC_ALL": true,
+	"TERM": true, "TZ": true, "TMPDIR": true,
+	"SSL_CERT_FILE": true, "SSL_CERT_DIR": true,
+}
+
+// childEnvAllowPrefix passes through the families the toolchain needs: the LLM
+// provider's own credentials (ANTHROPIC_/CLAUDE_), git config (GIT_), locale
+// (LC_), and XDG config dirs (XDG_). FLEET_* is deliberately NOT listed.
+var childEnvAllowPrefix = []string{"LC_", "ANTHROPIC_", "CLAUDE_", "GIT_", "XDG_"}
+
+// minimalChildEnv builds an allow-listed environment for the claude child and
+// appends the resolved API key (which wins over any inherited ANTHROPIC_API_KEY).
+func minimalChildEnv(apiKey string) []string {
+	var out []string
+	for _, kv := range os.Environ() {
+		i := strings.IndexByte(kv, '=')
+		if i < 0 {
+			continue
+		}
+		k := kv[:i]
+		if childEnvAllow[k] || hasAllowedEnvPrefix(k) {
+			out = append(out, kv)
+		}
+	}
+	if apiKey != "" {
+		out = append(out, "ANTHROPIC_API_KEY="+apiKey)
+	}
+	return out
+}
+
+func hasAllowedEnvPrefix(k string) bool {
+	for _, p := range childEnvAllowPrefix {
+		if strings.HasPrefix(k, p) {
+			return true
+		}
+	}
+	return false
 }
 
 func verifyTools(tools []string) error {

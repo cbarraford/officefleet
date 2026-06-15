@@ -91,6 +91,35 @@ func TestParseClaudeOutput_EmptyInput(t *testing.T) {
 	}
 }
 
+func TestMinimalChildEnv(t *testing.T) {
+	t.Setenv("FLEET_DATABASE_DSN", "postgres://user:pw@host/db")
+	t.Setenv("FLEET_MASTER_KEY", "supersecret")
+	t.Setenv("RANDOM_HOST_SECRET", "leak-me")
+	t.Setenv("PATH", "/usr/bin")
+	t.Setenv("HOME", "/home/agent")
+	t.Setenv("CLAUDE_CONFIG_DIR", "/home/agent/.claude")
+
+	joined := strings.Join(minimalChildEnv("api-key-123"), "\n")
+
+	// Fleet secrets and unrelated host env must NOT reach the untrusted agent.
+	for _, leak := range []string{"FLEET_DATABASE_DSN", "FLEET_MASTER_KEY", "RANDOM_HOST_SECRET"} {
+		if strings.Contains(joined, leak) {
+			t.Errorf("%s must not be passed to the agent child:\n%s", leak, joined)
+		}
+	}
+	// Toolchain essentials and allowed prefixes pass through.
+	if !strings.Contains(joined, "PATH=/usr/bin") || !strings.Contains(joined, "HOME=/home/agent") {
+		t.Error("PATH/HOME must be passed to the agent child")
+	}
+	if !strings.Contains(joined, "CLAUDE_CONFIG_DIR=/home/agent/.claude") {
+		t.Error("CLAUDE_ prefix vars must pass through")
+	}
+	// The resolved API key is set.
+	if !strings.Contains(joined, "ANTHROPIC_API_KEY=api-key-123") {
+		t.Error("the resolved API key must be set on the child")
+	}
+}
+
 func TestBuildClaudePrompt_WithSystem(t *testing.T) {
 	req := LLMRequest{
 		SystemPrompt: "You are a helpful assistant.",

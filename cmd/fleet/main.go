@@ -337,6 +337,11 @@ func backendsListCmd() *cobra.Command {
 	}
 }
 
+// loginBinaries maps a CLI agentic backend kind to the exact binary its login
+// runs. Looking the binary up here (instead of exec'ing backend.Kind directly)
+// stops an unvalidated config string from spawning an arbitrary program (#13).
+var loginBinaries = map[string]string{"claude": "claude"}
+
 func backendsLoginCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "login <backend-name>",
@@ -344,7 +349,9 @@ func backendsLoginCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			backendName := args[0]
-			cfg, err := loadConfig()
+			// Validate the config before acting on it: login spawns a binary
+			// chosen from config, so an unvalidated string must not reach exec.
+			cfg, err := loadValidatedConfig()
 			if err != nil {
 				return fmt.Errorf("load config: %w", err)
 			}
@@ -362,7 +369,13 @@ func backendsLoginCmd() *cobra.Command {
 			if backend.Auth.Mode != "subscription" {
 				return fmt.Errorf("backend %q does not use subscription auth; login is only supported for subscription backends", backendName)
 			}
-			c := exec.Command(backend.Kind, "login")
+			// Map the kind to a known binary instead of exec'ing backend.Kind
+			// directly — never run an arbitrary PATH program named by config (issue #13).
+			bin, ok := loginBinaries[backend.Kind]
+			if !ok {
+				return fmt.Errorf("backend %q has kind %q, which does not support 'login'", backendName, backend.Kind)
+			}
+			c := exec.Command(bin, "login")
 			c.Stdin = os.Stdin
 			c.Stdout = os.Stdout
 			c.Stderr = os.Stderr
