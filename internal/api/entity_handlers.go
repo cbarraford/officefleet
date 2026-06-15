@@ -536,3 +536,28 @@ func (a *API) handleDeleteAssignment(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
+
+// handleGetAssignmentState returns the per-assignment KV state (dedup keys,
+// cursors, last_reviewed_sha, small memory blobs) for operator inspection (#25).
+func (a *API) handleGetAssignmentState(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDParam(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if a.state == nil {
+		writeError(w, http.StatusServiceUnavailable, "state store not configured")
+		return
+	}
+	raw, err := a.state.List(r.Context(), id.String())
+	if err != nil {
+		a.logf("api: get assignment state: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	out := make(map[string]string, len(raw))
+	for k, v := range raw {
+		out[k] = string(v)
+	}
+	writeJSON(w, http.StatusOK, out)
+}

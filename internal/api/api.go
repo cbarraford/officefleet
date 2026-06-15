@@ -48,6 +48,11 @@ type RunStore interface {
 	AgentStats(ctx context.Context, agentID uuid.UUID) (*domain.AgentStats, error)
 }
 
+// StateStore exposes per-assignment KV state for operator inspection (#25).
+type StateStore interface {
+	List(ctx context.Context, assignmentID string) (map[string][]byte, error)
+}
+
 type EventStore interface {
 	ListRecent(ctx context.Context, status string, limit int) ([]*domain.Event, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Event, error)
@@ -90,6 +95,7 @@ type API struct {
 	duties        DutyStore
 	assignments   AssignmentStore
 	runs          RunStore
+	state         StateStore
 	events        EventStore
 	secretsRepo   SecretStore
 	users         UserStore
@@ -113,6 +119,7 @@ type Deps struct {
 	Duties        DutyStore
 	Assignments   AssignmentStore
 	Runs          RunStore
+	State         StateStore
 	Events        EventStore
 	Secrets       SecretStore
 	Users         UserStore
@@ -129,7 +136,7 @@ type Deps struct {
 func New(d Deps) *API {
 	return &API{
 		agents: d.Agents, duties: d.Duties, assignments: d.Assignments,
-		runs: d.Runs, events: d.Events, secretsRepo: d.Secrets, users: d.Users,
+		runs: d.Runs, state: d.State, events: d.Events, secretsRepo: d.Secrets, users: d.Users,
 		sessions: d.Sessions, invoker: d.Invoker, encryptor: d.Encryptor,
 		isEncrypted: d.IsEncrypted, notify: d.Notify, cfg: d.Config,
 		avatars:       d.Avatars,
@@ -177,6 +184,7 @@ func (a *API) authedMux() *http.ServeMux {
 	m.HandleFunc("PATCH /api/v1/assignments/{id}", a.handlePatchAssignment)
 	m.HandleFunc("DELETE /api/v1/assignments/{id}", a.handleDeleteAssignment)
 	m.HandleFunc("POST /api/v1/assignments/{id}/run", a.handleRunNow)
+	m.HandleFunc("GET /api/v1/assignments/{id}/state", a.handleGetAssignmentState)
 
 	m.HandleFunc("GET /api/v1/runs", a.handleListRuns)
 	m.HandleFunc("GET /api/v1/runs/{id}", a.handleGetRun)

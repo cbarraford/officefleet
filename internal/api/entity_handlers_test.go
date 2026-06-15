@@ -248,8 +248,16 @@ type entityFixture struct {
 	duties *fakeDutyStore
 	asgns  *fakeAssignmentStore
 	runs   *fakeRunStoreEntity
+	state  *fakeStateStore
 	srv    *httptest.Server
 	token  string
+}
+
+// fakeStateStore implements api.StateStore for tests.
+type fakeStateStore struct{ data map[string]map[string][]byte }
+
+func (f *fakeStateStore) List(_ context.Context, assignmentID string) (map[string][]byte, error) {
+	return f.data[assignmentID], nil
 }
 
 func newEntityFixture(t *testing.T) *entityFixture {
@@ -272,11 +280,14 @@ func newEntityFixture(t *testing.T) *entityFixture {
 		},
 	}
 
+	stateStore := &fakeStateStore{data: map[string]map[string][]byte{}}
+
 	a := New(Deps{
 		Agents:      agents,
 		Duties:      duties,
 		Assignments: asgns,
 		Runs:        runs,
+		State:       stateStore,
 		Sessions:    sessions,
 		Config:      cfg,
 	})
@@ -292,8 +303,25 @@ func newEntityFixture(t *testing.T) *entityFixture {
 		duties: duties,
 		asgns:  asgns,
 		runs:   runs,
+		state:  stateStore,
 		srv:    srv,
 		token:  token,
+	}
+}
+
+func TestAssignment_GetState_200(t *testing.T) {
+	f := newEntityFixture(t)
+	id := uuid.New().String()
+	f.state.data[id] = map[string][]byte{"last_reviewed_sha": []byte("abc123")}
+
+	resp := f.do(t, "GET", "/api/v1/assignments/"+id+"/state", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	var body map[string]string
+	decodeBody(t, resp, &body)
+	if body["last_reviewed_sha"] != "abc123" {
+		t.Errorf("state = %v, want last_reviewed_sha=abc123", body)
 	}
 }
 
