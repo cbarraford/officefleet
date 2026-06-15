@@ -21,6 +21,10 @@ func init() {
 	plugin.Register(&GitHubPlugin{})
 }
 
+// httpClient bounds every GitHub API call so a stalled server cannot hang a run
+// (issue #8).
+var httpClient = &http.Client{Timeout: 30 * time.Second}
+
 // GitHubPlugin integrates GitHub: PR events in, PR comments out.
 type GitHubPlugin struct {
 	token         string
@@ -120,7 +124,7 @@ func (g *GitHubPlugin) postPRComment(ctx context.Context, params map[string]any)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("github: post comment: %w", err)
 	}

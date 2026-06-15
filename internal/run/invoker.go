@@ -3,12 +3,18 @@ package run
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/cbarraford/office-fleet/internal/config"
 	"github.com/cbarraford/office-fleet/internal/domain"
 	"github.com/cbarraford/office-fleet/internal/executor"
 	"github.com/google/uuid"
 )
+
+// defaultRunTimeout bounds a single assignment run so a hung claude CLI, a
+// stalled HTTP call, or a wedged tool cannot block a daemon worker forever
+// (issue #8). Cancellation reaps the claude process group (see claude.go).
+const defaultRunTimeout = 15 * time.Minute
 
 // AssignmentGetter, AgentLister, and DutyLister are the repo capabilities the
 // Invoker needs; *repo.AssignmentRepo, *repo.AgentRepo, *repo.DutyRepo satisfy
@@ -57,6 +63,9 @@ func defaultBuildExecutor(cfg *config.Config, b *config.Backend) (executor.Execu
 
 // Invoke runs one assignment end-to-end and returns the recorded Run.
 func (inv *Invoker) Invoke(ctx context.Context, assignmentID uuid.UUID, triggerKind string, eventID *string, params map[string]any) (*domain.Run, error) {
+	ctx, cancel := context.WithTimeout(ctx, defaultRunTimeout)
+	defer cancel()
+
 	assignment, err := inv.assignments.GetByID(ctx, assignmentID)
 	if err != nil {
 		return nil, fmt.Errorf("get assignment: %w", err)

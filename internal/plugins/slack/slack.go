@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cbarraford/office-fleet/internal/plugin"
 )
@@ -19,6 +20,10 @@ import (
 func init() {
 	plugin.Register(&SlackPlugin{})
 }
+
+// httpClient bounds every Slack API call so a stalled server cannot hang a run
+// (issue #8).
+var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 // SlackPlugin posts messages with a bot token (secret slack_bot_token).
 type SlackPlugin struct {
@@ -87,7 +92,7 @@ func (s *SlackPlugin) sendMessage(ctx context.Context, params map[string]any) (m
 	req.Header.Set("Authorization", "Bearer "+s.botToken)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("slack: post message: %w", err)
 	}

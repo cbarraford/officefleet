@@ -18,6 +18,10 @@ func init() {
 	plugin.Register(&GitLabPlugin{})
 }
 
+// httpClient bounds every GitLab API call so a stalled server cannot hang a run
+// (issue #8).
+var httpClient = &http.Client{Timeout: 30 * time.Second}
+
 // GitLabPlugin is the GitLab integration plugin: actions (post_mr_comment,
 // post_inline_comment, create_issue, reply_to_discussion) plus the mr_events
 // and mr_notes sources (webhook push + poll).
@@ -163,7 +167,7 @@ func (g *GitLabPlugin) apiJSON(ctx context.Context, method, path string, payload
 	if payload != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, 0, fmt.Errorf("gitlab: %s %s: %w", method, path, err)
 	}
@@ -206,7 +210,7 @@ func (g *GitLabPlugin) postInlineComment(ctx context.Context, params map[string]
 		return nil, fmt.Errorf("gitlab: create request: %w", err)
 	}
 	req.Header.Set("PRIVATE-TOKEN", g.token)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("gitlab: fetch versions: %w", err)
 	}

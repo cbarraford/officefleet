@@ -827,6 +827,12 @@ func runSchedulerLoop(ctx context.Context, pool *pgxpool.Pool, inv *run.Invoker)
 	}
 	fmt.Println("scheduler running...")
 	sched.Run(ctx, func(runCtx context.Context, assignmentID string) {
+		// A panic in one fire must not crash the scheduler daemon (issue #8).
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Fprintf(os.Stderr, "scheduler: PANIC in assignment %s: %v\n", assignmentID, r)
+			}
+		}()
 		id, err := uuid.Parse(assignmentID)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "scheduler: invalid assignment id %s: %v\n", assignmentID, err)

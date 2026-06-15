@@ -140,6 +140,14 @@ func (d *Dispatcher) dispatch(ctx context.Context, id uuid.UUID) {
 		go func(a *domain.Assignment) {
 			defer wg.Done()
 			defer func() { <-sem }()
+			// A panic in one run must not crash the daemon (issue #8); recover,
+			// log, and let the other workers continue. The orphaned 'running'
+			// row is reconciled on the next restart.
+			defer func() {
+				if r := recover(); r != nil {
+					d.logf("dispatcher: PANIC in event %s assignment %s: %v", ev.ID, a.ID, r)
+				}
+			}()
 			if _, err := d.invoker.Invoke(ctx, a.ID, "event-subscription", &eventIDStr, params); err != nil {
 				d.logf("dispatcher: event %s assignment %s: %v", ev.ID, a.ID, err)
 			}

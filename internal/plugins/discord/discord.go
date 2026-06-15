@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/cbarraford/office-fleet/internal/plugin"
 )
@@ -19,6 +20,10 @@ import (
 func init() {
 	plugin.Register(&DiscordPlugin{})
 }
+
+// httpClient bounds every Discord webhook call so a stalled server cannot hang a
+// run (issue #8).
+var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 // defaultWebhookSecret names the secret holding the default incoming-webhook URL.
 const defaultWebhookSecret = "discord_webhook_url"
@@ -88,7 +93,7 @@ func (d *DiscordPlugin) sendMessage(ctx context.Context, params map[string]any) 
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		// *url.Error embeds the full URL; unwrap to the cause so the secret
 		// webhook token never reaches run records.

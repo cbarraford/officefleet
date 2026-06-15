@@ -208,7 +208,7 @@ func (g *GitHubPlugin) fetchOpenPRs(ctx context.Context, repo string) ([]pollPR,
 		req.Header.Set("Authorization", "Bearer "+g.token)
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("github: poll %s: %w", repo, err)
 	}
