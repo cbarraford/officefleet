@@ -70,6 +70,7 @@ func main() {
 	root.AddCommand(scheduleCmd())
 	root.AddCommand(serveCmd())
 	root.AddCommand(eventsCmd())
+	root.AddCommand(runsCmd())
 	root.AddCommand(seedCmd())
 	root.AddCommand(secretsCmd())
 	root.AddCommand(usersCmd())
@@ -1010,6 +1011,46 @@ func eventsCmd() *cobra.Command {
 	}
 	cmd.AddCommand(eventsListCmd())
 	cmd.AddCommand(eventsReplayCmd())
+	return cmd
+}
+
+func runsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "runs",
+		Short: "Run history management commands",
+	}
+	cmd.AddCommand(runsPruneCmd())
+	return cmd
+}
+
+func runsPruneCmd() *cobra.Command {
+	var olderThan time.Duration
+	cmd := &cobra.Command{
+		Use:   "prune",
+		Short: "Delete run records older than --older-than (run records store full transcripts)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := context.Background()
+			cfg, _ := loadConfig()
+			dsn := resolveDSN(cfg)
+			if dsn == "" {
+				return fmt.Errorf("no database DSN configured")
+			}
+			pool, err := db.New(ctx, dsn)
+			if err != nil {
+				return fmt.Errorf("open db: %w", err)
+			}
+			defer pool.Close()
+			cutoff := time.Now().Add(-olderThan)
+			n, err := repo.NewRunRepo(pool).PruneOlderThan(ctx, cutoff)
+			if err != nil {
+				return fmt.Errorf("prune runs: %w", err)
+			}
+			fmt.Printf("pruned %d run(s) older than %s (before %s)\n", n, olderThan, cutoff.Format(time.RFC3339))
+			return nil
+		},
+	}
+	// Recommended retention default: 90 days.
+	cmd.Flags().DurationVar(&olderThan, "older-than", 90*24*time.Hour, "delete runs started before now minus this duration")
 	return cmd
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/cbarraford/office-fleet/internal/domain"
 	"github.com/google/uuid"
@@ -31,6 +32,17 @@ func (r *RunRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status domain.
 		"UPDATE runs SET status=$1, error=$2, finished_at=NOW() WHERE id=$3",
 		status, errMsg, id)
 	return err
+}
+
+// PruneOlderThan deletes run records started before cutoff and returns the
+// count removed. Run rows carry the full LLM transcript, so without retention
+// the table grows unbounded (issue #16).
+func (r *RunRepo) PruneOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {
+	tag, err := r.db.Exec(ctx, "DELETE FROM runs WHERE started_at < $1", cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
 }
 
 // ReconcileOrphanedRuns marks every run still in 'running' as failed. A freshly

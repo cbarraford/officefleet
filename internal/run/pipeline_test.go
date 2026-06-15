@@ -1142,6 +1142,20 @@ func TestPipelineExecute_AssignmentPausedSkip(t *testing.T) {
 	assertPausedSkip(t, run, rr, fakeExec, "assignment_paused")
 }
 
+func TestCapTranscript(t *testing.T) {
+	if got := capTranscript("short", maxStoredTranscriptBytes); got != "short" {
+		t.Errorf("under-cap text must be unchanged, got %q", got)
+	}
+	big := strings.Repeat("x", maxStoredTranscriptBytes+10_000)
+	got := capTranscript(big, maxStoredTranscriptBytes)
+	if len(got) > maxStoredTranscriptBytes+64 {
+		t.Errorf("capped length = %d, want ~%d", len(got), maxStoredTranscriptBytes)
+	}
+	if !strings.HasSuffix(got, "[transcript truncated]") {
+		t.Errorf("capped transcript must note truncation, got suffix %q", got[len(got)-30:])
+	}
+}
+
 func TestPipelineExecute_DeliveryFailureReleasesDedupClaim(t *testing.T) {
 	ctx := context.Background()
 	store := state.NewMemStore()

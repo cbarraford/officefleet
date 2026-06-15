@@ -273,6 +273,9 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 	// run records, the stored transcript, or a delivered action body (issue #4).
 	llmResult.Summary = redactSecrets(llmResult.Summary, secretsMap)
 	llmResult.Transcript = redactSecrets(llmResult.Transcript, secretsMap)
+	// Cap the stored transcript so a chatty run can't write a multi-MB row and
+	// grow the runs table unbounded (issue #16).
+	llmResult.Transcript = capTranscript(llmResult.Transcript, maxStoredTranscriptBytes)
 	if llmErr != nil {
 		// The executor also returns a partial result (transcript, tokens
 		// accumulated before the failure); record it for audit alongside the
@@ -385,6 +388,18 @@ func deriveDedupKey(params map[string]any) string {
 
 // strPtr returns a pointer to the given string.
 func strPtr(s string) *string { return &s }
+
+// maxStoredTranscriptBytes caps the transcript persisted in a run record.
+const maxStoredTranscriptBytes = 256 * 1024
+
+// capTranscript truncates s to at most max bytes, trimming any split rune at the
+// cut so the stored value stays valid UTF-8 (issue #16).
+func capTranscript(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return strings.ToValidUTF8(s[:max], "") + "\n…[transcript truncated]"
+}
 
 // redactSecrets replaces every known secret value in s with a placeholder
 // before the text is persisted or delivered (issue #4). Values shorter than 4
