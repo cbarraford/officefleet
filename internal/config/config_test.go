@@ -809,16 +809,31 @@ func TestValidateForEach(t *testing.T) {
 }
 
 func TestValidate_ServeBlock(t *testing.T) {
+	neg, zero, eight := -1, 0, 8
+
 	cfg := eventSubConfig()
-	cfg.Serve = config.ServeConfig{Workers: -1}
+	cfg.Serve = config.ServeConfig{Workers: &neg}
 	errorsContain(t, config.Validate(cfg), "workers")
+
+	// Explicit `workers: 0` is invalid (distinct from unset), not silently
+	// treated as the default (issue #29).
+	cfg = eventSubConfig()
+	cfg.Serve = config.ServeConfig{Workers: &zero}
+	errorsContain(t, config.Validate(cfg), "workers")
+
+	// Unset workers (nil) is valid — the dispatcher applies its default.
+	cfg = eventSubConfig()
+	cfg.Serve = config.ServeConfig{}
+	if errs := config.Validate(cfg); len(errs) != 0 {
+		t.Errorf("unset workers must be valid: %v", errs)
+	}
 
 	cfg = eventSubConfig()
 	cfg.Serve = config.ServeConfig{RescanInterval: "soonish"}
 	errorsContain(t, config.Validate(cfg), "rescan_interval")
 
 	cfg = eventSubConfig()
-	cfg.Serve = config.ServeConfig{Addr: ":9090", Workers: 8, RescanInterval: "45s", SecureCookies: true}
+	cfg.Serve = config.ServeConfig{Addr: ":9090", Workers: &eight, RescanInterval: "45s", SecureCookies: true}
 	if errs := config.Validate(cfg); len(errs) != 0 {
 		t.Errorf("valid serve block rejected: %v", errs)
 	}

@@ -924,7 +924,11 @@ func serveCmd() *cobra.Command {
 				rescan, _ = time.ParseDuration(cfg.Serve.RescanInterval) // validated at load
 			}
 
-			dispatcher := events.NewDispatcher(eventRepo, repo.NewAssignmentRepo(pool), inv, cfg.Serve.Workers, rescan)
+			workers := 0 // nil/unset => 0 => dispatcher applies its default
+			if cfg.Serve.Workers != nil {
+				workers = *cfg.Serve.Workers
+			}
+			dispatcher := events.NewDispatcher(eventRepo, repo.NewAssignmentRepo(pool), inv, workers, rescan)
 			ingestor := events.NewIngestor(eventRepo, dispatcher.Notify)
 			go dispatcher.Run(ctx)
 
