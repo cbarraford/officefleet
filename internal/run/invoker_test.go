@@ -3,6 +3,7 @@ package run
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/cbarraford/office-fleet/internal/config"
@@ -11,6 +12,31 @@ import (
 	"github.com/cbarraford/office-fleet/internal/state"
 	"github.com/google/uuid"
 )
+
+func TestResolveSecretRefs(t *testing.T) {
+	secrets := map[string]string{"ollama_key": "sk-abc123"}
+
+	got, err := resolveSecretRefs("${secret:ollama_key}", secrets)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "sk-abc123" {
+		t.Errorf("got %q, want the decrypted value", got)
+	}
+	if strings.Contains(got, "${secret:") {
+		t.Error("the literal placeholder must never survive resolution")
+	}
+
+	// A plain (non-ref) key passes through unchanged.
+	if got, err := resolveSecretRefs("plain-key", secrets); err != nil || got != "plain-key" {
+		t.Errorf("plain key = %q err %v, want plain-key", got, err)
+	}
+
+	// A missing/empty secret fails closed.
+	if _, err := resolveSecretRefs("${secret:nope}", secrets); err == nil {
+		t.Error("a missing backend secret must fail closed")
+	}
+}
 
 type fakeAssignmentGetter struct {
 	byID map[uuid.UUID]*domain.Assignment

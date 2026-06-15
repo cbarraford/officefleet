@@ -3,6 +3,7 @@ package run
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/cbarraford/office-fleet/internal/config"
@@ -40,16 +41,40 @@ type Invoker struct {
 	assignments AssignmentGetter
 	agents      AgentLister
 	duties      DutyLister
+	secrets     SecretsProvider // resolves ${secret:...} backend api_keys; may be nil in tests
 	// buildExecutor is a test seam; defaults to factory-based resolution.
 	buildExecutor func(cfg *config.Config, b *config.Backend) (executor.Executor, error)
 }
 
-func NewInvoker(cfg *config.Config, pipeline *Pipeline, assignments AssignmentGetter, agents AgentLister, duties DutyLister) *Invoker {
+func NewInvoker(cfg *config.Config, pipeline *Pipeline, assignments AssignmentGetter, agents AgentLister, duties DutyLister, secrets SecretsProvider) *Invoker {
 	return &Invoker{
 		cfg: cfg, pipeline: pipeline,
 		assignments: assignments, agents: agents, duties: duties,
+		secrets:       secrets,
 		buildExecutor: defaultBuildExecutor,
 	}
+}
+
+// secretRefRe matches ${secret:name} references in backend auth config.
+var secretRefRe = regexp.MustCompile(`\$\{secret:([^}]+)\}`)
+
+// resolveSecretRefs replaces every ${secret:name} in s with the decrypted value,
+// failing closed if any referenced secret is missing or empty (issue #24).
+func resolveSecretRefs(s string, secrets map[string]string) (string, error) {
+	var missing string
+	out := secretRefRe.ReplaceAllStringFunc(s, func(m string) string {
+		name := secretRefRe.FindStringSubmatch(m)[1]
+		v, ok := secrets[name]
+		if !ok || v == "" {
+			missing = name
+			return m
+		}
+		return v
+	})
+	if missing != "" {
+		return "", fmt.Errorf("secret %q not found", missing)
+	}
+	return out, nil
 }
 
 // defaultBuildExecutor keeps SP1's behavior: no resolvable backend means the
@@ -112,6 +137,22 @@ func (inv *Invoker) Invoke(ctx context.Context, assignmentID uuid.UUID, triggerK
 			break
 		}
 	}
+	// Resolve ${secret:...} backend api_key references against the encrypted
+	// secret store BEFORE the executor is built, failing closed if a referenced
+	// secret is missing — otherwise the literal placeholder reaches executor
+	// auth (issue #24). resolved is a copy, so mutating it never touches cfg.
+	if resolved != nil && resolved.Auth.Mode == "api_key" && inv.secrets != nil {
+		secretsMap, serr := inv.secrets.Load(ctx)
+		if serr != nil {
+			return nil, fmt.Errorf("load secrets for backend %q auth: %w", resolved.Name, serr)
+		}
+		key, kerr := resolveSecretRefs(resolved.Auth.APIKey, secretsMap)
+		if kerr != nil {
+			return nil, fmt.Errorf("backend %q api_key: %w", resolved.Name, kerr)
+		}
+		resolved.Auth.APIKey = key
+	}
+
 	exec, err := inv.buildExecutor(inv.cfg, resolved)
 	if err != nil {
 		return nil, fmt.Errorf("build executor: %w", err)

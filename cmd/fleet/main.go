@@ -811,9 +811,10 @@ func scheduleCmd() *cobra.Command {
 // It returns both the Invoker and the underlying Pipeline so callers that need
 // to attach lifecycle hooks (e.g. serveCmd) can call SetRunUpdateHook.
 func buildInvoker(cfg *config.Config, pool *pgxpool.Pool, cipher *secrets.Cipher) (*run.Invoker, *run.Pipeline) {
-	pipeline := run.NewPipeline(cfg, repo.NewRunRepo(pool), state.NewPostgresStore(pool), &dbSecretsProvider{pool: pool, cipher: cipher})
+	secretsProvider := &dbSecretsProvider{pool: pool, cipher: cipher}
+	pipeline := run.NewPipeline(cfg, repo.NewRunRepo(pool), state.NewPostgresStore(pool), secretsProvider)
 	inv := run.NewInvoker(cfg, pipeline,
-		repo.NewAssignmentRepo(pool), repo.NewAgentRepo(pool), repo.NewDutyRepo(pool))
+		repo.NewAssignmentRepo(pool), repo.NewAgentRepo(pool), repo.NewDutyRepo(pool), secretsProvider)
 	return inv, pipeline
 }
 
