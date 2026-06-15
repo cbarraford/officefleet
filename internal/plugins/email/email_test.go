@@ -99,7 +99,7 @@ func TestSendEmail_SeamAndMessage(t *testing.T) {
 
 func TestSendEmail_NoAuthWhenNoPassword(t *testing.T) {
 	p := initPlugin(t, baseCfg(), "")
-	var gotAuth smtp.Auth = smtp.PlainAuth("", "x", "y", "z") // sentinel non-nil
+	gotAuth := smtp.PlainAuth("", "x", "y", "z") // sentinel non-nil (PlainAuth returns smtp.Auth)
 	p.send = func(_ string, a smtp.Auth, _ string, _ []string, _ []byte) error {
 		gotAuth = a
 		return nil

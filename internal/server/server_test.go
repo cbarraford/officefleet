@@ -16,10 +16,9 @@ import (
 
 // stubPlugin implements plugin.Plugin (+ optionally WebhookSource).
 type stubPlugin struct {
-	name    string
-	events  []domain.Event
-	err     error
-	webhook bool
+	name   string
+	events []domain.Event
+	err    error
 }
 
 func (s *stubPlugin) Name() string                       { return s.name }

@@ -141,7 +141,7 @@ func failResult(summary string, transcript *strings.Builder, tokens int) domain.
 func writeTranscript(sb *strings.Builder, m Message) {
 	b, err := json.Marshal(m)
 	if err != nil {
-		sb.WriteString(fmt.Sprintf(`{"role":%q,"marshal_error":%q}`, m.Role, err.Error()))
+		fmt.Fprintf(sb, `{"role":%q,"marshal_error":%q}`, m.Role, err.Error())
 	} else {
 		sb.Write(b)
 	}

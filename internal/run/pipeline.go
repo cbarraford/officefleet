@@ -129,7 +129,7 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 		Event:      req.EventParams,
 		Agent:      map[string]any{"name": req.Agent.Name, "role": req.Agent.Role, "system_prompt": req.Agent.SystemPrompt},
 		Duty:       map[string]any{"name": req.Duty.Name, "role": req.Duty.Role, "description": req.Duty.Description},
-		Assignment: map[string]any(req.Assignment.Config),
+		Assignment: req.Assignment.Config,
 		State:      map[string]any{},
 		Now:        time.Now(),
 	}
@@ -385,9 +385,6 @@ func deriveDedupKey(params map[string]any) string {
 	}
 	return ""
 }
-
-// strPtr returns a pointer to the given string.
-func strPtr(s string) *string { return &s }
 
 // maxStoredTranscriptBytes caps the transcript persisted in a run record.
 const maxStoredTranscriptBytes = 256 * 1024

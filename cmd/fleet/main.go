@@ -51,6 +51,10 @@ var (
 	flagDB     string
 )
 
+// version is injected at build time via -ldflags "-X main.version=..." (see the
+// Makefile). It defaults to "dev" for `go run` / `go build` without ldflags.
+var version = "dev"
+
 func main() {
 	root := &cobra.Command{
 		Use:   "fleet",
@@ -71,6 +75,7 @@ func main() {
 	root.AddCommand(serveCmd())
 	root.AddCommand(eventsCmd())
 	root.AddCommand(runsCmd())
+	root.AddCommand(versionCmd())
 	root.AddCommand(seedCmd())
 	root.AddCommand(secretsCmd())
 	root.AddCommand(usersCmd())
@@ -1012,6 +1017,17 @@ func eventsCmd() *cobra.Command {
 	cmd.AddCommand(eventsListCmd())
 	cmd.AddCommand(eventsReplayCmd())
 	return cmd
+}
+
+func versionCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Print the fleet build version",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fmt.Println(version)
+			return nil
+		},
+	}
 }
 
 func runsCmd() *cobra.Command {

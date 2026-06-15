@@ -1,0 +1,33 @@
+version: "2"
+
+linters:
+  # The v2 defaults (errcheck, govet, ineffassign, staticcheck, unused) plus
+  # unconvert. misspell is intentionally NOT enabled: GitLab's API uses the
+  # literal field "noteable_type", which it would wrongly flag.
+  enable:
+    - unconvert
+  settings:
+    errcheck:
+      # Best-effort console writes and idiomatic cleanup (deferred Close,
+      # workspace RemoveAll, test env unset / JSON encode) are intentionally
+      # unchecked — failing on them adds noise without catching real bugs.
+      exclude-functions:
+        - fmt.Print
+        - fmt.Printf
+        - fmt.Println
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - os.RemoveAll
+        - os.Unsetenv
+        - (*os.File).Close
+        - (io.Closer).Close
+        - (io.ReadCloser).Close
+        - (net.Conn).Close
+        - (*encoding/json.Encoder).Encode
+        - (*encoding/json.Decoder).Decode
+
+exclusions:
+  generated: lax
+  paths:
+    - internal/web/dist
