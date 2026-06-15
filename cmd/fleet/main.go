@@ -228,7 +228,16 @@ func migrateCmd() *cobra.Command {
 		Short: "Run database migrations",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
-			cfg, _ := loadConfig() // config is optional; DSN may come from env
+			// Config is optional (DSN may come from env), but a config that
+			// exists yet fails to load (parse error, unset ${env:...}) must NOT
+			// be silently skipped and reported as seeded (issue #12).
+			cfg, cfgErr := loadConfig()
+			if cfgErr != nil {
+				if !errors.Is(cfgErr, os.ErrNotExist) {
+					return fmt.Errorf("load config: %w", cfgErr)
+				}
+				cfg = nil // no config file: migrate schema only
+			}
 			dsn := resolveDSN(cfg)
 			if dsn == "" {
 				return fmt.Errorf("no database DSN configured (set --db, database.dsn in fleet.yaml, or FLEET_DATABASE_DSN env)")
@@ -248,8 +257,10 @@ func migrateCmd() *cobra.Command {
 				if err := seed.FromConfig(ctx, cfg, agentRepo, dutyRepo, assignmentRepo, false); err != nil {
 					return fmt.Errorf("seed: %w", err)
 				}
+				fmt.Println("schema migrated and config seeded")
+			} else {
+				fmt.Println("schema migrated (no config file found; nothing seeded)")
 			}
-			fmt.Println("schema migrated and config seeded")
 			return nil
 		},
 	}

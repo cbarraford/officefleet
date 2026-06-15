@@ -170,9 +170,13 @@ func scanRun(s scanner) (*domain.Run, error) {
 	}
 	if len(llmResultJSON) > 0 {
 		var r domain.LLMResult
-		_ = json.Unmarshal(llmResultJSON, &r)
+		if err := json.Unmarshal(llmResultJSON, &r); err != nil {
+			return nil, fmt.Errorf("scan run %s: llm_result: %w", run.ID, err)
+		}
 		run.LLMResult = &r
 	}
-	_ = json.Unmarshal(outputsJSON, &run.OutputsDelivered)
+	if err := unmarshalJSONB(outputsJSON, &run.OutputsDelivered); err != nil {
+		return nil, fmt.Errorf("scan run %s: outputs_delivered: %w", run.ID, err)
+	}
 	return &run, nil
 }

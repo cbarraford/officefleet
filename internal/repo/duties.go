@@ -131,12 +131,14 @@ func scanDuty(s scanner) (*domain.Duty, error) {
 		&d.CreatedAt, &d.UpdatedAt); err != nil {
 		return nil, fmt.Errorf("scan duty: %w", err)
 	}
-	_ = json.Unmarshal(outputActionsJSON, &d.OutputActions)
-	_ = json.Unmarshal(configSchemaJSON, &d.ConfigSchema)
-	if len(backendJSON) > 2 {
-		var b domain.BackendRef
-		_ = json.Unmarshal(backendJSON, &b)
-		d.Backend = &b
+	if err := unmarshalJSONB(outputActionsJSON, &d.OutputActions); err != nil {
+		return nil, fmt.Errorf("scan duty %s: output_actions: %w", d.ID, err)
+	}
+	if err := unmarshalJSONB(configSchemaJSON, &d.ConfigSchema); err != nil {
+		return nil, fmt.Errorf("scan duty %s: config_schema: %w", d.ID, err)
+	}
+	if err := unmarshalJSONB(backendJSON, &d.Backend); err != nil {
+		return nil, fmt.Errorf("scan duty %s: backend: %w", d.ID, err)
 	}
 	return &d, nil
 }

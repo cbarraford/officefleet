@@ -133,13 +133,18 @@ func scanAssignment(s scanner) (*domain.Assignment, error) {
 		&a.CreatedAt, &a.UpdatedAt); err != nil {
 		return nil, fmt.Errorf("scan assignment: %w", err)
 	}
-	_ = json.Unmarshal(triggerJSON, &a.Trigger)
-	_ = json.Unmarshal(outputsJSON, &a.Outputs)
-	_ = json.Unmarshal(configJSON, &a.Config)
-	if len(backendJSON) > 2 {
-		var b domain.BackendRef
-		_ = json.Unmarshal(backendJSON, &b)
-		a.Backend = &b
+	if err := unmarshalJSONB(triggerJSON, &a.Trigger); err != nil {
+		return nil, fmt.Errorf("scan assignment %s: trigger: %w", a.ID, err)
+	}
+	if err := unmarshalJSONB(outputsJSON, &a.Outputs); err != nil {
+		return nil, fmt.Errorf("scan assignment %s: outputs: %w", a.ID, err)
+	}
+	if err := unmarshalJSONB(configJSON, &a.Config); err != nil {
+		return nil, fmt.Errorf("scan assignment %s: config: %w", a.ID, err)
+	}
+	// A pointer target leaves Backend nil for a JSON "null" or NULL column.
+	if err := unmarshalJSONB(backendJSON, &a.Backend); err != nil {
+		return nil, fmt.Errorf("scan assignment %s: backend: %w", a.ID, err)
 	}
 	return &a, nil
 }

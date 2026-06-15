@@ -3,12 +3,14 @@ package db
 import (
 	"context"
 	"embed"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -56,7 +58,12 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		version := strings.TrimSuffix(e.Name(), ".sql")
 
 		var applied bool
-		_ = pool.QueryRow(ctx, "SELECT TRUE FROM schema_migrations WHERE version=$1", version).Scan(&applied)
+		err = pool.QueryRow(ctx, "SELECT TRUE FROM schema_migrations WHERE version=$1", version).Scan(&applied)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			// A transient error here must not be read as "not applied" and cause
+			// a re-apply of an already-applied migration (issue #12).
+			return fmt.Errorf("check migration %s applied: %w", version, err)
+		}
 		if applied {
 			continue
 		}

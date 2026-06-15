@@ -120,6 +120,17 @@ type scanner interface {
 	Scan(dest ...any) error
 }
 
+// unmarshalJSONB decodes a JSONB column into v. An empty column (SQL NULL) is a
+// no-op, but a non-empty malformed blob is returned as an error rather than
+// silently producing a zero value (issue #12) — e.g. a corrupt trigger blob must
+// not become an empty TriggerConfig that the cron filter quietly skips.
+func unmarshalJSONB(data []byte, v any) error {
+	if len(data) == 0 {
+		return nil
+	}
+	return json.Unmarshal(data, v)
+}
+
 func scanAgent(s scanner) (*domain.Agent, error) {
 	var a domain.Agent
 	var backendJSON []byte
@@ -127,6 +138,8 @@ func scanAgent(s scanner) (*domain.Agent, error) {
 		&a.AvatarURL, &a.HiredAt, &a.CreatedAt, &a.UpdatedAt); err != nil {
 		return nil, fmt.Errorf("scan agent: %w", err)
 	}
-	_ = json.Unmarshal(backendJSON, &a.DefaultBackend)
+	if err := unmarshalJSONB(backendJSON, &a.DefaultBackend); err != nil {
+		return nil, fmt.Errorf("scan agent %s: default_backend: %w", a.ID, err)
+	}
 	return &a, nil
 }
