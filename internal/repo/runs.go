@@ -33,6 +33,21 @@ func (r *RunRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status domain.
 	return err
 }
 
+// ReconcileOrphanedRuns marks every run still in 'running' as failed. A freshly
+// started daemon owns no in-flight runs, so any leftover 'running' row is an
+// orphan from a crash or restart that would otherwise linger forever (issue #7).
+// Returns the number of rows reconciled.
+func (r *RunRepo) ReconcileOrphanedRuns(ctx context.Context) (int64, error) {
+	orphaned := "orphaned by restart"
+	tag, err := r.db.Exec(ctx,
+		"UPDATE runs SET status=$1, error=$2, finished_at=NOW() WHERE status=$3",
+		domain.RunStatusFailed, orphaned, domain.RunStatusRunning)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 func (r *RunRepo) UpdateResult(ctx context.Context, id uuid.UUID, result *domain.LLMResult, outputs []domain.OutputDelivery, status domain.RunStatus) error {
 	resultJSON, err := json.Marshal(result)
 	if err != nil {

@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/cbarraford/office-fleet/internal/domain"
 )
@@ -53,6 +55,18 @@ func (c *ClaudeExecutor) Run(ctx context.Context, req LLMRequest) (domain.LLMRes
 		cmd.Dir = req.Workspace
 	}
 	cmd.Stdin = strings.NewReader(combinedPrompt)
+
+	// Run claude in its own process group and, on context cancellation (daemon
+	// shutdown), kill the WHOLE group so its children (glab/git) are reaped too,
+	// not just claude itself (issue #7). WaitDelay bounds the grace period.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return nil
+		}
+		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+	cmd.WaitDelay = 5 * time.Second
 
 	env := os.Environ()
 	if c.APIKey != "" {

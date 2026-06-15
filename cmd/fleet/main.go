@@ -753,7 +753,11 @@ func scheduleCmd() *cobra.Command {
 		Use:   "schedule",
 		Short: "Run the cron scheduler daemon (deprecated: use fleet serve)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := context.Background()
+			// Cancel on SIGINT/SIGTERM so the in-flight run's claude child is
+			// killed (via exec.CommandContext) and the run is marked failed,
+			// rather than orphaned (issue #7).
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
 			cfg, err := loadValidatedConfig()
 			if err != nil {
 				return fmt.Errorf("load config: %w", err)
@@ -771,6 +775,7 @@ func scheduleCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			reconcileOrphanedRuns(ctx, pool)
 			initPlugins(ctx, cfg, pool, cipher)
 			inv, _ := buildInvoker(cfg, pool, cipher)
 			return runSchedulerLoop(ctx, pool, inv)
@@ -786,6 +791,20 @@ func buildInvoker(cfg *config.Config, pool *pgxpool.Pool, cipher *secrets.Cipher
 	inv := run.NewInvoker(cfg, pipeline,
 		repo.NewAssignmentRepo(pool), repo.NewAgentRepo(pool), repo.NewDutyRepo(pool))
 	return inv, pipeline
+}
+
+// reconcileOrphanedRuns fails any run still marked 'running' at daemon startup —
+// a leftover from a crash or restart, since a just-started daemon owns no
+// in-flight runs (issue #7).
+func reconcileOrphanedRuns(ctx context.Context, pool *pgxpool.Pool) {
+	n, err := repo.NewRunRepo(pool).ReconcileOrphanedRuns(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: reconcile orphaned runs: %v\n", err)
+		return
+	}
+	if n > 0 {
+		fmt.Printf("reconciled %d orphaned run(s) from a previous restart\n", n)
+	}
 }
 
 // runSchedulerLoop blocks running cron-triggered assignments until ctx is done.
@@ -853,6 +872,7 @@ func serveCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			reconcileOrphanedRuns(ctx, pool)
 			initPlugins(ctx, cfg, pool, cipher)
 
 			// Warn about unencrypted secrets at startup.
