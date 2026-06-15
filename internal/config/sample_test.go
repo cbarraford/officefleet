@@ -34,13 +34,13 @@ func TestSampleConfig(t *testing.T) {
 		Assignment: map[string]any{"project": "org/repo", "category": "security"},
 		State:      map[string]any{},
 		Now:        time.Now(),
-		Secrets:    map[string]string{"gitlab_token": "tok"},
 	}
+	syntheticSecrets := map[string]string{"gitlab_token": "tok"}
 	for _, d := range cfg.Duties {
 		if _, tracked := wantDuties[d.Name]; tracked {
 			wantDuties[d.Name] = true
 		}
-		rendered, err := prompt.Render(d.Prompt, syntheticCtx)
+		rendered, err := prompt.Render(d.Prompt, syntheticCtx, syntheticSecrets)
 		if err != nil {
 			t.Errorf("duty %q prompt does not render: %v", d.Name, err)
 			continue
@@ -68,7 +68,7 @@ func TestSampleConfig(t *testing.T) {
 					"path": "a.go", "line": 7, "severity": "high", "body": "x",
 					"title": "t", "description": "d", "labels": "l",
 				}
-				if _, err := prompt.Render(s, itemCtx); err != nil {
+				if _, err := prompt.Render(s, itemCtx, nil); err != nil {
 					t.Errorf("assignment (%s,%s) output param %q does not render: %v", a.Agent, a.Duty, key, err)
 				}
 			}

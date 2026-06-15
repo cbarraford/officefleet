@@ -9,7 +9,11 @@ import (
 	"time"
 )
 
-// Context is the data available inside a prompt template.
+// Context is the data available inside a prompt template. Secrets are
+// deliberately NOT a field: they would render via {{.Secrets.x}} / {{json .}}
+// and land verbatim in run records and delivered bodies (issue #4). Secret
+// values are reachable ONLY through the `secret` helper, which Render is given
+// out of band — pass nil to deny secret access entirely (output-param rendering).
 type Context struct {
 	Event      map[string]any
 	Agent      map[string]any
@@ -17,15 +21,15 @@ type Context struct {
 	Assignment map[string]any
 	State      map[string]any
 	Now        time.Time
-	Secrets    map[string]string
 	// Item is the current fan-out element during for_each output delivery
 	// (nil outside fan-out rendering).
 	Item map[string]any
 }
 
-// Render executes a Go text/template with the given context.
-func Render(tmpl string, ctx Context) (string, error) {
-	t, err := template.New("prompt").Funcs(helpers(ctx.Secrets)).Parse(tmpl)
+// Render executes a Go text/template with the given context. secrets backs the
+// `secret` helper; pass nil to make `secret` fail (deny secret access).
+func Render(tmpl string, ctx Context, secrets map[string]string) (string, error) {
+	t, err := template.New("prompt").Funcs(helpers(secrets)).Parse(tmpl)
 	if err != nil {
 		return "", fmt.Errorf("parse template: %w", err)
 	}
@@ -46,17 +50,18 @@ func ComposePrompts(
 	taskTemplate string,
 	extraInstructions string,
 	ctx Context,
+	secrets map[string]string,
 ) (system, task string, err error) {
-	system, err = Render(systemTemplate, ctx)
+	system, err = Render(systemTemplate, ctx, secrets)
 	if err != nil {
 		return "", "", fmt.Errorf("render system prompt: %w", err)
 	}
-	task, err = Render(taskTemplate, ctx)
+	task, err = Render(taskTemplate, ctx, secrets)
 	if err != nil {
 		return "", "", fmt.Errorf("render task prompt: %w", err)
 	}
 	if extra := strings.TrimSpace(extraInstructions); extra != "" {
-		renderedExtra, err := Render(extra, ctx)
+		renderedExtra, err := Render(extra, ctx, secrets)
 		if err != nil {
 			return "", "", fmt.Errorf("render extra instructions: %w", err)
 		}

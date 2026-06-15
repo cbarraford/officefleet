@@ -144,7 +144,9 @@ func renderParams(params map[string]any, result domain.LLMResult, promptCtx prom
 			out[k] = v
 			continue
 		}
-		rendered, err := prompt.Render(str, enriched)
+		// nil secrets: the `secret` helper is DENIED in output params, so a
+		// secret value cannot be rendered into a delivered action body (issue #4).
+		rendered, err := prompt.Render(str, enriched, nil)
 		if err != nil {
 			return nil, fmt.Errorf("param %q: %w", k, err)
 		}

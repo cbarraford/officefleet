@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/cbarraford/office-fleet/internal/config"
@@ -127,7 +128,6 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 		Assignment: map[string]any(req.Assignment.Config),
 		State:      map[string]any{},
 		Now:        time.Now(),
-		Secrets:    secretsMap,
 	}
 	if promptCtx.Event == nil {
 		promptCtx.Event = map[string]any{}
@@ -158,9 +158,11 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 		extraInstructions = *req.Assignment.ExtraInstructions
 	}
 
-	// Render prompts.
+	// Render prompts. Secrets are passed out of band (only the `secret` helper
+	// can reach them); the rendered output may contain real secret values (e.g.
+	// a token in a clone URL) — those are redacted before persistence below.
 	systemPrompt, taskPrompt, err := prompt.ComposePrompts(
-		req.Agent.SystemPrompt, taskTemplate, extraInstructions, promptCtx)
+		req.Agent.SystemPrompt, taskTemplate, extraInstructions, promptCtx, secretsMap)
 	if err != nil {
 		return nil, fmt.Errorf("compose prompts: %w", err)
 	}
@@ -186,8 +188,8 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 		DutyID:               req.Duty.ID,
 		TriggerKind:          req.TriggerKind,
 		EventID:              req.EventID,
-		RenderedSystemPrompt: systemPrompt,
-		RenderedPrompt:       taskPrompt,
+		RenderedSystemPrompt: redactSecrets(systemPrompt, secretsMap),
+		RenderedPrompt:       redactSecrets(taskPrompt, secretsMap),
 		Status:               domain.RunStatusRunning,
 		StartedAt:            time.Now(),
 	}
@@ -257,6 +259,11 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 		Effort:       backend.DefaultEffort,
 	}
 	llmResult, llmErr := req.Executor.Run(ctx, llmReq)
+	// Redact secret values from everything that is persisted or delivered: the
+	// agent needed the real secret to do its work, but it must not survive into
+	// run records, the stored transcript, or a delivered action body (issue #4).
+	llmResult.Summary = redactSecrets(llmResult.Summary, secretsMap)
+	llmResult.Transcript = redactSecrets(llmResult.Transcript, secretsMap)
 	if llmErr != nil {
 		// The executor also returns a partial result (transcript, tokens
 		// accumulated before the failure); record it for audit alongside the
@@ -369,3 +376,15 @@ func deriveDedupKey(params map[string]any) string {
 
 // strPtr returns a pointer to the given string.
 func strPtr(s string) *string { return &s }
+
+// redactSecrets replaces every known secret value in s with a placeholder
+// before the text is persisted or delivered (issue #4). Values shorter than 4
+// characters are skipped to avoid pathological over-redaction of ordinary text.
+func redactSecrets(s string, secrets map[string]string) string {
+	for _, v := range secrets {
+		if len(v) >= 4 {
+			s = strings.ReplaceAll(s, v, "***REDACTED***")
+		}
+	}
+	return s
+}

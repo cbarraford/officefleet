@@ -1020,9 +1020,13 @@ func TestPipelineExecute_SecretInTemplate(t *testing.T) {
 	if run.Status != domain.RunStatusSucceeded {
 		t.Errorf("expected status %q, got %q", domain.RunStatusSucceeded, run.Status)
 	}
-	// The rendered prompt must contain the resolved secret value, proving the gap is closed.
-	if run.RenderedPrompt != "Use token: tok-abc123" {
-		t.Errorf("expected RenderedPrompt %q, got %q", "Use token: tok-abc123", run.RenderedPrompt)
+	// The secret resolves for the agent, but its VALUE must be redacted from the
+	// persisted run record (issue #4) — never stored verbatim.
+	if strings.Contains(run.RenderedPrompt, "tok-abc123") {
+		t.Errorf("RenderedPrompt leaked the secret value: %q", run.RenderedPrompt)
+	}
+	if run.RenderedPrompt != "Use token: ***REDACTED***" {
+		t.Errorf("expected redacted RenderedPrompt, got %q", run.RenderedPrompt)
 	}
 }
 
