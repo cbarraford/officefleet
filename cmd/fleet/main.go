@@ -345,7 +345,7 @@ var loginBinaries = map[string]string{"claude": "claude"}
 func backendsLoginCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "login <backend-name>",
-		Short: "Log in to a CLI backend (claude/codex/gemini)",
+		Short: "Log in to a CLI agentic backend (currently: claude)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			backendName := args[0]

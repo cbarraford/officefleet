@@ -449,7 +449,9 @@ This is a feature, not a compromise — minimal provider machinery, maximal exec
 
 - **CLI agentic backends** (`claude` / `codex` / `gemini`): OfficeFleet shells out to the maintained
   agent CLI, which runs the tool-use loop itself. These are the built-in fixed set (ports huginn's
-  `ai_backends` concept to Go) and the path SP1 uses.
+  `ai_backends` concept to Go) and the path SP1 uses. **Status:** only `claude` is implemented today;
+  `codex` and `gemini` are deferred — config validation, the executor factory, and `backends login`
+  accept `claude` only, and adding the others is tracked in TODO.md.
 - **Endpoint backends** (`openai-compatible` / Ollama / custom HTTP): a raw chat/completions API with
   no built-in agent loop, so **OfficeFleet's own generic agent loop** drives tool use (its own
   sub-project — SP2, §13).
