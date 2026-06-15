@@ -2,6 +2,8 @@ package domain
 
 import (
 	"encoding/json"
+	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/google/uuid"
@@ -65,6 +67,19 @@ type OutputBinding struct {
 	Action  string         `json:"action" yaml:"action"`
 	Params  map[string]any `json:"params" yaml:"params"`
 	ForEach string         `json:"for_each,omitempty" yaml:"for_each,omitempty"`
+}
+
+// forEachKeyRe: for_each names a key of the LLM result's output object — a bare
+// identifier, never a template or path expression.
+var forEachKeyRe = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
+
+// ValidateForEach checks that ForEach, when set, is a bare output key. The same
+// rule guards YAML config load, API create/patch, and SPA assignment JSON.
+func (o OutputBinding) ValidateForEach() error {
+	if o.ForEach != "" && !forEachKeyRe.MatchString(o.ForEach) {
+		return fmt.Errorf("for_each %q must be a bare output key (letters, digits, underscore)", o.ForEach)
+	}
+	return nil
 }
 
 // Assignment binds an Agent to a Duty with per-agent config.

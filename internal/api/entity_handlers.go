@@ -387,6 +387,11 @@ func (a *API) validateAssignment(ctx context.Context, asg *domain.Assignment) er
 	if !a.backendNameExists(asg.Backend) {
 		return errValidation("unknown backend " + asg.Backend.Name)
 	}
+	for _, out := range asg.Outputs {
+		if err := out.ValidateForEach(); err != nil {
+			return errValidation(err.Error())
+		}
+	}
 	return nil
 }
 

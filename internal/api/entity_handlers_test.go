@@ -660,6 +660,66 @@ func TestAssignment_EventSubscription_Valid_201(t *testing.T) {
 
 // TestAssignment_Duplicate_409 verifies that creating the same (agent_id,
 // duty_id) pair twice returns 409 Conflict.
+func TestAssignment_InvalidForEach_400(t *testing.T) {
+	f := newEntityFixture(t)
+
+	dutyResp := f.do(t, "POST", "/api/v1/duties", map[string]any{
+		"name":          "ForEachDutyBad",
+		"trigger_kinds": []string{"cron"},
+	})
+	var duty map[string]any
+	decodeBody(t, dutyResp, &duty)
+	dutyID := duty["id"].(string)
+
+	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentForEachBad"})
+	var agent map[string]any
+	decodeBody(t, agentResp, &agent)
+	agentID := agent["id"].(string)
+
+	for _, bad := range []string{"{{.Event.x}}", "issues[0]", "a b"} {
+		resp := f.do(t, "POST", "/api/v1/assignments", map[string]any{
+			"agent_id": agentID,
+			"duty_id":  dutyID,
+			"trigger":  map[string]any{"kind": "cron", "schedule": "0 * * * *"},
+			"outputs": []map[string]any{
+				{"plugin": "gitlab", "action": "create_issue", "for_each": bad},
+			},
+		})
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("for_each %q: status = %d, want 400", bad, resp.StatusCode)
+		}
+	}
+}
+
+func TestAssignment_ValidForEach_201(t *testing.T) {
+	f := newEntityFixture(t)
+
+	dutyResp := f.do(t, "POST", "/api/v1/duties", map[string]any{
+		"name":          "ForEachDutyOK",
+		"trigger_kinds": []string{"cron"},
+	})
+	var duty map[string]any
+	decodeBody(t, dutyResp, &duty)
+	dutyID := duty["id"].(string)
+
+	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentForEachOK"})
+	var agent map[string]any
+	decodeBody(t, agentResp, &agent)
+	agentID := agent["id"].(string)
+
+	resp := f.do(t, "POST", "/api/v1/assignments", map[string]any{
+		"agent_id": agentID,
+		"duty_id":  dutyID,
+		"trigger":  map[string]any{"kind": "cron", "schedule": "0 * * * *"},
+		"outputs": []map[string]any{
+			{"plugin": "gitlab", "action": "create_issue", "for_each": "issues"},
+		},
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("valid bare for_each key: status = %d, want 201", resp.StatusCode)
+	}
+}
+
 func TestAssignment_Duplicate_409(t *testing.T) {
 	f := newEntityFixture(t)
 
