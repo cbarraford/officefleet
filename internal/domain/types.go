@@ -87,6 +87,7 @@ type Assignment struct {
 	ID                 uuid.UUID       `db:"id" json:"id"`
 	AgentID            uuid.UUID       `db:"agent_id" json:"agent_id"`
 	DutyID             uuid.UUID       `db:"duty_id" json:"duty_id"`
+	Name               string          `db:"name" json:"name"` // purpose discriminator; unique per (agent, duty, name)
 	Enabled            bool            `db:"enabled" json:"enabled"`
 	Trigger            TriggerConfig   `db:"trigger" json:"trigger"`
 	Outputs            []OutputBinding `db:"outputs" json:"outputs"`

@@ -104,6 +104,7 @@ func FromConfig(ctx context.Context, cfg *config.Config,
 		assignment := &domain.Assignment{
 			AgentID:            agentID,
 			DutyID:             dutyID,
+			Name:               ac.Name,
 			Enabled:            ac.Enabled,
 			Trigger:            ac.Trigger,
 			Outputs:            ac.Outputs,
@@ -113,7 +114,25 @@ func FromConfig(ctx context.Context, cfg *config.Config,
 			ExtraInstructions:  ac.ExtraInstructions,
 		}
 		if err := assignRepo.UpsertByAgentAndDuty(ctx, assignment); err != nil {
-			return fmt.Errorf("upsert assignment (agent=%q duty=%q): %w", ac.Agent, ac.Duty, err)
+			return fmt.Errorf("upsert assignment (agent=%q duty=%q name=%q): %w", ac.Agent, ac.Duty, ac.Name, err)
+		}
+	}
+
+	// Warn about DB assignments no longer present in config. Seeding upserts but
+	// never deletes, so a config edit that drops an assignment leaves the old
+	// row behind and still firing — surface it rather than silently diverging.
+	configTuples := make(map[string]bool, len(cfg.Assignments))
+	for _, ac := range cfg.Assignments {
+		configTuples[agentIDs[ac.Agent].String()+"\x00"+dutyIDs[ac.Duty].String()+"\x00"+ac.Name] = true
+	}
+	dbAssignments, err := assignRepo.List(ctx)
+	if err != nil {
+		return fmt.Errorf("seed orphan check: %w", err)
+	}
+	for _, a := range dbAssignments {
+		if !configTuples[a.AgentID.String()+"\x00"+a.DutyID.String()+"\x00"+a.Name] {
+			fmt.Printf("warning: assignment %s (agent_id=%s duty_id=%s name=%q) is in the DB but not in config; it will keep firing until deleted\n",
+				a.ID, a.AgentID, a.DutyID, a.Name)
 		}
 	}
 	return nil

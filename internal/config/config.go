@@ -81,6 +81,7 @@ type DutyConfig struct {
 type AssignmentConfig struct {
 	Agent              string                 `yaml:"agent"`
 	Duty               string                 `yaml:"duty"`
+	Name               string                 `yaml:"name,omitempty"` // purpose discriminator; unique per (agent, duty, name)
 	Enabled            bool                   `yaml:"enabled"`
 	Trigger            domain.TriggerConfig   `yaml:"trigger"`
 	Outputs            []domain.OutputBinding `yaml:"outputs"`
@@ -337,7 +338,16 @@ func Validate(cfg *Config) []error {
 		agentByName[ag.Name] = ag
 	}
 
+	seenAssignment := map[string]bool{}
 	for i, a := range cfg.Assignments {
+		// Assignments are unique per (agent, duty, name). A duplicate tuple would
+		// silently collapse to one row at seed time (issue #6) — reject it here.
+		tuple := a.Agent + "\x00" + a.Duty + "\x00" + a.Name
+		if seenAssignment[tuple] {
+			errs = append(errs, fmt.Errorf("assignment[%d]: duplicate (agent=%q, duty=%q, name=%q) — give each a distinct name", i, a.Agent, a.Duty, a.Name))
+		}
+		seenAssignment[tuple] = true
+
 		agentOK := agentNames[a.Agent]
 		dutyOK := dutyNames[a.Duty]
 		if !agentOK {

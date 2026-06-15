@@ -210,9 +210,11 @@ duties:
 
 assignments:
   # MR review on every newly-opened MR. (Add a second assignment with
-  # event_type: mr_updated to also re-review on new pushes.)
+  # event_type: mr_updated to also re-review on new pushes — give it a distinct
+  # `name:` so it does not collide with this one on (agent, duty, name).)
   - agent: dev-1
     duty: mr-review
+    name: on-open
     enabled: true
     trigger:
       kind: event-subscription

@@ -26,8 +26,8 @@ func (r *AssignmentRepo) Insert(ctx context.Context, a *domain.Assignment) error
 		backendJSON, _ = json.Marshal(a.Backend)
 	}
 	_, err := r.db.Exec(ctx,
-		"INSERT INTO assignments (id, agent_id, duty_id, enabled, trigger, outputs, config, backend, task_prompt_override, extra_instructions) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
-		a.ID, a.AgentID, a.DutyID, a.Enabled, triggerJSON, outputsJSON, configJSON,
+		"INSERT INTO assignments (id, agent_id, duty_id, name, enabled, trigger, outputs, config, backend, task_prompt_override, extra_instructions) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+		a.ID, a.AgentID, a.DutyID, a.Name, a.Enabled, triggerJSON, outputsJSON, configJSON,
 		backendJSON, a.TaskPromptOverride, a.ExtraInstructions)
 	return err
 }
@@ -44,9 +44,9 @@ func (r *AssignmentRepo) UpsertByAgentAndDuty(ctx context.Context, a *domain.Ass
 		backendJSON, _ = json.Marshal(a.Backend)
 	}
 	return r.db.QueryRow(ctx,
-		`INSERT INTO assignments (id, agent_id, duty_id, enabled, trigger, outputs, config, backend, task_prompt_override, extra_instructions)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-		 ON CONFLICT (agent_id, duty_id) DO UPDATE SET
+		`INSERT INTO assignments (id, agent_id, duty_id, name, enabled, trigger, outputs, config, backend, task_prompt_override, extra_instructions)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		 ON CONFLICT (agent_id, duty_id, name) DO UPDATE SET
 		   enabled=EXCLUDED.enabled,
 		   trigger=EXCLUDED.trigger,
 		   outputs=EXCLUDED.outputs,
@@ -56,26 +56,26 @@ func (r *AssignmentRepo) UpsertByAgentAndDuty(ctx context.Context, a *domain.Ass
 		   extra_instructions=EXCLUDED.extra_instructions,
 		   updated_at=NOW()
 		 RETURNING id`,
-		a.ID, a.AgentID, a.DutyID, a.Enabled, triggerJSON, outputsJSON, configJSON,
+		a.ID, a.AgentID, a.DutyID, a.Name, a.Enabled, triggerJSON, outputsJSON, configJSON,
 		backendJSON, a.TaskPromptOverride, a.ExtraInstructions,
 	).Scan(&a.ID)
 }
 
 func (r *AssignmentRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Assignment, error) {
 	row := r.db.QueryRow(ctx,
-		"SELECT id, agent_id, duty_id, enabled, trigger, outputs, config, backend, task_prompt_override, extra_instructions, created_at, updated_at FROM assignments WHERE id=$1", id)
+		"SELECT id, agent_id, duty_id, name, enabled, trigger, outputs, config, backend, task_prompt_override, extra_instructions, created_at, updated_at FROM assignments WHERE id=$1", id)
 	return scanAssignment(row)
 }
 
 func (r *AssignmentRepo) GetByAgentAndDuty(ctx context.Context, agentID, dutyID uuid.UUID) (*domain.Assignment, error) {
 	row := r.db.QueryRow(ctx,
-		"SELECT id, agent_id, duty_id, enabled, trigger, outputs, config, backend, task_prompt_override, extra_instructions, created_at, updated_at FROM assignments WHERE agent_id=$1 AND duty_id=$2 LIMIT 1", agentID, dutyID)
+		"SELECT id, agent_id, duty_id, name, enabled, trigger, outputs, config, backend, task_prompt_override, extra_instructions, created_at, updated_at FROM assignments WHERE agent_id=$1 AND duty_id=$2 LIMIT 1", agentID, dutyID)
 	return scanAssignment(row)
 }
 
 func (r *AssignmentRepo) List(ctx context.Context) ([]*domain.Assignment, error) {
 	rows, err := r.db.Query(ctx,
-		"SELECT id, agent_id, duty_id, enabled, trigger, outputs, config, backend, task_prompt_override, extra_instructions, created_at, updated_at FROM assignments ORDER BY created_at")
+		"SELECT id, agent_id, duty_id, name, enabled, trigger, outputs, config, backend, task_prompt_override, extra_instructions, created_at, updated_at FROM assignments ORDER BY created_at")
 	if err != nil {
 		return nil, err
 	}
@@ -101,9 +101,9 @@ func (r *AssignmentRepo) Update(ctx context.Context, a *domain.Assignment) error
 	}
 	tag, err := r.db.Exec(ctx,
 		`UPDATE assignments SET enabled=$2, trigger=$3, outputs=$4, config=$5, backend=$6,
-		   task_prompt_override=$7, extra_instructions=$8, updated_at=NOW() WHERE id=$1`,
+		   task_prompt_override=$7, extra_instructions=$8, name=$9, updated_at=NOW() WHERE id=$1`,
 		a.ID, a.Enabled, triggerJSON, outputsJSON, configJSON, backendJSON,
-		a.TaskPromptOverride, a.ExtraInstructions)
+		a.TaskPromptOverride, a.ExtraInstructions, a.Name)
 	if err != nil {
 		return err
 	}
@@ -127,7 +127,7 @@ func (r *AssignmentRepo) Delete(ctx context.Context, id uuid.UUID) error {
 func scanAssignment(s scanner) (*domain.Assignment, error) {
 	var a domain.Assignment
 	var triggerJSON, outputsJSON, configJSON, backendJSON []byte
-	if err := s.Scan(&a.ID, &a.AgentID, &a.DutyID, &a.Enabled,
+	if err := s.Scan(&a.ID, &a.AgentID, &a.DutyID, &a.Name, &a.Enabled,
 		&triggerJSON, &outputsJSON, &configJSON, &backendJSON,
 		&a.TaskPromptOverride, &a.ExtraInstructions,
 		&a.CreatedAt, &a.UpdatedAt); err != nil {

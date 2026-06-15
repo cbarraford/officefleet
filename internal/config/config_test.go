@@ -808,6 +808,26 @@ func TestValidateForEach(t *testing.T) {
 	}
 }
 
+func TestValidate_DuplicateAssignmentTuple(t *testing.T) {
+	withTwo := func(name1, name2 string) *config.Config {
+		return &config.Config{
+			Backends: []config.Backend{{Name: "b", Kind: "claude", Auth: config.BackendAuth{Mode: "subscription"}}},
+			Agents:   []config.AgentConfig{{Name: "a", Enabled: true, DefaultBackend: domain.BackendRef{Name: "b"}}},
+			Duties:   []config.DutyConfig{{Name: "d", TriggerKinds: []string{"manual"}}},
+			Assignments: []config.AssignmentConfig{
+				{Agent: "a", Duty: "d", Name: name1, Trigger: domain.TriggerConfig{Kind: "manual"}},
+				{Agent: "a", Duty: "d", Name: name2, Trigger: domain.TriggerConfig{Kind: "manual"}},
+			},
+		}
+	}
+	// Same (agent, duty, name) collapses at seed time — must be rejected.
+	errorsContain(t, config.Validate(withTwo("", "")), "duplicate")
+	// Distinct names make the pair legal (e.g. a manual and a cron variant).
+	if errs := config.Validate(withTwo("adhoc", "nightly")); len(errs) != 0 {
+		t.Errorf("distinct assignment names must validate: %v", errs)
+	}
+}
+
 func TestValidate_ServeBlock(t *testing.T) {
 	neg, zero, eight := -1, 0, 8
 

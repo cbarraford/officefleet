@@ -57,6 +57,7 @@ export interface Assignment {
   id: string
   agent_id: string
   duty_id: string
+  name: string
   enabled: boolean
   trigger: TriggerConfig
   outputs: OutputBinding[] | null

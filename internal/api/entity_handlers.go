@@ -359,6 +359,7 @@ func (a *API) handleDeleteDuty(w http.ResponseWriter, r *http.Request) {
 type assignmentBody struct {
 	AgentID            *uuid.UUID             `json:"agent_id"`
 	DutyID             *uuid.UUID             `json:"duty_id"`
+	Name               *string                `json:"name"`
 	Enabled            *bool                  `json:"enabled"`
 	Trigger            *domain.TriggerConfig  `json:"trigger"`
 	Outputs            []domain.OutputBinding `json:"outputs"`
@@ -403,6 +404,9 @@ func applyAssignmentBody(b *assignmentBody, asg *domain.Assignment, isCreate boo
 		if b.DutyID != nil {
 			asg.DutyID = *b.DutyID
 		}
+	}
+	if b.Name != nil {
+		asg.Name = *b.Name
 	}
 	if b.Enabled != nil {
 		asg.Enabled = *b.Enabled
