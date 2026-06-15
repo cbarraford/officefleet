@@ -3,7 +3,7 @@ package events
 import (
 	"context"
 	"fmt"
-	"os"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -55,8 +55,10 @@ func NewDispatcher(store EventStore, assignments AssignmentLister, invoker Invok
 	return &Dispatcher{
 		store: store, assignments: assignments, invoker: invoker,
 		workers: workers, rescanInterval: rescanInterval,
-		bus:  make(chan uuid.UUID, busCapacity),
-		logf: func(format string, args ...any) { fmt.Fprintf(os.Stderr, format+"\n", args...) },
+		bus: make(chan uuid.UUID, busCapacity),
+		// Default to structured, timestamped, leveled logging; tests override
+		// logf to capture lines (issue #14).
+		logf: func(format string, args ...any) { slog.Warn(fmt.Sprintf(format, args...)) },
 	}
 }
 

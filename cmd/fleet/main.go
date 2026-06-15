@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -56,6 +57,11 @@ var (
 var version = "dev"
 
 func main() {
+	// Structured, timestamped, leveled logging for the daemons. CLI subcommands
+	// still print human-readable output via fmt; only daemon/library log calls
+	// go through slog (issue #14).
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
+
 	root := &cobra.Command{
 		Use:   "fleet",
 		Short: "OfficeFleet agent runner",
@@ -222,7 +228,7 @@ func initPlugins(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, ci
 		// daemon still continues: an unused, broken plugin must not stop serve.
 		plugin.RecordInit(p.Name(), err)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: plugin %q init failed: %v\n", p.Name(), err)
+			slog.Warn("plugin init failed", "plugin", p.Name(), "error", err)
 		}
 	}
 }
@@ -789,33 +795,57 @@ func runSchedulerLoop(ctx context.Context, pool *pgxpool.Pool, inv *run.Invoker)
 		}
 		t := trigger.NewCron(a.Trigger.Schedule)
 		if err := sched.Add(a.ID.String(), t, time.Now()); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: skipping assignment %s: bad cron schedule: %v\n", a.ID, err)
+			slog.Warn("skipping assignment: bad cron schedule", "assignment_id", a.ID, "error", err)
 			continue
 		}
-		fmt.Printf("scheduled assignment %s (schedule: %s)\n", a.ID, a.Trigger.Schedule)
+		slog.Info("scheduled assignment", "assignment_id", a.ID, "schedule", a.Trigger.Schedule)
 	}
-	fmt.Println("scheduler running...")
+	slog.Info("scheduler running")
+
+	// Liveness heartbeat so an operator can confirm the daemon is alive and
+	// ticking even when no assignment is firing (issue #14).
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				slog.Info("scheduler heartbeat")
+			}
+		}
+	}()
+
 	sched.Run(ctx, func(runCtx context.Context, assignmentID string) {
 		// A panic in one fire must not crash the scheduler daemon (issue #8).
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Fprintf(os.Stderr, "scheduler: PANIC in assignment %s: %v\n", assignmentID, r)
+				slog.Error("scheduler: panic in assignment", "assignment_id", assignmentID, "panic", r)
 			}
 		}()
 		id, err := uuid.Parse(assignmentID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "scheduler: invalid assignment id %s: %v\n", assignmentID, err)
+			slog.Error("scheduler: invalid assignment id", "assignment_id", assignmentID, "error", err)
 			return
 		}
+		start := time.Now()
 		result, err := inv.Invoke(runCtx, id, "cron", nil, map[string]any{})
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "scheduler: execute assignment %s: %v\n", assignmentID, err)
+			slog.Error("scheduler: run errored", "assignment_id", assignmentID, "error", err, "duration", time.Since(start))
 			return
 		}
+		attrs := []any{
+			"run_id", result.ID, "assignment_id", assignmentID,
+			"status", result.Status, "trigger_kind", "cron", "duration", time.Since(start),
+		}
+		if result.LLMResult != nil {
+			attrs = append(attrs, "tokens", result.LLMResult.Tokens, "cost", result.LLMResult.Cost)
+		}
 		if result.Error != nil {
-			fmt.Printf("scheduler: assignment %s completed with status %s (error: %s)\n", assignmentID, result.Status, *result.Error)
+			slog.Error("scheduler: run completed with error", append(attrs, "error", *result.Error)...)
 		} else {
-			fmt.Printf("scheduler: assignment %s completed with status %s\n", assignmentID, result.Status)
+			slog.Info("scheduler: run completed", attrs...)
 		}
 	})
 	return nil
