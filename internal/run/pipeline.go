@@ -69,6 +69,10 @@ type ExecuteRequest struct {
 	EventID     *string        // id of the triggering event, if any (event-subscription)
 	EventParams map[string]any // operator params for manual; event payload for event-subscription
 	Executor    executor.Executor
+	// Backend is the already-resolved backend (model/effort). When set, the
+	// pipeline reuses it instead of re-resolving from config (issue #11), which
+	// keeps backend resolution single-sourced from the DB refs.
+	Backend *config.Backend
 }
 
 // Skip reasons recorded on a Run when the pause gate prevents execution.
@@ -167,10 +171,15 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 		return nil, fmt.Errorf("compose prompts: %w", err)
 	}
 
-	// Resolve backend model/effort from config.
-	backend, _, err := config.ResolveBackend(p.cfg, findAssignmentConfig(p.cfg, req.Assignment, req.Agent.Name, req.Duty.Name))
-	if err != nil {
-		return nil, fmt.Errorf("resolve backend: %w", err)
+	// Backend model/effort: reuse the Invoker's single DB-sourced resolution
+	// when provided (issue #11); otherwise (direct pipeline callers / tests)
+	// fall back to resolving from config.
+	backend := req.Backend
+	if backend == nil {
+		backend, _, err = config.ResolveBackend(p.cfg, findAssignmentConfig(p.cfg, req.Assignment, req.Agent.Name, req.Duty.Name))
+		if err != nil {
+			return nil, fmt.Errorf("resolve backend: %w", err)
+		}
 	}
 
 	// Create workspace.

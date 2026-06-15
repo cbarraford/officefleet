@@ -77,11 +77,12 @@ func resolveSecretRefs(s string, secrets map[string]string) (string, error) {
 	return out, nil
 }
 
-// defaultBuildExecutor keeps SP1's behavior: no resolvable backend means the
-// subscription claude CLI; otherwise the factory dispatches on kind.
+// defaultBuildExecutor dispatches on the resolved backend's kind. A nil backend
+// is an error — the run must not silently fall back to an unconfigured claude
+// CLI with an empty key (issue #11).
 func defaultBuildExecutor(cfg *config.Config, b *config.Backend) (executor.Executor, error) {
 	if b == nil {
-		return executor.NewClaudeExecutor(""), nil
+		return nil, fmt.Errorf("no backend resolved for run")
 	}
 	return executor.FromBackend(cfg, b)
 }
@@ -126,17 +127,17 @@ func (inv *Invoker) Invoke(ctx context.Context, assignmentID uuid.UUID, triggerK
 		return nil, fmt.Errorf("duty %s not found", assignment.DutyID)
 	}
 
-	// Resolve the named backend from config (nil when this assignment has no
-	// config counterpart, e.g. DB-only seeds).
-	var resolved *config.Backend
-	for _, ac := range inv.cfg.Assignments {
-		if ac.Agent == agent.Name && ac.Duty == duty.Name {
-			if b, _, berr := config.ResolveBackend(inv.cfg, ac); berr == nil {
-				resolved = b
-			}
-			break
-		}
+	// Resolve the backend from the DB rows themselves (the single source of
+	// truth: assignment.Backend ?? duty.Backend ?? agent.DefaultBackend), then
+	// look up its definition in fleet.yaml. A config name-match is NOT used (it
+	// picks the wrong row when an agent has two assignments and breaks on
+	// rename), and a resolution failure is an error — never a silent
+	// ClaudeExecutor("") that runs the wrong backend with no key (issue #11).
+	resolved, err := ResolveBackendFromDB(inv.cfg, assignment, agent, duty)
+	if err != nil {
+		return nil, fmt.Errorf("resolve backend: %w", err)
 	}
+
 	// Resolve ${secret:...} backend api_key references against the encrypted
 	// secret store BEFORE the executor is built, failing closed if a referenced
 	// secret is missing — otherwise the literal placeholder reaches executor
@@ -166,5 +167,38 @@ func (inv *Invoker) Invoke(ctx context.Context, assignmentID uuid.UUID, triggerK
 		EventID:     eventID,
 		EventParams: params,
 		Executor:    exec,
+		Backend:     resolved, // single resolution: the pipeline reuses this
 	})
+}
+
+// ResolveBackendFromDB resolves an assignment's backend from the DB rows (the
+// single source of truth) and looks up the named definition in fleet.yaml. The
+// ref precedence is assignment.Backend ?? duty.Backend ?? agent.DefaultBackend.
+// It returns an error rather than nil so callers cannot silently fall back to an
+// unconfigured executor (issue #11).
+func ResolveBackendFromDB(cfg *config.Config, assignment *domain.Assignment, agent *domain.Agent, duty *domain.Duty) (*config.Backend, error) {
+	var ref domain.BackendRef
+	switch {
+	case assignment.Backend != nil && assignment.Backend.Name != "":
+		ref = *assignment.Backend
+	case duty.Backend != nil && duty.Backend.Name != "":
+		ref = *duty.Backend
+	case agent.DefaultBackend.Name != "":
+		ref = agent.DefaultBackend
+	default:
+		return nil, fmt.Errorf("no backend referenced by assignment %s, duty %q, or agent %q", assignment.ID, duty.Name, agent.Name)
+	}
+	for i := range cfg.Backends {
+		if cfg.Backends[i].Name == ref.Name {
+			b := cfg.Backends[i]
+			if ref.Model != "" {
+				b.Model = ref.Model
+			}
+			if ref.Effort != "" {
+				b.DefaultEffort = ref.Effort
+			}
+			return &b, nil
+		}
+	}
+	return nil, fmt.Errorf("backend %q (referenced by assignment %s) is not defined in config", ref.Name, assignment.ID)
 }

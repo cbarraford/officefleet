@@ -129,16 +129,13 @@ func TestInvoker_UnknownAssignment(t *testing.T) {
 }
 
 func TestInvoker_DefaultBuildExecutor(t *testing.T) {
-	// nil backend -> claude default; defined backend -> factory dispatch.
-	ex, err := defaultBuildExecutor(&config.Config{}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := ex.(*executor.ClaudeExecutor); !ok {
-		t.Errorf("nil backend built %T, want *executor.ClaudeExecutor", ex)
+	// nil backend -> error (never a silent unconfigured claude); defined backend
+	// -> factory dispatch (issue #11).
+	if _, err := defaultBuildExecutor(&config.Config{}, nil); err == nil {
+		t.Error("nil backend must error, not fall back to an unconfigured executor")
 	}
 	cfg := &config.Config{}
-	ex, err = defaultBuildExecutor(cfg, &config.Backend{
+	ex, err := defaultBuildExecutor(cfg, &config.Backend{
 		Name: "e", Kind: "openai-compatible", BaseURI: "http://x/v1", Model: "m",
 		Auth: config.BackendAuth{Mode: "none"},
 	})

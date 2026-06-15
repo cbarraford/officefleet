@@ -695,26 +695,17 @@ func runCmd() *cobra.Command {
 					Transcript: "fake transcript",
 				})
 			} else {
-				var resolved *config.Backend
-				for _, ac := range cfg.Assignments {
-					if ac.Agent == agent.Name && ac.Duty == duty.Name {
-						b, _, berr := config.ResolveBackend(cfg, ac)
-						if berr == nil {
-							resolved = b
-						}
-						break
-					}
+				// Resolve the backend from the DB rows (assignment ?? duty ??
+				// agent default), erroring out rather than silently running an
+				// unconfigured claude with an empty key (issue #11).
+				resolved, rerr := run.ResolveBackendFromDB(cfg, assignment, agent, duty)
+				if rerr != nil {
+					return fmt.Errorf("resolve backend: %w", rerr)
 				}
-				if resolved == nil {
-					// No matching config assignment (e.g. DB-seeded): keep
-					// the SP1 default of the subscription claude CLI.
-					exec = executor.NewClaudeExecutor("")
-				} else {
-					var eerr error
-					exec, eerr = executor.FromBackend(cfg, resolved)
-					if eerr != nil {
-						return fmt.Errorf("build executor: %w", eerr)
-					}
+				var eerr error
+				exec, eerr = executor.FromBackend(cfg, resolved)
+				if eerr != nil {
+					return fmt.Errorf("build executor: %w", eerr)
 				}
 			}
 
