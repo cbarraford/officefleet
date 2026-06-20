@@ -2,7 +2,8 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useSession } from '../App'
 import { ApiError, api } from '../api/client'
-import type { Agent, AgentStats, BackendView } from '../api/types'
+import type { Agent, AgentStats, BackendView, Job } from '../api/types'
+import { JOBS } from '../api/types'
 import AvatarBubble from '../components/AvatarBubble'
 import Badge from '../components/Badge'
 import Card from '../components/Card'
@@ -37,7 +38,7 @@ function StatsStrip({ agentID }: { agentID: string }) {
 
 function CreateAgentModal({ backends, onClose, onCreated }: { backends: BackendView[]; onClose: () => void; onCreated: () => void }) {
   const [name, setName] = useState('')
-  const [role, setRole] = useState('')
+  const [role, setRole] = useState<Job>(JOBS[0])
   const [systemPrompt, setSystemPrompt] = useState('')
   const [backend, setBackend] = useState(backends[0]?.name ?? '')
   const [hiredAt, setHiredAt] = useState('')
@@ -72,8 +73,14 @@ function CreateAgentModal({ backends, onClose, onCreated }: { backends: BackendV
           <input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
         </label>
         <label className="field">
-          <span>Role</span>
-          <input value={role} onChange={(e) => setRole(e.target.value)} placeholder="e.g. Code Reviewer" />
+          <span>Job</span>
+          <select value={role} onChange={(e) => setRole(e.target.value as Job)}>
+            {JOBS.map((j) => (
+              <option key={j} value={j}>
+                {j}
+              </option>
+            ))}
+          </select>
         </label>
         <label className="field">
           <span>System prompt (persona)</span>
@@ -153,7 +160,7 @@ export default function Agents() {
                 <Link to={`/agents/${a.id}`}>
                   <strong>{a.name}</strong>
                 </Link>
-                <div className="dim">{a.role || '—'}</div>
+                <div className="dim">{a.role || 'unknown'}</div>
               </div>
               <div className="spacer" />
               {!a.enabled && <Badge text="Paused" kind="warn" />}

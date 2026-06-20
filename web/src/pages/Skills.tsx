@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { useSession } from '../App'
 import { ApiError, api } from '../api/client'
 import type { Skill, OutputActionType } from '../api/types'
+import { JOBS } from '../api/types'
 import Card from '../components/Card'
 import ConfirmButton from '../components/ConfirmButton'
 import Modal from '../components/Modal'
@@ -25,7 +26,7 @@ interface SkillForm {
 function emptyForm(): SkillForm {
   return {
     name: '',
-    role: '',
+    role: JOBS[0],
     description: '',
     trigger_kinds: ['manual'],
     required_tools: '',
@@ -117,8 +118,14 @@ function SkillModal({ skill, onClose, onSaved }: { skill: Skill | null; onClose:
           <input value={form.name} onChange={(e) => set('name', e.target.value)} autoFocus />
         </label>
         <label className="field">
-          <span>Role category</span>
-          <input value={form.role} onChange={(e) => set('role', e.target.value)} placeholder="e.g. engineering" />
+          <span>Job</span>
+          <select value={form.role} onChange={(e) => set('role', e.target.value)}>
+            {JOBS.map((j) => (
+              <option key={j} value={j}>
+                {j}
+              </option>
+            ))}
+          </select>
         </label>
         <label className="field">
           <span>Description</span>
@@ -243,7 +250,7 @@ export default function Skills() {
                   <strong>{d.name}</strong>
                 ),
             },
-            { header: 'Role', render: (d: Skill) => d.role || '—' },
+            { header: 'Job', render: (d: Skill) => d.role || 'unknown' },
             { header: 'Description', render: (d: Skill) => d.description || '—' },
             { header: 'Triggers', render: (d: Skill) => (d.trigger_kinds ?? []).join(', ') || '—' },
             { header: 'Tools', render: (d: Skill) => (d.required_tools ?? []).join(', ') || '—' },
