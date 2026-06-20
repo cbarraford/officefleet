@@ -1,16 +1,20 @@
 ---
 name: fleet-skill-author
 description: >-
-  Author or edit an OfficeFleet **skill** — a reusable unit of agent work defined
-  under `skills:` in configs/fleet.yaml (NOT a Claude Code skill, and NOT an agent
-  or assignment). Use whenever the user wants to add, write, change, or review a
-  fleet skill / agent task / job definition for this repo: e.g. "add a skill that
-  triages issues", "make a skill to summarize MRs", "write a new code-audit-style
-  skill", "edit the mr-review skill's prompt", "add an output action to a skill".
-  Covers the schema, prompt template context, the result-JSON contract, validation,
-  seeding, and how to dry-run it. Triggers on the domain noun "skill" in the context
-  of fleet.yaml / agents / assignments / triggers — not on requests to build a
-  Claude Code/Anthropic skill (use skill-creator for those).
+  Author, edit, or review an OfficeFleet fleet skill — a reusable unit of agent work
+  defined as an entry under `skills:` in configs/fleet.yaml. Getting one right needs
+  non-obvious project knowledge that is easy to get wrong by hand: the exact YAML
+  schema, the Go-template prompt context (`{{.Event}}`/`{{.Assignment}}`/`{{.Agent}}`
+  and the `secret` helper), the result-JSON output contract, the validation rules, and
+  the seed/dry-run lifecycle — so consult this skill instead of editing the YAML
+  directly. Use it whenever the user wants to add, write, change, or review a fleet
+  skill, agent task, or scheduled/automated job for an OfficeFleet agent — for example
+  "add a skill to fleet.yaml that triages issues", "make a skill so dev-1 summarizes
+  merge requests", "edit the code-audit skill's prompt", "add an output_action to
+  mr-review", "add a config_schema to my skill", or "a skill that runs on a cron to
+  file issues" — even when the user does not say the word "skill". This is about
+  OfficeFleet's fleet.yaml skills, not about building a Claude Code/Anthropic SKILL.md
+  (use skill-creator for that).
 ---
 
 # Authoring an OfficeFleet skill
