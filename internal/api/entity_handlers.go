@@ -393,11 +393,13 @@ func (a *API) validateAssignment(ctx context.Context, asg *domain.Assignment) er
 			return errValidation("event-subscription trigger requires non-empty filter.source and filter.event_type")
 		}
 	}
-	if asg.Trigger.Kind != "" {
-		skill, err := a.skills.GetByID(ctx, asg.SkillID)
-		if err == nil && len(skill.TriggerKinds) > 0 && !slices.Contains(skill.TriggerKinds, asg.Trigger.Kind) {
-			return errValidation("skill does not support trigger kind " + asg.Trigger.Kind)
-		}
+	// Resolve agent and skill once; the trigger-kind and job-match checks below
+	// reuse them. A lookup error here is not fatal — the create/patch handlers
+	// report unknown agent/skill ids separately.
+	agentRow, aerr := a.agents.GetByID(ctx, asg.AgentID)
+	skillRow, serr := a.skills.GetByID(ctx, asg.SkillID)
+	if asg.Trigger.Kind != "" && serr == nil && len(skillRow.TriggerKinds) > 0 && !slices.Contains(skillRow.TriggerKinds, asg.Trigger.Kind) {
+		return errValidation("skill does not support trigger kind " + asg.Trigger.Kind)
 	}
 	if !a.backendNameExists(asg.Backend) {
 		return errValidation("unknown backend " + asg.Backend.Name)
@@ -407,8 +409,6 @@ func (a *API) validateAssignment(ctx context.Context, asg *domain.Assignment) er
 			return errValidation(err.Error())
 		}
 	}
-	agentRow, aerr := a.agents.GetByID(ctx, asg.AgentID)
-	skillRow, serr := a.skills.GetByID(ctx, asg.SkillID)
 	if aerr == nil && serr == nil && agentRow.Role != skillRow.Role {
 		return errValidation("skill job " + string(skillRow.Role) + " does not match agent job " + string(agentRow.Role))
 	}

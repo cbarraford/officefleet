@@ -950,6 +950,18 @@ func TestAgentCreate_MissingJob_400(t *testing.T) {
 	}
 }
 
+func TestSkillCreate_MissingJob_400(t *testing.T) {
+	f := newEntityFixture(t)
+	resp := f.do(t, "POST", "/api/v1/skills", map[string]any{
+		"name":          "NoJobSkill",
+		"trigger_kinds": []string{"manual"},
+		"prompt":        "p",
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("missing skill job: status = %d, want 400", resp.StatusCode)
+	}
+}
+
 func TestAgentCreate_InvalidJob_400(t *testing.T) {
 	f := newEntityFixture(t)
 	resp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "BadJob", "role": "lawyer"})
