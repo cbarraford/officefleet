@@ -207,3 +207,53 @@ func TestPostPRComment_Errors(t *testing.T) {
 		t.Error("unknown action: expected error")
 	}
 }
+
+func TestCreateIssue_Github(t *testing.T) {
+	var gotPath string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"number":42}`))
+	}))
+	defer srv.Close()
+
+	g := &GitHubPlugin{baseURL: srv.URL, token: "t"}
+	_, err := g.Do(context.Background(), "create_issue", map[string]any{
+		"project": "org/repo", "title": "[Security] bug", "description": "found at x.go:10",
+		"labels": "security, huginn-code-audit, general-security",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/repos/org/repo/issues" {
+		t.Errorf("path = %q", gotPath)
+	}
+	if gotBody["title"] != "[Security] bug" || gotBody["body"] != "found at x.go:10" {
+		t.Errorf("title/body = %v", gotBody)
+	}
+	labels, ok := gotBody["labels"].([]any)
+	if !ok || len(labels) != 3 || labels[0] != "security" || labels[1] != "huginn-code-audit" {
+		t.Errorf("labels not split into trimmed array: %v", gotBody["labels"])
+	}
+}
+
+func TestCreateIssue_Github_NoLabels(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"number":1}`))
+	}))
+	defer srv.Close()
+	g := &GitHubPlugin{baseURL: srv.URL, token: "t"}
+	if _, err := g.Do(context.Background(), "create_issue", map[string]any{
+		"project": "org/repo", "title": "t",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, present := gotBody["labels"]; present {
+		t.Errorf("labels should be omitted when empty, got %v", gotBody["labels"])
+	}
+}

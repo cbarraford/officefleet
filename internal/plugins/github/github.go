@@ -47,6 +47,7 @@ func (g *GitHubPlugin) Actions() []plugin.Action {
 	return []plugin.Action{
 		{Name: "post_change_comment", Description: "Post a comment on a pull request"},
 		{Name: "post_inline_comment", Description: "Post a positioned PR review comment (falls back to a plain comment on stale positions)"},
+		{Name: "create_issue", Description: "Create a GitHub issue"},
 	}
 }
 
@@ -104,6 +105,8 @@ func (g *GitHubPlugin) Do(ctx context.Context, action string, params map[string]
 		return g.postPRComment(ctx, params)
 	case "post_inline_comment":
 		return g.postInlineComment(ctx, params)
+	case "create_issue":
+		return g.createIssue(ctx, params)
 	default:
 		return nil, fmt.Errorf("github: unknown action %q", action)
 	}
@@ -165,6 +168,29 @@ func (g *GitHubPlugin) postInlineComment(ctx context.Context, params map[string]
 		return note, nil
 	}
 	return nil, err
+}
+
+func (g *GitHubPlugin) createIssue(ctx context.Context, params map[string]any) (map[string]any, error) {
+	repo := firstParam(params, "project", "repo")
+	title := paramToString(params["title"])
+	description := paramToString(params["description"])
+	labels := paramToString(params["labels"]) // comma-separated, optional
+	if repo == "" || title == "" {
+		return nil, fmt.Errorf("github create_issue: project and title are required")
+	}
+	payload := map[string]any{"title": title, "body": description}
+	var labelList []string
+	for _, l := range strings.Split(labels, ",") {
+		if t := strings.TrimSpace(l); t != "" {
+			labelList = append(labelList, t)
+		}
+	}
+	if len(labelList) > 0 {
+		payload["labels"] = labelList
+	}
+	url := fmt.Sprintf("%s/repos/%s/issues", g.baseURL, repo)
+	result, _, err := g.apiJSON(ctx, http.MethodPost, url, payload)
+	return result, err
 }
 
 // prHeadSHA fetches the PR's current head commit SHA, required to position a
