@@ -1,6 +1,7 @@
 // Package github provides the GitHub integration plugin: the pr_events source
-// (webhook + poll, see events.go) and the post_pr_comment action. GitHub
-// Enterprise is supported via the base_url config.
+// (webhook + poll, see events.go) and the post_change_comment and
+// post_inline_comment actions (post_pr_comment is kept as a back-compat alias).
+// GitHub Enterprise is supported via the base_url config.
 package github
 
 import (
