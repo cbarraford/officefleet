@@ -12,6 +12,7 @@ import (
 
 func codeReviewPrompt(t *testing.T) string {
 	t.Helper()
+	t.Setenv("FLEET_DATABASE_DSN", "postgres://test")
 	cfg, err := config.Load("../../configs/huginn.yaml")
 	if err != nil {
 		t.Fatal(err)
