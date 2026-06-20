@@ -417,20 +417,21 @@ skills:
     config_schema:
       type: object
       properties:
+        forge: { type: string, description: "Which forge this assignment targets", enum: [gitlab, github], default: "gitlab" }
         review_label: { type: string, description: "Only review MRs carrying this label (empty = review all non-bot MRs)", default: "" }
         min_confidence: { type: number, description: "Drop minor/suggestion findings below this confidence", default: 0.5 }
         path_instructions: { type: string, description: "Optional project-specific review guidance injected verbatim", default: "" }
       required: []
     prompt: |
-      You are reviewing external merge request !{{.Event.mr_iid}}
-      ({{.Event.title}}) in {{.Assignment.project}}. Do NOT review MRs you
+      You are reviewing external {{.Forge.changeNoun}} {{.Forge.changeSigil}}{{.Event.mr_iid}}
+      ({{.Event.title}}) in {{.Assignment.project}}. Do NOT review {{.Forge.changeAbbr}}s you
       authored — if {{.Event.author}} is you, STOP and report status "skipped".
-      {{if .Assignment.review_label}}Only proceed if the MR carries the label
+      {{if .Assignment.review_label}}Only proceed if the {{.Forge.changeAbbr}} carries the label
       "{{.Assignment.review_label}}"; otherwise STOP and report "skipped".{{end}}
 
       Workspace setup:
-        git clone --depth 50 https://oauth2:{{secret "gitlab_token"}}@gitlab.com/{{.Assignment.project}}.git repo
-        cd repo && export GITLAB_TOKEN={{secret "gitlab_token"}}
+        git clone --depth 50 https://{{.Forge.cloneUser}}:{{secret .Forge.tokenSecret}}@{{.Forge.host}}/{{.Assignment.project}}.git repo
+        cd repo && export {{.Forge.tokenEnv}}={{secret .Forge.tokenSecret}}
         git fetch origin {{.Event.source_branch}} {{.Event.target_branch}}
         git checkout {{.Event.source_branch}}
       Review the change: `git diff origin/{{.Event.target_branch}}...HEAD`. The
@@ -485,7 +486,11 @@ skills:
       - plugin: gitlab
         action: post_inline_comment
       - plugin: gitlab
-        action: post_mr_comment
+        action: post_change_comment
+      - plugin: github
+        action: post_inline_comment
+      - plugin: github
+        action: post_change_comment
 
   # ── 7. review-finding-reply: author replied to a review finding ────────
   - name: review-finding-reply
@@ -725,6 +730,7 @@ assignments:
         event_type: mr_opened
         project: "myorg/myrepo"
     config:
+      forge: gitlab
       project: "myorg/myrepo"
       review_label: ""
       min_confidence: 0.5
@@ -740,7 +746,7 @@ assignments:
           line: "{{.Item.line}}"
           body: "**{{.Item.severity}}/{{.Item.category}}** — {{.Item.body}}"
       - plugin: gitlab
-        action: post_mr_comment
+        action: post_change_comment
         params:
           project: "{{.Assignment.project}}"
           mr_iid: "{{.Event.mr_iid}}"
@@ -761,6 +767,7 @@ assignments:
         event_type: mr_updated
         project: "myorg/myrepo"
     config:
+      forge: gitlab
       project: "myorg/myrepo"
       review_label: ""
       min_confidence: 0.5
@@ -776,7 +783,73 @@ assignments:
           line: "{{.Item.line}}"
           body: "**{{.Item.severity}}/{{.Item.category}}** — {{.Item.body}}"
       - plugin: gitlab
-        action: post_mr_comment
+        action: post_change_comment
+        params:
+          project: "{{.Assignment.project}}"
+          mr_iid: "{{.Event.mr_iid}}"
+          body: "{{.Event.llm_summary}}"
+
+  - agent: huginn
+    skill: code-review
+    name: gh-on-open
+    enabled: true
+    trigger:
+      kind: event-subscription
+      filter:
+        source: github
+        event_type: pr_opened
+        project: "myorg/myrepo"
+    config:
+      forge: github
+      project: "myorg/myrepo"
+      review_label: ""
+      min_confidence: 0.5
+      path_instructions: ""
+    outputs:
+      - plugin: github
+        action: post_inline_comment
+        for_each: comments
+        params:
+          project: "{{.Assignment.project}}"
+          mr_iid: "{{.Event.mr_iid}}"
+          path: "{{.Item.path}}"
+          line: "{{.Item.line}}"
+          body: "**{{.Item.severity}}/{{.Item.category}}** — {{.Item.body}}"
+      - plugin: github
+        action: post_change_comment
+        params:
+          project: "{{.Assignment.project}}"
+          mr_iid: "{{.Event.mr_iid}}"
+          body: "{{.Event.llm_summary}}"
+
+  - agent: huginn
+    skill: code-review
+    name: gh-on-update
+    enabled: true
+    trigger:
+      kind: event-subscription
+      filter:
+        source: github
+        event_type: pr_updated
+        project: "myorg/myrepo"
+    config:
+      forge: github
+      project: "myorg/myrepo"
+      review_label: ""
+      min_confidence: 0.5
+      path_instructions: ""
+    outputs:
+      - plugin: github
+        action: post_inline_comment
+        for_each: comments
+        params:
+          project: "{{.Assignment.project}}"
+          mr_iid: "{{.Event.mr_iid}}"
+          path: "{{.Item.path}}"
+          line: "{{.Item.line}}"
+          body: "**{{.Item.severity}}/{{.Item.category}}** — {{.Item.body}}"
+      - plugin: github
+        action: post_change_comment
         params:
           project: "{{.Assignment.project}}"
           mr_iid: "{{.Event.mr_iid}}"
@@ -830,3 +903,9 @@ plugins:
     config:
       base_url: "https://gitlab.com"
       bot_username: "huginn"     # the bot's GitLab username; its own notes are dropped at ingest
+  # Required secrets (set via `fleet secrets set`):
+  #   github_token          — GitHub API auth (Personal Access Token or GitHub App token)
+  #   github_webhook_secret — webhook signature verification (HMAC-SHA256)
+  - name: github
+    config:
+      base_url: "https://api.github.com"
