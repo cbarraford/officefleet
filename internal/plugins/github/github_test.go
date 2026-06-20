@@ -94,6 +94,32 @@ func TestPostPRComment(t *testing.T) {
 	}
 }
 
+func TestPostChangeComment_LinguaFrancaParams(t *testing.T) {
+	var gotPath string
+	var gotBody map[string]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":1}`))
+	}))
+	defer srv.Close()
+
+	g := &GitHubPlugin{baseURL: srv.URL, token: "t"}
+	_, err := g.Do(context.Background(), "post_change_comment", map[string]any{
+		"project": "org/repo", "mr_iid": "9", "body": "hi",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/repos/org/repo/issues/9/comments" {
+		t.Errorf("path = %q", gotPath)
+	}
+	if gotBody["body"] != "hi" {
+		t.Errorf("body = %v", gotBody)
+	}
+}
+
 func TestPostPRComment_Errors(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(404)
