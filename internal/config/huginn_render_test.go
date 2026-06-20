@@ -71,6 +71,32 @@ func codeReviewPrompt(t *testing.T) string {
 	return ""
 }
 
+func TestIssueBatchImplementPrompt_RendersBothForges(t *testing.T) {
+	tmpl := skillPrompt(t, "issue-batch-implement")
+	secrets := map[string]string{"gitlab_token": "glt", "github_token": "ght"}
+	cases := []struct{ forge, wantCreate, wantHost string }{
+		{"gitlab", "glab mr create --source-branch", "gitlab.com"},
+		{"github", "gh pr create --head", "github.com"},
+	}
+	for _, tc := range cases {
+		fp, _ := forge.Profile(tc.forge)
+		ctx := prompt.Context{
+			Assignment: map[string]any{
+				"project": "o/r", "base_branch": "main",
+				"batch_label": "batch", "max_batch_issues": 10,
+			},
+			Forge: fp,
+		}
+		out, err := prompt.Render(tmpl, ctx, secrets)
+		if err != nil {
+			t.Fatalf("forge %s render: %v", tc.forge, err)
+		}
+		if !strings.Contains(out, tc.wantCreate) || !strings.Contains(out, tc.wantHost) {
+			t.Errorf("forge %s: missing %q/%q", tc.forge, tc.wantCreate, tc.wantHost)
+		}
+	}
+}
+
 func TestCodeReviewPrompt_RendersBothForges(t *testing.T) {
 	tmpl := codeReviewPrompt(t)
 	secrets := map[string]string{"gitlab_token": "glt", "github_token": "ght"}

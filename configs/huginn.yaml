@@ -165,23 +165,26 @@ skills:
     config_schema:
       type: object
       properties:
+        forge: { type: string, description: "Which forge this assignment targets", enum: [gitlab, github], default: "gitlab" }
         project: { type: string, description: "GitLab project path (namespace/repo)" }
         base_branch: { type: string, description: "Target branch for the MR", default: "main" }
         batch_label: { type: string, description: "Label marking issues to batch together", default: "batch" }
         max_batch_issues: { type: integer, description: "Cap issues per batch MR; remainder defers to the next run", default: 10 }
       required: [project, base_branch]
     prompt: |
-      You implement a batch of GitLab issues in {{.Assignment.project}} as ONE MR.
+      You implement a batch of issues in {{.Assignment.project}} as ONE {{.Forge.changeNoun}}.
 
       Workspace:
-        git clone --depth 50 https://oauth2:{{secret "gitlab_token"}}@gitlab.com/{{.Assignment.project}}.git repo
+        git clone --depth 50 https://{{.Forge.cloneUser}}:{{secret .Forge.tokenSecret}}@{{.Forge.host}}/{{.Assignment.project}}.git repo
         cd repo
-        export GITLAB_TOKEN={{secret "gitlab_token"}}
+        export {{.Forge.tokenEnv}}={{secret .Forge.tokenSecret}}
 
       Select the batch:
-        glab issue list --label "{{.Assignment.batch_label}}" --assignee @me --repo {{.Assignment.project}} --per-page 100
-      Drop any issue that already has an open MR (an open MR's title/description
-      references it, e.g. "Resolve #N", or it closes it per the API). Take up to
+        {{.Forge.cli}} issue list --label "{{.Assignment.batch_label}}" --assignee @me --repo {{.Assignment.project}} {{.Forge.listLimitFlag}} 100
+      Drop any issue that already has an open {{.Forge.changeAbbr}} (an open {{.Forge.changeAbbr}}'s
+      title/description references it, e.g. "Resolve #N", or it closes it per the forge's link
+      API — for each open {{.Forge.changeAbbr}}, substituting its number for <change_iid> and the
+      project for <project>: {{.Forge.closesIssuesHowto}}). Take up to
       {{.Assignment.max_batch_issues}} of the remaining issues (lowest issue IID
       first); leave the rest for the next run. If only ONE batch issue exists,
       STOP and report status "skipped" (a single issue should go through
@@ -193,20 +196,20 @@ skills:
       3. Work through each issue ONE AT A TIME in IID order; for each, implement
          the changes and commit with a message referencing #<iid>.
       4. Push: git push origin <branch>
-      5. Open the MR linking every issue. Set --label to the union of all batched
-         issues' own labels, and if the project has a current milestone set
+      5. Open the {{.Forge.changeAbbr}} linking every issue. Set --label to the union of all
+         batched issues' own labels, and if the project has a current milestone set
          --milestone "<current milestone title>":
-           glab mr create --source-branch <branch> --target-branch {{.Assignment.base_branch}} \
+           {{.Forge.cli}} {{.Forge.changeCmd}} create {{.Forge.headFlag}} <branch> {{.Forge.baseFlag}} {{.Assignment.base_branch}} \
              --title "Batch: resolve issues #<iid1>, #<iid2>, ..." \
-             --description "Resolve #<iid1>
+             {{.Forge.bodyFlag}} "Resolve #<iid1>
          Resolve #<iid2>
          ...
 
-         This MR implements the changes described in issues #<iid1>, #<iid2>, ...
+         This change implements the work described in issues #<iid1>, #<iid2>, ...
 
          ## Summary
          <brief summary of all changes>" \
-             --remove-source-branch --label "<comma-joined union of the issues' labels>"
+             {{.Forge.removeBranchFlag}} --label "<comma-joined union of the issues' labels>"
 
       Report your result as a single JSON object:
         {"summary": "<one line>", "status": "implemented|skipped|failed",
@@ -676,6 +679,21 @@ assignments:
       kind: cron
       schedule: "15 * * * *"
     config:
+      forge: gitlab
+      project: "myorg/myrepo"
+      base_branch: "main"
+      batch_label: "batch"
+      max_batch_issues: 10
+
+  - agent: huginn
+    skill: issue-batch-implement
+    name: gh
+    enabled: false               # opt-in
+    trigger:
+      kind: cron
+      schedule: "15 * * * *"
+    config:
+      forge: github
       project: "myorg/myrepo"
       base_branch: "main"
       batch_label: "batch"
