@@ -44,11 +44,12 @@ func actionToEventType(action string, merged bool) (string, bool) {
 type webhookPRPayload struct {
 	Action      string `json:"action"`
 	PullRequest struct {
-		Number  int    `json:"number"`
-		Title   string `json:"title"`
-		Merged  bool   `json:"merged"`
-		HTMLURL string `json:"html_url"`
-		Head    struct {
+		Number         int    `json:"number"`
+		Title          string `json:"title"`
+		Merged         bool   `json:"merged"`
+		MergeableState string `json:"mergeable_state"`
+		HTMLURL        string `json:"html_url"`
+		Head           struct {
 			Ref string `json:"ref"`
 			SHA string `json:"sha"`
 		} `json:"head"`
@@ -96,13 +97,17 @@ func (g *GitHubPlugin) HandleWebhook(_ context.Context, r *http.Request) ([]doma
 
 	pr := payload.PullRequest
 	ev := normalizePR(eventType, payload.Repository.FullName, pr.Number, pr.Title, payload.Action,
-		pr.Head.Ref, pr.Base.Ref, pr.Head.SHA, pr.User.Login, pr.HTMLURL, body)
+		pr.Head.Ref, pr.Base.Ref, pr.Head.SHA, pr.User.Login, pr.HTMLURL, pr.MergeableState, body)
 	return []domain.Event{ev}, nil
 }
 
 // normalizePR builds the shared envelope both ingestion surfaces emit.
 // The dedup key changes only when the PR head SHA changes.
-func normalizePR(eventType, repo string, number int, title, action, sourceBranch, targetBranch, sha, author, htmlURL string, raw []byte) domain.Event {
+func normalizePR(eventType, repo string, number int, title, action, sourceBranch, targetBranch, sha, author, htmlURL, mergeableState string, raw []byte) domain.Event {
+	mergeStatus := mergeableState
+	if mergeableState == "dirty" {
+		mergeStatus = "cannot_be_merged"
+	}
 	return domain.Event{
 		SourcePlugin: "github",
 		EventType:    eventType,
@@ -124,6 +129,7 @@ func normalizePR(eventType, repo string, number int, title, action, sourceBranch
 			"project":         repo,
 			"mr_iid":          number,
 			"last_commit_sha": sha,
+			"merge_status":    mergeStatus,
 		},
 		Identity: author,
 		DedupKey: fmt.Sprintf("pr:%s:%d:%s", repo, number, sha),
@@ -180,7 +186,7 @@ func (g *GitHubPlugin) Poll(ctx context.Context, cursor string) ([]domain.Event,
 			}
 			raw, _ := json.Marshal(pr)
 			events = append(events, normalizePR("pr_updated", repo, pr.Number, pr.Title, "synchronize",
-				pr.Head.Ref, pr.Base.Ref, pr.Head.SHA, pr.User.Login, pr.HTMLURL, raw))
+				pr.Head.Ref, pr.Base.Ref, pr.Head.SHA, pr.User.Login, pr.HTMLURL, "", raw))
 			if pr.UpdatedAt.After(maxUpdated) {
 				maxUpdated = pr.UpdatedAt
 			}

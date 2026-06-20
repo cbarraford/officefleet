@@ -295,7 +295,7 @@ func TestPoll_EmptyCursorWindowAndNoRepos(t *testing.T) {
 
 func TestNormalizePR_LinguaFrancaKeys(t *testing.T) {
 	ev := normalizePR("pr_opened", "org/repo", 9, "T", "opened",
-		"feat", "main", "deadbeef", "carol", "http://x", []byte(`{}`))
+		"feat", "main", "deadbeef", "carol", "http://x", "", []byte(`{}`))
 	n := ev.PayloadNorm
 	if n["mr_iid"] != 9 {
 		t.Errorf("mr_iid = %v, want 9", n["mr_iid"])
@@ -309,6 +309,24 @@ func TestNormalizePR_LinguaFrancaKeys(t *testing.T) {
 	// Existing GitHub-native keys must remain (no removal).
 	if n["pr_number"] != 9 || n["repo"] != "org/repo" || n["head_sha"] != "deadbeef" {
 		t.Errorf("legacy keys missing/changed: %v", n)
+	}
+}
+
+func TestNormalizePR_MergeStatus(t *testing.T) {
+	dirty := normalizePR("pr_updated", "o/r", 1, "t", "synchronize",
+		"f", "main", "sha", "u", "url", "dirty", []byte(`{}`))
+	if dirty.PayloadNorm["merge_status"] != "cannot_be_merged" {
+		t.Errorf("dirty -> %v, want cannot_be_merged", dirty.PayloadNorm["merge_status"])
+	}
+	clean := normalizePR("pr_updated", "o/r", 1, "t", "synchronize",
+		"f", "main", "sha", "u", "url", "clean", []byte(`{}`))
+	if clean.PayloadNorm["merge_status"] != "clean" {
+		t.Errorf("clean -> %v, want clean (passthrough)", clean.PayloadNorm["merge_status"])
+	}
+	absent := normalizePR("pr_updated", "o/r", 1, "t", "synchronize",
+		"f", "main", "sha", "u", "url", "", []byte(`{}`))
+	if absent.PayloadNorm["merge_status"] != "" {
+		t.Errorf("absent -> %v, want empty", absent.PayloadNorm["merge_status"])
 	}
 }
 
