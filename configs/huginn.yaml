@@ -313,19 +313,20 @@ skills:
       properties:
         project: { type: string, description: "GitLab project path (namespace/repo)" }
         base_branch: { type: string, description: "Branch to rebase onto", default: "main" }
+        forge: { type: string, description: "Which forge this assignment targets", enum: [gitlab, github], default: "gitlab" }
       required: [project, base_branch]
     prompt: |
-      Rebase a stale/conflicted bot MR in {{.Assignment.project}} onto
+      Rebase a stale/conflicted bot {{.Forge.changeAbbr}} in {{.Assignment.project}} onto
       origin/{{.Assignment.base_branch}}.
 
       Workspace:
-        git clone https://oauth2:{{secret "gitlab_token"}}@gitlab.com/{{.Assignment.project}}.git repo
+        git clone https://{{.Forge.cloneUser}}:{{secret .Forge.tokenSecret}}@{{.Forge.host}}/{{.Assignment.project}}.git repo
         cd repo
-        export GITLAB_TOKEN={{secret "gitlab_token"}}
-      Find a bot-authored open MR that has merge conflicts, needs a rebase, OR is
+        export {{.Forge.tokenEnv}}={{secret .Forge.tokenSecret}}
+      Find a bot-authored open {{.Forge.changeAbbr}} that has merge conflicts, needs a rebase, OR is
       simply behind origin/{{.Assignment.base_branch}} (its branch has diverged /
       cannot fast-forward merge — huginn rebases this clean-but-behind case too):
-        glab mr list --author @me --repo {{.Assignment.project}} --per-page 100
+        {{.Forge.cli}} {{.Forge.changeCmd}} list --author @me --repo {{.Assignment.project}} {{.Forge.listLimitFlag}} 100
       If none, STOP and report status "skipped". Otherwise use its source branch below.
 
       Rebase:
@@ -338,7 +339,7 @@ skills:
       5. Push: git push origin <source_branch> --force-with-lease
 
       If you cannot resolve the conflicts: git rebase --abort, report status
-      "failed", and post this comment verbatim:
+      "failed", and post this comment verbatim on the {{.Forge.changeAbbr}} (use {{.Forge.cli}}):
         "The branches have grown tangled like the roots of Yggdrasil, and I could not unravel them. Manual intervention is required to resolve these conflicts. May your merge be swift once the path is cleared."
 
       Report your result as a single JSON object:
@@ -348,7 +349,9 @@ skills:
       Otherwise end with exactly one fenced ```json code block.
     output_actions:
       - plugin: gitlab
-        action: post_mr_comment
+        action: post_change_comment
+      - plugin: github
+        action: post_change_comment
 
   # ── 5. code-feedback: reviewer feedback on a bot change request → fix & reply ─
   - name: code-feedback
@@ -734,11 +737,31 @@ assignments:
         project: "myorg/myrepo"
         merge_status: cannot_be_merged   # only when GitLab marks the MR unmergeable
     config:
+      forge: gitlab
       project: "myorg/myrepo"
       base_branch: "main"
     # The prompt still confirms the MR is bot-authored before rebasing. Without
     # webhooks, the MR poller also emits mr_updated (with merge_status), so this
     # works in poll mode too.
+
+  - agent: huginn
+    skill: code-rebase
+    name: gh-on-update
+    enabled: false               # opt-in: enable + point at a GitHub repo
+    trigger:
+      kind: event-subscription
+      filter:
+        source: github
+        event_type: pr_updated
+        project: "myorg/myrepo"
+        # NOTE: no merge_status filter — GitHub computes mergeability asynchronously,
+        # so mergeable_state is often "unknown"/absent at webhook time (and the PR-list
+        # poll endpoint omits it). This fires on every PR update; the prompt self-discovers
+        # whether a rebase is actually needed and skips otherwise.
+    config:
+      forge: github
+      project: "myorg/myrepo"
+      base_branch: "main"
 
   - agent: huginn
     skill: code-audit

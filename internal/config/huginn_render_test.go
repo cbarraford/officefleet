@@ -122,6 +122,29 @@ func TestCodeAuditPrompt_RendersBothForges(t *testing.T) {
 	}
 }
 
+func TestCodeRebasePrompt_RendersBothForges(t *testing.T) {
+	tmpl := skillPrompt(t, "code-rebase")
+	secrets := map[string]string{"gitlab_token": "glt", "github_token": "ght"}
+	cases := []struct{ forge, wantHost, wantList string }{
+		{"gitlab", "gitlab.com", "glab mr list"},
+		{"github", "github.com", "gh pr list"},
+	}
+	for _, tc := range cases {
+		fp, _ := forge.Profile(tc.forge)
+		ctx := prompt.Context{
+			Assignment: map[string]any{"project": "o/r", "base_branch": "main"},
+			Forge:      fp,
+		}
+		out, err := prompt.Render(tmpl, ctx, secrets)
+		if err != nil {
+			t.Fatalf("forge %s render: %v", tc.forge, err)
+		}
+		if !strings.Contains(out, tc.wantHost) || !strings.Contains(out, tc.wantList) {
+			t.Errorf("forge %s: missing %q/%q", tc.forge, tc.wantHost, tc.wantList)
+		}
+	}
+}
+
 func TestCodeReviewPrompt_RendersBothForges(t *testing.T) {
 	tmpl := codeReviewPrompt(t)
 	secrets := map[string]string{"gitlab_token": "glt", "github_token": "ght"}
