@@ -307,6 +307,9 @@ func Validate(cfg *Config) []error {
 			errs = append(errs, fmt.Errorf("agent %q: default_backend %q not defined", a.Name, a.DefaultBackend.Name))
 		}
 		rejectVoterOverride(fmt.Sprintf("agent %q", a.Name), a.DefaultBackend)
+		if !a.Role.Valid() {
+			errs = append(errs, fmt.Errorf("agent %q: invalid job %q (must be one of %v)", a.Name, a.Role, domain.Jobs))
+		}
 	}
 
 	skillNames := map[string]bool{}
@@ -324,6 +327,9 @@ func Validate(cfg *Config) []error {
 		}
 		if d.Backend != nil {
 			rejectVoterOverride(fmt.Sprintf("skill %q", d.Name), *d.Backend)
+		}
+		if !d.Role.Valid() {
+			errs = append(errs, fmt.Errorf("skill %q: invalid job %q (must be one of %v)", d.Name, d.Role, domain.Jobs))
 		}
 	}
 
@@ -371,6 +377,11 @@ func Validate(cfg *Config) []error {
 				if agent.DefaultBackend.Name == "" {
 					errs = append(errs, fmt.Errorf("assignment[%d] (agent=%q skill=%q): no backend resolved — assignment, skill, and agent default_backend are all unset", i, a.Agent, a.Skill))
 				}
+			}
+		}
+		if agentOK && skillOK {
+			if ag, sk := agentByName[a.Agent], skillByName[a.Skill]; ag.Role != sk.Role {
+				errs = append(errs, fmt.Errorf("assignment[%d] (agent=%q skill=%q): skill job %q does not match agent job %q", i, a.Agent, a.Skill, sk.Role, ag.Role))
 			}
 		}
 		if a.Trigger.Kind == "event-subscription" {
