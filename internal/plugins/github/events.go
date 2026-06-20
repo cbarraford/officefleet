@@ -117,6 +117,13 @@ func normalizePR(eventType, repo string, number int, title, action, sourceBranch
 			"head_sha":      sha,
 			"author":        author,
 			"url":           htmlURL,
+			// ponytail: GitLab's PayloadNorm keys are the shared "lingua franca"
+			// so one prompt drives both forges. A PR number under "mr_iid" is a
+			// deliberate naming smell; upgrade path is neutral keys (change_id,
+			// etc.) across both plugins. Native github keys are kept alongside.
+			"project":         repo,
+			"mr_iid":          number,
+			"last_commit_sha": sha,
 		},
 		Identity: author,
 		DedupKey: fmt.Sprintf("pr:%s:%d:%s", repo, number, sha),

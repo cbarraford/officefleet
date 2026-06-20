@@ -293,6 +293,25 @@ func TestPoll_EmptyCursorWindowAndNoRepos(t *testing.T) {
 	}
 }
 
+func TestNormalizePR_LinguaFrancaKeys(t *testing.T) {
+	ev := normalizePR("pr_opened", "org/repo", 9, "T", "opened",
+		"feat", "main", "deadbeef", "carol", "http://x", []byte(`{}`))
+	n := ev.PayloadNorm
+	if n["mr_iid"] != 9 {
+		t.Errorf("mr_iid = %v, want 9", n["mr_iid"])
+	}
+	if n["project"] != "org/repo" {
+		t.Errorf("project = %v, want org/repo", n["project"])
+	}
+	if n["last_commit_sha"] != "deadbeef" {
+		t.Errorf("last_commit_sha = %v, want deadbeef", n["last_commit_sha"])
+	}
+	// Existing GitHub-native keys must remain (no removal).
+	if n["pr_number"] != 9 || n["repo"] != "org/repo" || n["head_sha"] != "deadbeef" {
+		t.Errorf("legacy keys missing/changed: %v", n)
+	}
+}
+
 // asAuthError mirrors errors.As for the concrete *plugin.AuthError.
 func asAuthError(err error, target **plugin.AuthError) bool {
 	ae, ok := err.(*plugin.AuthError)
