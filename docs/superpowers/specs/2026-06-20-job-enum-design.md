@@ -16,7 +16,7 @@ UI lists *all* skills regardless of fit.
 | Decision | Choice |
 |----------|--------|
 | Concept mapping | Reuse the existing `role` field; **do not rename**. Change its *type* to a new `Job` enum. JSON tag and DB column stay `role`. UI labels it "Job". |
-| Enum values | `developer` only, for now. Adding a job = one line in `domain.Jobs` + one line in the frontend `JOBS` const. |
+| Enum values | `developer` only as a real job, for now. `JobUnknown = "unknown"` is the zero/default sentinel — not selectable, excluded from `Jobs`/`Valid()`. Adding a real job = one line in `domain.Jobs` + one line in the frontend `JOBS` const. |
 | Match enforcement | UI filters the skill picker **and** the server rejects mismatches (config validation + API). |
 | DB constraint | None. Column stays `TEXT NOT NULL`; the Go enum is the single source of truth. No migration. |
 
@@ -31,14 +31,21 @@ do not touch it.
 package domain
 
 // Job is the closed set of jobs an agent performs and a skill belongs to.
+// JobUnknown is the zero/default sentinel — an unset agent/skill reads as
+// "unknown". It is NOT a real, assignable job (excluded from Jobs and Valid).
 type Job string
 
-const JobDeveloper Job = "developer"
+const (
+	JobUnknown   Job = "unknown"
+	JobDeveloper Job = "developer"
+)
 
-// Jobs is the canonical list. Add a value here (and to the frontend JOBS
-// const) to introduce a new job.
+// Jobs is the canonical list of real, assignable jobs (JobUnknown excluded).
+// Add a value here (and to the frontend JOBS const) to introduce a new job.
 var Jobs = []Job{JobDeveloper}
 
+// Valid reports whether j is a real, assignable job. The unknown sentinel and
+// the empty zero value are both invalid.
 func (j Job) Valid() bool {
 	for _, v := range Jobs {
 		if j == v {
@@ -47,7 +54,21 @@ func (j Job) Valid() bool {
 	}
 	return false
 }
+
+// String maps the empty zero value to the unknown sentinel so an unset job
+// surfaces as "unknown" wherever a Job is printed or rendered.
+func (j Job) String() string {
+	if j == "" {
+		return string(JobUnknown)
+	}
+	return string(j)
+}
 ```
+
+The zero/default value of a `Job` is the empty string, which `String()` renders
+as `"unknown"`. `JobUnknown` and `""` both fail `Valid()`, so they are rejected
+on agent/skill create and never appear in the assignment-job dropdowns — the
+"every agent must have a real job" rule is preserved.
 
 `domain.Agent.Role` and `domain.Skill.Role` change type `string → Job`. The
 `db:"role"` and `json:"role"` tags are unchanged, so neither the DB schema nor
