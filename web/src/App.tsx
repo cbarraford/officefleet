@@ -47,7 +47,7 @@ export default function App() {
               Dashboard
             </NavLink>
             <NavLink to="/agents">Agents</NavLink>
-            <NavLink to="/duties">Duties</NavLink>
+            <NavLink to="/skills">Skills</NavLink>
             <NavLink to="/settings">Settings</NavLink>
           </nav>
           <div className="session">

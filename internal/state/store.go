@@ -3,7 +3,7 @@ package state
 import "context"
 
 // Store provides per-assignment private state: KV and structured notes.
-// Keyed by assignmentID, not dutyID — two agents running the same duty need independent state.
+// Keyed by assignmentID, not skillID — two agents running the same skill need independent state.
 type Store interface {
 	// KV operations for dedup keys, cursors, and small memory blobs.
 	Get(ctx context.Context, assignmentID, key string) ([]byte, bool, error)

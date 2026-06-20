@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import { connectStream } from '../api/sse'
-import type { Agent, Duty, Run, StreamMsg } from '../api/types'
+import type { Agent, Skill, Run, StreamMsg } from '../api/types'
 import Card from '../components/Card'
 import StatusPill from '../components/StatusPill'
 import Table from '../components/Table'
@@ -19,7 +19,7 @@ interface FeedItem {
 export default function Dashboard() {
   const [runs, setRuns] = useState<Run[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
-  const [duties, setDuties] = useState<Duty[]>([])
+  const [skills, setSkills] = useState<Skill[]>([])
   const [feed, setFeed] = useState<FeedItem[]>([])
   const [connected, setConnected] = useState(true)
   const [loadError, setLoadError] = useState(false)
@@ -29,12 +29,12 @@ export default function Dashboard() {
     Promise.all([
       api.get<Run[]>('/api/v1/runs?limit=50'),
       api.get<Agent[]>('/api/v1/agents'),
-      api.get<Duty[]>('/api/v1/duties'),
+      api.get<Skill[]>('/api/v1/skills'),
     ]).then(
       ([r, a, d]) => {
         setRuns(r ?? [])
         setAgents(a ?? [])
-        setDuties(d ?? [])
+        setSkills(d ?? [])
       },
       () => {
         setLoadError(true)
@@ -64,10 +64,10 @@ export default function Dashboard() {
     return (id: string) => m.get(id) ?? id.slice(0, 8)
   }, [agents])
 
-  const dutyName = useMemo(() => {
-    const m = new Map(duties.map((d) => [d.id, d.name]))
+  const skillName = useMemo(() => {
+    const m = new Map(skills.map((d) => [d.id, d.name]))
     return (id: string) => m.get(id) ?? id.slice(0, 8)
-  }, [duties])
+  }, [skills])
 
   const sortedRuns = useMemo(
     () => [...runs].sort((a, b) => b.started_at.localeCompare(a.started_at)),
@@ -112,7 +112,7 @@ export default function Dashboard() {
             {feed.map((f, i) => (
               <div key={`${f.msg.id}-${f.msg.event}-${i}`} className="item">
                 <StatusPill status={f.msg.status} /> {agentName(f.msg.agent_id)} ·{' '}
-                {dutyName(f.msg.duty_id)} <span className="dim">({f.msg.trigger_kind})</span>
+                {skillName(f.msg.skill_id)} <span className="dim">({f.msg.trigger_kind})</span>
                 <div className="when">{fmtDateTime(f.at.toISOString())}</div>
               </div>
             ))}
@@ -127,7 +127,7 @@ export default function Dashboard() {
                 header: 'Agent',
                 render: (r: Run) => <Link to={`/agents/${r.agent_id}`}>{agentName(r.agent_id)}</Link>,
               },
-              { header: 'Duty', render: (r: Run) => dutyName(r.duty_id) },
+              { header: 'Skill', render: (r: Run) => skillName(r.skill_id) },
               { header: 'Trigger', render: (r: Run) => r.trigger_kind },
               { header: 'Started', render: (r: Run) => fmtDateTime(r.started_at) },
               { header: 'Tokens', render: (r: Run) => String(r.tokens) },

@@ -30,14 +30,14 @@ type Agent struct {
 	UpdatedAt      time.Time  `db:"updated_at" json:"updated_at"`
 }
 
-// OutputActionType declares an output action a Duty can emit.
+// OutputActionType declares an output action a Skill can emit.
 type OutputActionType struct {
 	Plugin string `json:"plugin"`
 	Action string `json:"action"`
 }
 
-// Duty is a reusable definition of work.
-type Duty struct {
+// Skill is a reusable definition of work.
+type Skill struct {
 	ID            uuid.UUID          `db:"id" json:"id"`
 	Name          string             `db:"name" json:"name"`
 	Role          string             `db:"role" json:"role"` // category tag, not operative persona
@@ -82,12 +82,12 @@ func (o OutputBinding) ValidateForEach() error {
 	return nil
 }
 
-// Assignment binds an Agent to a Duty with per-agent config.
+// Assignment binds an Agent to a Skill with per-agent config.
 type Assignment struct {
 	ID                 uuid.UUID       `db:"id" json:"id"`
 	AgentID            uuid.UUID       `db:"agent_id" json:"agent_id"`
-	DutyID             uuid.UUID       `db:"duty_id" json:"duty_id"`
-	Name               string          `db:"name" json:"name"` // purpose discriminator; unique per (agent, duty, name)
+	SkillID             uuid.UUID       `db:"skill_id" json:"skill_id"`
+	Name               string          `db:"name" json:"name"` // purpose discriminator; unique per (agent, skill, name)
 	Enabled            bool            `db:"enabled" json:"enabled"`
 	Trigger            TriggerConfig   `db:"trigger" json:"trigger"`
 	Outputs            []OutputBinding `db:"outputs" json:"outputs"`
@@ -158,7 +158,7 @@ type Run struct {
 	ID                   uuid.UUID        `db:"id" json:"id"`
 	AssignmentID         uuid.UUID        `db:"assignment_id" json:"assignment_id"`
 	AgentID              uuid.UUID        `db:"agent_id" json:"agent_id"`
-	DutyID               uuid.UUID        `db:"duty_id" json:"duty_id"`
+	SkillID               uuid.UUID        `db:"skill_id" json:"skill_id"`
 	TriggerKind          string           `db:"trigger_kind" json:"trigger_kind"`
 	EventID              *string          `db:"event_id" json:"event_id"`
 	RenderedSystemPrompt string           `db:"rendered_system_prompt" json:"rendered_system_prompt"`

@@ -1,11 +1,11 @@
 # OfficeFleet
 
 A self-hosted platform for running agentic "employees": configurable AI agents
-that perform recurring duties (code review, audits, replies) triggered by cron
+that perform recurring skills (code review, audits, replies) triggered by cron
 or inbound events (GitLab/GitHub/Slack/Discord/email), with an operator web UI.
 
 The data model is two-level: an **Agent** (persona) is bound to a reusable
-**Duty** (the "what") by an **Assignment** (the per-agent "where/when/how").
+**Skill** (the "what") by an **Assignment** (the per-agent "where/when/how").
 LLM providers are **named backends** in `fleet.yaml` (the `claude` CLI, or an
 OpenAI-compatible endpoint, or a multi-model voter). See `spec.md` for the full
 design.
@@ -15,7 +15,7 @@ design.
 - Go 1.26+
 - PostgreSQL
 - The `claude` CLI on `PATH` (for the default subscription backend), plus any
-  tools your duties invoke (e.g. `git`, `glab`)
+  tools your skills invoke (e.g. `git`, `glab`)
 - Node 20+ (only to build the operator SPA)
 
 ## Build
@@ -58,7 +58,7 @@ export FLEET_MASTER_KEY=$(head -c32 /dev/urandom | base64)
 ./fleet schedule                # (deprecated) cron-only daemon
 ```
 
-Other commands: `fleet agents|duties|assignments|backends|events|runs ...`
+Other commands: `fleet agents|skills|assignments|backends|events|runs ...`
 (`fleet runs prune --older-than 90d` trims old run history).
 
 ## Migrations

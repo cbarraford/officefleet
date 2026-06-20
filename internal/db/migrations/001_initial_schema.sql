@@ -14,10 +14,10 @@ CREATE TABLE IF NOT EXISTS agents (
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS duties (
+CREATE TABLE IF NOT EXISTS skills (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name            TEXT NOT NULL,
-    CONSTRAINT duties_name_unique UNIQUE (name),
+    CONSTRAINT skills_name_unique UNIQUE (name),
     role            TEXT NOT NULL,
     description     TEXT NOT NULL DEFAULT '',
     trigger_kinds   TEXT[] NOT NULL DEFAULT '{}',
@@ -33,8 +33,8 @@ CREATE TABLE IF NOT EXISTS duties (
 CREATE TABLE IF NOT EXISTS assignments (
     id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     agent_id              UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
-    duty_id               UUID NOT NULL REFERENCES duties(id) ON DELETE CASCADE,
-    CONSTRAINT assignments_agent_duty_unique UNIQUE (agent_id, duty_id),
+    skill_id               UUID NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+    CONSTRAINT assignments_agent_skill_unique UNIQUE (agent_id, skill_id),
     enabled               BOOLEAN NOT NULL DEFAULT TRUE,
     trigger               JSONB NOT NULL DEFAULT '{}',
     outputs               JSONB NOT NULL DEFAULT '[]',
@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS runs (
     id                      UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     assignment_id           UUID NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,
     agent_id                UUID NOT NULL,
-    duty_id                 UUID NOT NULL,
+    skill_id                 UUID NOT NULL,
     trigger_kind            TEXT NOT NULL,
     event_id                TEXT,
     rendered_system_prompt  TEXT NOT NULL DEFAULT '',
@@ -109,5 +109,5 @@ DROP TABLE IF EXISTS assignment_notes;
 DROP TABLE IF EXISTS assignment_state;
 DROP TABLE IF EXISTS runs;
 DROP TABLE IF EXISTS assignments;
-DROP TABLE IF EXISTS duties;
+DROP TABLE IF EXISTS skills;
 DROP TABLE IF EXISTS agents;

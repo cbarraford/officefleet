@@ -43,7 +43,7 @@ func (b *Broadcaster) PublishRun(run *domain.Run) {
 	}
 	payload, err := json.Marshal(map[string]any{
 		"event": event, "id": run.ID, "assignment_id": run.AssignmentID,
-		"agent_id": run.AgentID, "duty_id": run.DutyID,
+		"agent_id": run.AgentID, "skill_id": run.SkillID,
 		"trigger_kind": run.TriggerKind, "status": run.Status,
 		"tokens": run.Tokens, "cost": run.Cost,
 	})

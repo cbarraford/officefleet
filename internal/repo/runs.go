@@ -21,8 +21,8 @@ func (r *RunRepo) Insert(ctx context.Context, run *domain.Run) error {
 	}
 	outputsJSON, _ := json.Marshal(run.OutputsDelivered)
 	_, err := r.db.Exec(ctx,
-		"INSERT INTO runs (id, assignment_id, agent_id, duty_id, trigger_kind, event_id, rendered_system_prompt, rendered_prompt, outputs_delivered, status, started_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
-		run.ID, run.AssignmentID, run.AgentID, run.DutyID, run.TriggerKind, run.EventID,
+		"INSERT INTO runs (id, assignment_id, agent_id, skill_id, trigger_kind, event_id, rendered_system_prompt, rendered_prompt, outputs_delivered, status, started_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+		run.ID, run.AssignmentID, run.AgentID, run.SkillID, run.TriggerKind, run.EventID,
 		run.RenderedSystemPrompt, run.RenderedPrompt, outputsJSON, run.Status, run.StartedAt)
 	return err
 }
@@ -83,14 +83,14 @@ func (r *RunRepo) UpdateResult(ctx context.Context, id uuid.UUID, result *domain
 
 func (r *RunRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Run, error) {
 	row := r.db.QueryRow(ctx,
-		"SELECT id, assignment_id, agent_id, duty_id, trigger_kind, event_id, rendered_system_prompt, rendered_prompt, llm_result, outputs_delivered, status, tokens, cost, started_at, finished_at, error FROM runs WHERE id=$1", id)
+		"SELECT id, assignment_id, agent_id, skill_id, trigger_kind, event_id, rendered_system_prompt, rendered_prompt, llm_result, outputs_delivered, status, tokens, cost, started_at, finished_at, error FROM runs WHERE id=$1", id)
 	return scanRun(row)
 }
 
 // ListFiltered returns run summaries newest-first. status/agentID filter when
 // non-zero. Summaries exclude llm_result (transcripts can be large).
 func (r *RunRepo) ListFiltered(ctx context.Context, status string, agentID uuid.UUID, limit int) ([]*domain.Run, error) {
-	q := `SELECT id, assignment_id, agent_id, duty_id, trigger_kind, event_id,
+	q := `SELECT id, assignment_id, agent_id, skill_id, trigger_kind, event_id,
 	        '' AS rendered_system_prompt, '' AS rendered_prompt, NULL AS llm_result,
 	        outputs_delivered, status, tokens, cost, started_at, finished_at, error
 	      FROM runs WHERE 1=1`
@@ -174,7 +174,7 @@ func (r *RunRepo) AgentStats(ctx context.Context, agentID uuid.UUID) (*domain.Ag
 func scanRun(s scanner) (*domain.Run, error) {
 	var run domain.Run
 	var llmResultJSON, outputsJSON []byte
-	if err := s.Scan(&run.ID, &run.AssignmentID, &run.AgentID, &run.DutyID,
+	if err := s.Scan(&run.ID, &run.AssignmentID, &run.AgentID, &run.SkillID,
 		&run.TriggerKind, &run.EventID, &run.RenderedSystemPrompt, &run.RenderedPrompt,
 		&llmResultJSON, &outputsJSON, &run.Status, &run.Tokens, &run.Cost,
 		&run.StartedAt, &run.FinishedAt, &run.Error); err != nil {

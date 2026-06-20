@@ -118,10 +118,10 @@ func TestPipelineExecute_EndpointBackendEndToEnd(t *testing.T) {
 		store:   state.NewMemStore(),
 	}
 
-	agentID, dutyID, assignmentID := uuid.New(), uuid.New(), uuid.New()
+	agentID, skillID, assignmentID := uuid.New(), uuid.New(), uuid.New()
 	run, err := pipeline.Execute(ctx, ExecuteRequest{
 		Assignment: &domain.Assignment{
-			ID: assignmentID, AgentID: agentID, DutyID: dutyID, Enabled: true,
+			ID: assignmentID, AgentID: agentID, SkillID: skillID, Enabled: true,
 			Backend: &domain.BackendRef{Name: backendName},
 			Config:  map[string]any{},
 			Outputs: []domain.OutputBinding{{
@@ -139,9 +139,9 @@ func TestPipelineExecute_EndpointBackendEndToEnd(t *testing.T) {
 			ID: agentID, Name: "ep-agent", Role: "developer",
 			SystemPrompt: "You are a reviewer.", Enabled: true,
 		},
-		Duty: &domain.Duty{
-			ID: dutyID, Name: "ep-duty", Role: "developer",
-			Description: "endpoint duty", Prompt: "Review the code.",
+		Skill: &domain.Skill{
+			ID: skillID, Name: "ep-skill", Role: "developer",
+			Description: "endpoint skill", Prompt: "Review the code.",
 			RequiredTools: []string{},
 		},
 		TriggerKind: "manual",

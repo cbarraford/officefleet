@@ -64,8 +64,8 @@ type AgentConfig struct {
 	Enabled        bool              `yaml:"enabled"`
 }
 
-// DutyConfig configures one duty.
-type DutyConfig struct {
+// SkillConfig configures one skill.
+type SkillConfig struct {
 	Name          string                    `yaml:"name"`
 	Role          string                    `yaml:"role"`
 	Description   string                    `yaml:"description"`
@@ -80,8 +80,8 @@ type DutyConfig struct {
 // AssignmentConfig configures one assignment.
 type AssignmentConfig struct {
 	Agent              string                 `yaml:"agent"`
-	Duty               string                 `yaml:"duty"`
-	Name               string                 `yaml:"name,omitempty"` // purpose discriminator; unique per (agent, duty, name)
+	Skill               string                 `yaml:"skill"`
+	Name               string                 `yaml:"name,omitempty"` // purpose discriminator; unique per (agent, skill, name)
 	Enabled            bool                   `yaml:"enabled"`
 	Trigger            domain.TriggerConfig   `yaml:"trigger"`
 	Outputs            []domain.OutputBinding `yaml:"outputs"`
@@ -125,7 +125,7 @@ type Config struct {
 	ImageBackends []ImageBackend     `yaml:"image_backends,omitempty"`
 	Plugins       []PluginConfig     `yaml:"plugins"`
 	Agents        []AgentConfig      `yaml:"agents"`
-	Duties        []DutyConfig       `yaml:"duties"`
+	Skills        []SkillConfig       `yaml:"skills"`
 	Assignments   []AssignmentConfig `yaml:"assignments"`
 }
 
@@ -309,29 +309,29 @@ func Validate(cfg *Config) []error {
 		rejectVoterOverride(fmt.Sprintf("agent %q", a.Name), a.DefaultBackend)
 	}
 
-	dutyNames := map[string]bool{}
-	for _, d := range cfg.Duties {
+	skillNames := map[string]bool{}
+	for _, d := range cfg.Skills {
 		if d.Name == "" {
-			errs = append(errs, fmt.Errorf("duty missing name"))
+			errs = append(errs, fmt.Errorf("skill missing name"))
 			continue
 		}
-		if dutyNames[d.Name] {
-			errs = append(errs, fmt.Errorf("duplicate duty name: %q", d.Name))
+		if skillNames[d.Name] {
+			errs = append(errs, fmt.Errorf("duplicate skill name: %q", d.Name))
 		}
-		dutyNames[d.Name] = true
+		skillNames[d.Name] = true
 		if d.Backend != nil && !backendNames[d.Backend.Name] {
-			errs = append(errs, fmt.Errorf("duty %q: backend %q not defined", d.Name, d.Backend.Name))
+			errs = append(errs, fmt.Errorf("skill %q: backend %q not defined", d.Name, d.Backend.Name))
 		}
 		if d.Backend != nil {
-			rejectVoterOverride(fmt.Sprintf("duty %q", d.Name), *d.Backend)
+			rejectVoterOverride(fmt.Sprintf("skill %q", d.Name), *d.Backend)
 		}
 	}
 
-	// Build lookup maps for duty and agent configs so we can simulate
+	// Build lookup maps for skill and agent configs so we can simulate
 	// three-tier backend resolution during assignment validation.
-	dutyByName := map[string]DutyConfig{}
-	for _, d := range cfg.Duties {
-		dutyByName[d.Name] = d
+	skillByName := map[string]SkillConfig{}
+	for _, d := range cfg.Skills {
+		skillByName[d.Name] = d
 	}
 	agentByName := map[string]AgentConfig{}
 	for _, ag := range cfg.Agents {
@@ -340,21 +340,21 @@ func Validate(cfg *Config) []error {
 
 	seenAssignment := map[string]bool{}
 	for i, a := range cfg.Assignments {
-		// Assignments are unique per (agent, duty, name). A duplicate tuple would
+		// Assignments are unique per (agent, skill, name). A duplicate tuple would
 		// silently collapse to one row at seed time (issue #6) — reject it here.
-		tuple := a.Agent + "\x00" + a.Duty + "\x00" + a.Name
+		tuple := a.Agent + "\x00" + a.Skill + "\x00" + a.Name
 		if seenAssignment[tuple] {
-			errs = append(errs, fmt.Errorf("assignment[%d]: duplicate (agent=%q, duty=%q, name=%q) — give each a distinct name", i, a.Agent, a.Duty, a.Name))
+			errs = append(errs, fmt.Errorf("assignment[%d]: duplicate (agent=%q, skill=%q, name=%q) — give each a distinct name", i, a.Agent, a.Skill, a.Name))
 		}
 		seenAssignment[tuple] = true
 
 		agentOK := agentNames[a.Agent]
-		dutyOK := dutyNames[a.Duty]
+		skillOK := skillNames[a.Skill]
 		if !agentOK {
 			errs = append(errs, fmt.Errorf("assignment[%d]: agent %q not defined", i, a.Agent))
 		}
-		if !dutyOK {
-			errs = append(errs, fmt.Errorf("assignment[%d]: duty %q not defined", i, a.Duty))
+		if !skillOK {
+			errs = append(errs, fmt.Errorf("assignment[%d]: skill %q not defined", i, a.Skill))
 		}
 		if a.Backend != nil && !backendNames[a.Backend.Name] {
 			errs = append(errs, fmt.Errorf("assignment[%d]: backend %q not defined", i, a.Backend.Name))
@@ -364,12 +364,12 @@ func Validate(cfg *Config) []error {
 		}
 		// Simulate three-tier resolution: if no backend can be resolved at
 		// any tier the assignment will fail at runtime, so reject it here.
-		if agentOK && dutyOK && a.Backend == nil {
-			duty := dutyByName[a.Duty]
-			if duty.Backend == nil {
+		if agentOK && skillOK && a.Backend == nil {
+			skill := skillByName[a.Skill]
+			if skill.Backend == nil {
 				agent := agentByName[a.Agent]
 				if agent.DefaultBackend.Name == "" {
-					errs = append(errs, fmt.Errorf("assignment[%d] (agent=%q duty=%q): no backend resolved — assignment, duty, and agent default_backend are all unset", i, a.Agent, a.Duty))
+					errs = append(errs, fmt.Errorf("assignment[%d] (agent=%q skill=%q): no backend resolved — assignment, skill, and agent default_backend are all unset", i, a.Agent, a.Skill))
 				}
 			}
 		}
@@ -382,16 +382,16 @@ func Validate(cfg *Config) []error {
 			if typ == "" {
 				errs = append(errs, fmt.Errorf("assignment[%d]: event-subscription trigger requires a non-empty filter.event_type", i))
 			}
-			if dutyOK {
-				duty := dutyByName[a.Duty]
-				if !slices.Contains(duty.TriggerKinds, "event-subscription") {
-					errs = append(errs, fmt.Errorf("assignment[%d]: duty %q trigger_kinds does not include event-subscription", i, a.Duty))
+			if skillOK {
+				skill := skillByName[a.Skill]
+				if !slices.Contains(skill.TriggerKinds, "event-subscription") {
+					errs = append(errs, fmt.Errorf("assignment[%d]: skill %q trigger_kinds does not include event-subscription", i, a.Skill))
 				}
 			}
 		}
 		for _, out := range a.Outputs {
 			if err := out.ValidateForEach(); err != nil {
-				errs = append(errs, fmt.Errorf("assignment (%s, %s): %w", a.Agent, a.Duty, err))
+				errs = append(errs, fmt.Errorf("assignment (%s, %s): %w", a.Agent, a.Skill, err))
 			}
 		}
 	}
@@ -400,16 +400,16 @@ func Validate(cfg *Config) []error {
 }
 
 // ResolveBackend returns the effective named backend for an assignment.
-// Precedence: Assignment.Backend ?? Duty.Backend ?? Agent.DefaultBackend
+// Precedence: Assignment.Backend ?? Skill.Backend ?? Agent.DefaultBackend
 func ResolveBackend(cfg *Config, assignment AssignmentConfig) (*Backend, domain.BackendRef, error) {
 	var ref domain.BackendRef
 	switch {
 	case assignment.Backend != nil:
 		ref = *assignment.Backend
 	default:
-		// Find the duty's backend, then fall back to the agent's.
-		for _, d := range cfg.Duties {
-			if d.Name == assignment.Duty {
+		// Find the skill's backend, then fall back to the agent's.
+		for _, d := range cfg.Skills {
+			if d.Name == assignment.Skill {
 				if d.Backend != nil {
 					ref = *d.Backend
 				}
@@ -427,7 +427,7 @@ func ResolveBackend(cfg *Config, assignment AssignmentConfig) (*Backend, domain.
 	}
 
 	if ref.Name == "" {
-		return nil, ref, fmt.Errorf("no backend resolved for assignment (agent=%q duty=%q)", assignment.Agent, assignment.Duty)
+		return nil, ref, fmt.Errorf("no backend resolved for assignment (agent=%q skill=%q)", assignment.Agent, assignment.Skill)
 	}
 
 	for i := range cfg.Backends {

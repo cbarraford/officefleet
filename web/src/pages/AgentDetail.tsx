@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type Chang
 import { Link, useParams } from 'react-router-dom'
 import { useSession } from '../App'
 import { ApiError, api } from '../api/client'
-import type { AgentDetailResponse, Assignment, Duty, Run } from '../api/types'
+import type { AgentDetailResponse, Assignment, Skill, Run } from '../api/types'
 import AvatarBubble from '../components/AvatarBubble'
 import Badge from '../components/Badge'
 import Card from '../components/Card'
@@ -72,18 +72,18 @@ function RunNowModal({ assignment, onClose, onRan }: { assignment: Assignment; o
 
 function AssignmentModal({
   agentId,
-  duties,
+  skills,
   existing,
   onClose,
   onSaved,
 }: {
   agentId: string
-  duties: Duty[]
+  skills: Skill[]
   existing: Assignment | null // null = create
   onClose: () => void
   onSaved: () => void
 }) {
-  const [dutyId, setDutyId] = useState(existing?.duty_id ?? duties[0]?.id ?? '')
+  const [skillId, setSkillId] = useState(existing?.skill_id ?? skills[0]?.id ?? '')
   const [name, setName] = useState(existing?.name ?? '')
   const [enabled, setEnabled] = useState(existing?.enabled ?? true)
   const [triggerKind, setTriggerKind] = useState(existing?.trigger.kind ?? 'manual')
@@ -144,7 +144,7 @@ function AssignmentModal({
     }
     if (!existing) {
       body.agent_id = agentId
-      body.duty_id = dutyId
+      body.skill_id = skillId
     }
 
     setBusy(true)
@@ -163,9 +163,9 @@ function AssignmentModal({
       <form onSubmit={submit}>
         {!existing && (
           <label className="field">
-            <span>Duty</span>
-            <select value={dutyId} onChange={(e) => setDutyId(e.target.value)}>
-              {duties.map((d) => (
+            <span>Skill</span>
+            <select value={skillId} onChange={(e) => setSkillId(e.target.value)}>
+              {skills.map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.name}
                 </option>
@@ -174,7 +174,7 @@ function AssignmentModal({
           </label>
         )}
         <label className="field">
-          <span>Name (purpose; unique per agent+duty)</span>
+          <span>Name (purpose; unique per agent+skill)</span>
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. on-open" />
         </label>
         <label className="field">
@@ -338,7 +338,7 @@ export default function AgentDetail() {
   const { isAdmin } = useSession()
   const [detail, setDetail] = useState<AgentDetailResponse | null>(null)
   const [assignments, setAssignments] = useState<Assignment[]>([])
-  const [duties, setDuties] = useState<Duty[]>([])
+  const [skills, setSkills] = useState<Skill[]>([])
   const [runs, setRuns] = useState<Run[]>([])
   const [statusFilter, setStatusFilter] = useState('')
   const [runningAssignment, setRunningAssignment] = useState<Assignment | null>(null)
@@ -351,12 +351,12 @@ export default function AgentDetail() {
     Promise.all([
       api.get<AgentDetailResponse>(`/api/v1/agents/${id}`),
       api.get<Assignment[]>('/api/v1/assignments'),
-      api.get<Duty[]>('/api/v1/duties'),
+      api.get<Skill[]>('/api/v1/skills'),
     ]).then(
       ([d, asg, du]) => {
         setDetail(d)
         setAssignments((asg ?? []).filter((a) => a.agent_id === id))
-        setDuties(du ?? [])
+        setSkills(du ?? [])
       },
       () => toast('error', 'failed to load agent'),
     )
@@ -374,10 +374,10 @@ export default function AgentDetail() {
   useEffect(load, [load])
   useEffect(loadRuns, [loadRuns])
 
-  const dutyName = useMemo(() => {
-    const m = new Map(duties.map((d) => [d.id, d.name]))
-    return (dutyID: string) => m.get(dutyID) ?? dutyID.slice(0, 8)
-  }, [duties])
+  const skillName = useMemo(() => {
+    const m = new Map(skills.map((d) => [d.id, d.name]))
+    return (skillID: string) => m.get(skillID) ?? skillID.slice(0, 8)
+  }, [skills])
 
   const sortedRuns = useMemo(
     () => [...runs].sort((a, b) => b.started_at.localeCompare(a.started_at)),
@@ -404,7 +404,7 @@ export default function AgentDetail() {
   }
 
   const deleteAssignment = async (a: Assignment) => {
-    if (!window.confirm(`Delete the "${dutyName(a.duty_id)}" assignment?`)) return
+    if (!window.confirm(`Delete the "${skillName(a.skill_id)}" assignment?`)) return
     try {
       await api.del(`/api/v1/assignments/${a.id}`)
       load()
@@ -499,14 +499,14 @@ export default function AgentDetail() {
       <Card title="Assignments" className="mb">
         {isAdmin && (
           <div className="row mb">
-            <button className="small primary" onClick={() => setEditing('new')} disabled={duties.length === 0}>
+            <button className="small primary" onClick={() => setEditing('new')} disabled={skills.length === 0}>
               New assignment
             </button>
           </div>
         )}
         <Table
           columns={[
-            { header: 'Duty', render: (a: Assignment) => dutyName(a.duty_id) },
+            { header: 'Skill', render: (a: Assignment) => skillName(a.skill_id) },
             { header: 'Name', render: (a: Assignment) => <span className="dim mono">{a.name || '—'}</span> },
             {
               header: 'Trigger',
@@ -553,7 +553,7 @@ export default function AgentDetail() {
           ]}
           rows={assignments}
           rowKey={(a) => a.id}
-          empty="No duties assigned."
+          empty="No skills assigned."
         />
       </Card>
 
@@ -571,7 +571,7 @@ export default function AgentDetail() {
         <Table
           columns={[
             { header: 'Status', render: (r: Run) => <StatusPill status={r.status} /> },
-            { header: 'Duty', render: (r: Run) => dutyName(r.duty_id) },
+            { header: 'Skill', render: (r: Run) => skillName(r.skill_id) },
             { header: 'Trigger', render: (r: Run) => r.trigger_kind },
             { header: 'Started', render: (r: Run) => fmtDateTime(r.started_at) },
             { header: 'Tokens', render: (r: Run) => String(r.tokens) },
@@ -597,7 +597,7 @@ export default function AgentDetail() {
       {editing && (
         <AssignmentModal
           agentId={agent.id}
-          duties={duties}
+          skills={skills}
           existing={editing === 'new' ? null : editing}
           onClose={() => setEditing(null)}
           onSaved={() => {

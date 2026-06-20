@@ -61,29 +61,29 @@ func (f *fakeAgentLister) GetByID(_ context.Context, id uuid.UUID) (*domain.Agen
 	return nil, fmt.Errorf("agent %s not found", id)
 }
 
-type fakeDutyLister struct{ duties []*domain.Duty }
+type fakeSkillLister struct{ skills []*domain.Skill }
 
-func (f *fakeDutyLister) GetByID(_ context.Context, id uuid.UUID) (*domain.Duty, error) {
-	for _, d := range f.duties {
+func (f *fakeSkillLister) GetByID(_ context.Context, id uuid.UUID) (*domain.Skill, error) {
+	for _, d := range f.skills {
 		if d.ID == id {
 			return d, nil
 		}
 	}
-	return nil, fmt.Errorf("duty %s not found", id)
+	return nil, fmt.Errorf("skill %s not found", id)
 }
 
 func invokerFixture(t *testing.T) (*Invoker, *fakeRunRepo, uuid.UUID, *executor.FakeExecutor) {
 	t.Helper()
 	backendName := "inv-backend"
-	agentID, dutyID, assignmentID := uuid.New(), uuid.New(), uuid.New()
+	agentID, skillID, assignmentID := uuid.New(), uuid.New(), uuid.New()
 	cfg := &config.Config{
 		Backends: []config.Backend{{
 			Name: backendName, Kind: "claude", Model: "claude-3-5-sonnet",
 			DefaultEffort: "normal", Auth: config.BackendAuth{Mode: "subscription"},
 		}},
 		Agents:      []config.AgentConfig{{Name: "inv-agent", DefaultBackend: domain.BackendRef{Name: backendName}}},
-		Duties:      []config.DutyConfig{{Name: "inv-duty"}},
-		Assignments: []config.AssignmentConfig{{Agent: "inv-agent", Duty: "inv-duty"}},
+		Skills:      []config.SkillConfig{{Name: "inv-skill"}},
+		Assignments: []config.AssignmentConfig{{Agent: "inv-agent", Skill: "inv-skill"}},
 	}
 	rr := newFakeRunRepo()
 	pipeline := &Pipeline{cfg: cfg, runRepo: rr, store: state.NewMemStore()}
@@ -93,14 +93,14 @@ func invokerFixture(t *testing.T) (*Invoker, *fakeRunRepo, uuid.UUID, *executor.
 		cfg:      cfg,
 		pipeline: pipeline,
 		assignments: &fakeAssignmentGetter{byID: map[uuid.UUID]*domain.Assignment{
-			assignmentID: {ID: assignmentID, AgentID: agentID, DutyID: dutyID, Enabled: true, Config: map[string]any{}},
+			assignmentID: {ID: assignmentID, AgentID: agentID, SkillID: skillID, Enabled: true, Config: map[string]any{}},
 		}},
 		agents: &fakeAgentLister{agents: []*domain.Agent{{
 			ID: agentID, Name: "inv-agent", Role: "t", SystemPrompt: "s",
 			DefaultBackend: domain.BackendRef{Name: backendName}, Enabled: true,
 		}}},
-		duties: &fakeDutyLister{duties: []*domain.Duty{{
-			ID: dutyID, Name: "inv-duty", Role: "t", Description: "d", Prompt: "p",
+		skills: &fakeSkillLister{skills: []*domain.Skill{{
+			ID: skillID, Name: "inv-skill", Role: "t", Description: "d", Prompt: "p",
 		}}},
 		buildExecutor: func(_ *config.Config, _ *config.Backend) (executor.Executor, error) {
 			return fakeExec, nil

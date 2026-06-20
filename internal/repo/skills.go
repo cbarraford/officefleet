@@ -10,11 +10,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type DutyRepo struct{ db *pgxpool.Pool }
+type SkillRepo struct{ db *pgxpool.Pool }
 
-func NewDutyRepo(db *pgxpool.Pool) *DutyRepo { return &DutyRepo{db: db} }
+func NewSkillRepo(db *pgxpool.Pool) *SkillRepo { return &SkillRepo{db: db} }
 
-func (r *DutyRepo) Insert(ctx context.Context, d *domain.Duty) error {
+func (r *SkillRepo) Insert(ctx context.Context, d *domain.Skill) error {
 	if d.ID == uuid.Nil {
 		d.ID = uuid.New()
 	}
@@ -25,13 +25,13 @@ func (r *DutyRepo) Insert(ctx context.Context, d *domain.Duty) error {
 		backendJSON, _ = json.Marshal(d.Backend)
 	}
 	_, err := r.db.Exec(ctx,
-		"INSERT INTO duties (id, name, role, description, trigger_kinds, prompt, required_tools, output_actions, config_schema, backend) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+		"INSERT INTO skills (id, name, role, description, trigger_kinds, prompt, required_tools, output_actions, config_schema, backend) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
 		d.ID, d.Name, d.Role, d.Description, d.TriggerKinds, d.Prompt, d.RequiredTools,
 		outputActionsJSON, configSchemaJSON, backendJSON)
 	return err
 }
 
-func (r *DutyRepo) UpsertByName(ctx context.Context, d *domain.Duty) error {
+func (r *SkillRepo) UpsertByName(ctx context.Context, d *domain.Skill) error {
 	if d.ID == uuid.Nil {
 		d.ID = uuid.New()
 	}
@@ -42,7 +42,7 @@ func (r *DutyRepo) UpsertByName(ctx context.Context, d *domain.Duty) error {
 		backendJSON, _ = json.Marshal(d.Backend)
 	}
 	return r.db.QueryRow(ctx,
-		`INSERT INTO duties (id, name, role, description, trigger_kinds, prompt, required_tools, output_actions, config_schema, backend)
+		`INSERT INTO skills (id, name, role, description, trigger_kinds, prompt, required_tools, output_actions, config_schema, backend)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
 		 ON CONFLICT (name) DO UPDATE SET
 		   role=EXCLUDED.role,
@@ -60,22 +60,22 @@ func (r *DutyRepo) UpsertByName(ctx context.Context, d *domain.Duty) error {
 	).Scan(&d.ID)
 }
 
-func (r *DutyRepo) GetByName(ctx context.Context, name string) (*domain.Duty, error) {
+func (r *SkillRepo) GetByName(ctx context.Context, name string) (*domain.Skill, error) {
 	row := r.db.QueryRow(ctx,
-		"SELECT id, name, role, description, trigger_kinds, prompt, required_tools, output_actions, config_schema, backend, created_at, updated_at FROM duties WHERE name=$1", name)
-	return scanDuty(row)
+		"SELECT id, name, role, description, trigger_kinds, prompt, required_tools, output_actions, config_schema, backend, created_at, updated_at FROM skills WHERE name=$1", name)
+	return scanSkill(row)
 }
 
-func (r *DutyRepo) List(ctx context.Context) ([]*domain.Duty, error) {
+func (r *SkillRepo) List(ctx context.Context) ([]*domain.Skill, error) {
 	rows, err := r.db.Query(ctx,
-		"SELECT id, name, role, description, trigger_kinds, prompt, required_tools, output_actions, config_schema, backend, created_at, updated_at FROM duties ORDER BY name")
+		"SELECT id, name, role, description, trigger_kinds, prompt, required_tools, output_actions, config_schema, backend, created_at, updated_at FROM skills ORDER BY name")
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []*domain.Duty
+	var out []*domain.Skill
 	for rows.Next() {
-		d, err := scanDuty(rows)
+		d, err := scanSkill(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -84,13 +84,13 @@ func (r *DutyRepo) List(ctx context.Context) ([]*domain.Duty, error) {
 	return out, rows.Err()
 }
 
-func (r *DutyRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Duty, error) {
+func (r *SkillRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Skill, error) {
 	row := r.db.QueryRow(ctx,
-		"SELECT id, name, role, description, trigger_kinds, prompt, required_tools, output_actions, config_schema, backend, created_at, updated_at FROM duties WHERE id=$1", id)
-	return scanDuty(row)
+		"SELECT id, name, role, description, trigger_kinds, prompt, required_tools, output_actions, config_schema, backend, created_at, updated_at FROM skills WHERE id=$1", id)
+	return scanSkill(row)
 }
 
-func (r *DutyRepo) Update(ctx context.Context, d *domain.Duty) error {
+func (r *SkillRepo) Update(ctx context.Context, d *domain.Skill) error {
 	outputActionsJSON, _ := json.Marshal(d.OutputActions)
 	configSchemaJSON, _ := json.Marshal(d.ConfigSchema)
 	var backendJSON []byte
@@ -98,7 +98,7 @@ func (r *DutyRepo) Update(ctx context.Context, d *domain.Duty) error {
 		backendJSON, _ = json.Marshal(d.Backend)
 	}
 	tag, err := r.db.Exec(ctx,
-		`UPDATE duties SET name=$2, role=$3, description=$4, trigger_kinds=$5, prompt=$6,
+		`UPDATE skills SET name=$2, role=$3, description=$4, trigger_kinds=$5, prompt=$6,
 		   required_tools=$7, output_actions=$8, config_schema=$9, backend=$10, updated_at=NOW()
 		 WHERE id=$1`,
 		d.ID, d.Name, d.Role, d.Description, d.TriggerKinds, d.Prompt, d.RequiredTools,
@@ -107,38 +107,38 @@ func (r *DutyRepo) Update(ctx context.Context, d *domain.Duty) error {
 		return err
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("duty %s not found", d.ID)
+		return fmt.Errorf("skill %s not found", d.ID)
 	}
 	return nil
 }
 
-func (r *DutyRepo) Delete(ctx context.Context, id uuid.UUID) error {
-	tag, err := r.db.Exec(ctx, "DELETE FROM duties WHERE id=$1", id)
+func (r *SkillRepo) Delete(ctx context.Context, id uuid.UUID) error {
+	tag, err := r.db.Exec(ctx, "DELETE FROM skills WHERE id=$1", id)
 	if err != nil {
 		return err
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("duty %s not found", id)
+		return fmt.Errorf("skill %s not found", id)
 	}
 	return nil
 }
 
-func scanDuty(s scanner) (*domain.Duty, error) {
-	var d domain.Duty
+func scanSkill(s scanner) (*domain.Skill, error) {
+	var d domain.Skill
 	var outputActionsJSON, configSchemaJSON, backendJSON []byte
 	if err := s.Scan(&d.ID, &d.Name, &d.Role, &d.Description, &d.TriggerKinds, &d.Prompt,
 		&d.RequiredTools, &outputActionsJSON, &configSchemaJSON, &backendJSON,
 		&d.CreatedAt, &d.UpdatedAt); err != nil {
-		return nil, fmt.Errorf("scan duty: %w", err)
+		return nil, fmt.Errorf("scan skill: %w", err)
 	}
 	if err := unmarshalJSONB(outputActionsJSON, &d.OutputActions); err != nil {
-		return nil, fmt.Errorf("scan duty %s: output_actions: %w", d.ID, err)
+		return nil, fmt.Errorf("scan skill %s: output_actions: %w", d.ID, err)
 	}
 	if err := unmarshalJSONB(configSchemaJSON, &d.ConfigSchema); err != nil {
-		return nil, fmt.Errorf("scan duty %s: config_schema: %w", d.ID, err)
+		return nil, fmt.Errorf("scan skill %s: config_schema: %w", d.ID, err)
 	}
 	if err := unmarshalJSONB(backendJSON, &d.Backend); err != nil {
-		return nil, fmt.Errorf("scan duty %s: backend: %w", d.ID, err)
+		return nil, fmt.Errorf("scan skill %s: backend: %w", d.ID, err)
 	}
 	return &d, nil
 }

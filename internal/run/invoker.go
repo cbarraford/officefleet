@@ -17,8 +17,8 @@ import (
 // (issue #8). Cancellation reaps the claude process group (see claude.go).
 const defaultRunTimeout = 15 * time.Minute
 
-// AssignmentGetter, AgentGetter, and DutyGetter are the repo capabilities the
-// Invoker needs; *repo.AssignmentRepo, *repo.AgentRepo, *repo.DutyRepo satisfy
+// AssignmentGetter, AgentGetter, and SkillGetter are the repo capabilities the
+// Invoker needs; *repo.AssignmentRepo, *repo.AgentRepo, *repo.SkillRepo satisfy
 // them structurally. Direct id lookups replace the former List()+loop scans.
 type AssignmentGetter interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Assignment, error)
@@ -28,11 +28,11 @@ type AgentGetter interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Agent, error)
 }
 
-type DutyGetter interface {
-	GetByID(ctx context.Context, id uuid.UUID) (*domain.Duty, error)
+type SkillGetter interface {
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.Skill, error)
 }
 
-// Invoker executes one assignment by id: it loads the assignment/agent/duty,
+// Invoker executes one assignment by id: it loads the assignment/agent/skill,
 // resolves the backend from config, builds the executor, and runs the
 // pipeline. The cron scheduler and the event dispatcher share this path.
 type Invoker struct {
@@ -40,7 +40,7 @@ type Invoker struct {
 	pipeline    *Pipeline
 	assignments AssignmentGetter
 	agents      AgentGetter
-	duties      DutyGetter
+	skills      SkillGetter
 	secrets     SecretsProvider // resolves ${secret:...} backend api_keys; may be nil in tests
 	// buildExecutor is a test seam; defaults to factory-based resolution.
 	buildExecutor func(cfg *config.Config, b *config.Backend) (executor.Executor, error)
@@ -48,10 +48,10 @@ type Invoker struct {
 	forcedExecutor executor.Executor
 }
 
-func NewInvoker(cfg *config.Config, pipeline *Pipeline, assignments AssignmentGetter, agents AgentGetter, duties DutyGetter, secrets SecretsProvider) *Invoker {
+func NewInvoker(cfg *config.Config, pipeline *Pipeline, assignments AssignmentGetter, agents AgentGetter, skills SkillGetter, secrets SecretsProvider) *Invoker {
 	return &Invoker{
 		cfg: cfg, pipeline: pipeline,
-		assignments: assignments, agents: agents, duties: duties,
+		assignments: assignments, agents: agents, skills: skills,
 		secrets:       secrets,
 		buildExecutor: defaultBuildExecutor,
 	}
@@ -108,27 +108,27 @@ func (inv *Invoker) Invoke(ctx context.Context, assignmentID uuid.UUID, triggerK
 	if err != nil {
 		return nil, fmt.Errorf("get agent %s: %w", assignment.AgentID, err)
 	}
-	duty, err := inv.duties.GetByID(ctx, assignment.DutyID)
+	skill, err := inv.skills.GetByID(ctx, assignment.SkillID)
 	if err != nil {
-		return nil, fmt.Errorf("get duty %s: %w", assignment.DutyID, err)
+		return nil, fmt.Errorf("get skill %s: %w", assignment.SkillID, err)
 	}
 
 	// run --fake forces a fake executor and skips backend resolution entirely.
 	if inv.forcedExecutor != nil {
 		return inv.pipeline.Execute(ctx, ExecuteRequest{
-			Assignment: assignment, Agent: agent, Duty: duty,
+			Assignment: assignment, Agent: agent, Skill: skill,
 			TriggerKind: triggerKind, EventID: eventID, EventParams: params,
 			Executor: inv.forcedExecutor,
 		})
 	}
 
 	// Resolve the backend from the DB rows themselves (the single source of
-	// truth: assignment.Backend ?? duty.Backend ?? agent.DefaultBackend), then
+	// truth: assignment.Backend ?? skill.Backend ?? agent.DefaultBackend), then
 	// look up its definition in fleet.yaml. A config name-match is NOT used (it
 	// picks the wrong row when an agent has two assignments and breaks on
 	// rename), and a resolution failure is an error — never a silent
 	// ClaudeExecutor("") that runs the wrong backend with no key (issue #11).
-	resolved, err := ResolveBackendFromDB(inv.cfg, assignment, agent, duty)
+	resolved, err := ResolveBackendFromDB(inv.cfg, assignment, agent, skill)
 	if err != nil {
 		return nil, fmt.Errorf("resolve backend: %w", err)
 	}
@@ -157,7 +157,7 @@ func (inv *Invoker) Invoke(ctx context.Context, assignmentID uuid.UUID, triggerK
 	return inv.pipeline.Execute(ctx, ExecuteRequest{
 		Assignment:  assignment,
 		Agent:       agent,
-		Duty:        duty,
+		Skill:        skill,
 		TriggerKind: triggerKind,
 		EventID:     eventID,
 		EventParams: params,
@@ -168,20 +168,20 @@ func (inv *Invoker) Invoke(ctx context.Context, assignmentID uuid.UUID, triggerK
 
 // ResolveBackendFromDB resolves an assignment's backend from the DB rows (the
 // single source of truth) and looks up the named definition in fleet.yaml. The
-// ref precedence is assignment.Backend ?? duty.Backend ?? agent.DefaultBackend.
+// ref precedence is assignment.Backend ?? skill.Backend ?? agent.DefaultBackend.
 // It returns an error rather than nil so callers cannot silently fall back to an
 // unconfigured executor (issue #11).
-func ResolveBackendFromDB(cfg *config.Config, assignment *domain.Assignment, agent *domain.Agent, duty *domain.Duty) (*config.Backend, error) {
+func ResolveBackendFromDB(cfg *config.Config, assignment *domain.Assignment, agent *domain.Agent, skill *domain.Skill) (*config.Backend, error) {
 	var ref domain.BackendRef
 	switch {
 	case assignment.Backend != nil && assignment.Backend.Name != "":
 		ref = *assignment.Backend
-	case duty.Backend != nil && duty.Backend.Name != "":
-		ref = *duty.Backend
+	case skill.Backend != nil && skill.Backend.Name != "":
+		ref = *skill.Backend
 	case agent.DefaultBackend.Name != "":
 		ref = agent.DefaultBackend
 	default:
-		return nil, fmt.Errorf("no backend referenced by assignment %s, duty %q, or agent %q", assignment.ID, duty.Name, agent.Name)
+		return nil, fmt.Errorf("no backend referenced by assignment %s, skill %q, or agent %q", assignment.ID, skill.Name, agent.Name)
 	}
 	for i := range cfg.Backends {
 		if cfg.Backends[i].Name == ref.Name {
