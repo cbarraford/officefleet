@@ -10,6 +10,51 @@ import (
 	"github.com/cbarraford/office-fleet/internal/prompt"
 )
 
+func skillPrompt(t *testing.T, name string) string {
+	t.Helper()
+	t.Setenv("FLEET_DATABASE_DSN", "postgres://test")
+	cfg, err := config.Load("../../configs/huginn.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range cfg.Skills {
+		if s.Name == name {
+			return s.Prompt
+		}
+	}
+	t.Fatalf("skill %q not found", name)
+	return ""
+}
+
+func TestIssueImplementPrompt_RendersBothForges(t *testing.T) {
+	tmpl := skillPrompt(t, "issue-implement")
+	secrets := map[string]string{"gitlab_token": "glt", "github_token": "ght"}
+	cases := []struct{ forge, wantCreate, wantHost, wantLimit string }{
+		{"gitlab", "glab mr create --source-branch", "gitlab.com", "--per-page"},
+		{"github", "gh pr create --head", "github.com", "--limit"},
+	}
+	for _, tc := range cases {
+		fp, _ := forge.Profile(tc.forge)
+		ctx := prompt.Context{
+			Assignment: map[string]any{
+				"project": "o/r", "base_branch": "main", "max_open_mrs": 3,
+				"priority_label_prefix": "priority::", "batch_label": "batch",
+				"extra_mr_labels": "", "qg_test_command": "", "qg_lint_command": "",
+			},
+			Forge: fp,
+		}
+		out, err := prompt.Render(tmpl, ctx, secrets)
+		if err != nil {
+			t.Fatalf("forge %s render: %v", tc.forge, err)
+		}
+		for _, want := range []string{tc.wantCreate, tc.wantHost, tc.wantLimit} {
+			if !strings.Contains(out, want) {
+				t.Errorf("forge %s: rendered prompt missing %q", tc.forge, want)
+			}
+		}
+	}
+}
+
 func codeReviewPrompt(t *testing.T) string {
 	t.Helper()
 	t.Setenv("FLEET_DATABASE_DSN", "postgres://test")
