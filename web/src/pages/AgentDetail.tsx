@@ -72,18 +72,21 @@ function RunNowModal({ assignment, onClose, onRan }: { assignment: Assignment; o
 
 function AssignmentModal({
   agentId,
+  agentJob,
   skills,
   existing,
   onClose,
   onSaved,
 }: {
   agentId: string
+  agentJob: string
   skills: Skill[]
   existing: Assignment | null // null = create
   onClose: () => void
   onSaved: () => void
 }) {
-  const [skillId, setSkillId] = useState(existing?.skill_id ?? skills[0]?.id ?? '')
+  const available = skills.filter((d) => d.role === agentJob)
+  const [skillId, setSkillId] = useState(existing?.skill_id ?? available[0]?.id ?? '')
   const [name, setName] = useState(existing?.name ?? '')
   const [enabled, setEnabled] = useState(existing?.enabled ?? true)
   const [triggerKind, setTriggerKind] = useState(existing?.trigger.kind ?? 'manual')
@@ -164,13 +167,17 @@ function AssignmentModal({
         {!existing && (
           <label className="field">
             <span>Skill</span>
-            <select value={skillId} onChange={(e) => setSkillId(e.target.value)}>
-              {skills.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
+            {available.length === 0 ? (
+              <div className="dim">No skills for this job yet.</div>
+            ) : (
+              <select value={skillId} onChange={(e) => setSkillId(e.target.value)}>
+                {available.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+            )}
           </label>
         )}
         <label className="field">
@@ -229,7 +236,7 @@ function AssignmentModal({
         </label>
         {error && <div className="form-error">{error}</div>}
         <div className="row">
-          <button className="primary" type="submit" disabled={busy}>
+          <button className="primary" type="submit" disabled={busy || (!existing && available.length === 0)}>
             {busy ? 'Saving…' : 'Save'}
           </button>
           <button type="button" onClick={onClose}>
@@ -456,7 +463,7 @@ export default function AgentDetail() {
         <div>
           <h1 style={{ marginBottom: 2 }}>{agent.name}</h1>
           <div className="dim">
-            {agent.role || '—'} · hired {fmtDate(agent.hired_at)}
+            {agent.role || 'unknown'} · hired {fmtDate(agent.hired_at)}
           </div>
         </div>
         <div className="spacer" />
@@ -597,6 +604,7 @@ export default function AgentDetail() {
       {editing && (
         <AssignmentModal
           agentId={agent.id}
+          agentJob={agent.role}
           skills={skills}
           existing={editing === 'new' ? null : editing}
           onClose={() => setEditing(null)}

@@ -74,8 +74,8 @@ func TestValidate_MissingBackend(t *testing.T) {
 func TestValidate_Clean(t *testing.T) {
 	cfg := &config.Config{
 		Backends:    []config.Backend{{Name: "b1", Kind: "claude", Auth: config.BackendAuth{Mode: "subscription"}}},
-		Agents:      []config.AgentConfig{{Name: "a1", DefaultBackend: domain.BackendRef{Name: "b1"}}},
-		Skills:      []config.SkillConfig{{Name: "d1"}},
+		Agents:      []config.AgentConfig{{Name: "a1", Role: domain.JobDeveloper, DefaultBackend: domain.BackendRef{Name: "b1"}}},
+		Skills:      []config.SkillConfig{{Name: "d1", Role: domain.JobDeveloper}},
 		Assignments: []config.AssignmentConfig{{Agent: "a1", Skill: "d1"}},
 	}
 	errs := config.Validate(cfg)
@@ -665,9 +665,9 @@ func TestValidate_VoterRefOverrideOnAssignment(t *testing.T) {
 func eventSubConfig() *config.Config {
 	return &config.Config{
 		Backends: []config.Backend{{Name: "b", Kind: "claude", Auth: config.BackendAuth{Mode: "subscription"}}},
-		Agents:   []config.AgentConfig{{Name: "a1", DefaultBackend: domain.BackendRef{Name: "b"}}},
+		Agents:   []config.AgentConfig{{Name: "a1", Role: domain.JobDeveloper, DefaultBackend: domain.BackendRef{Name: "b"}}},
 		Skills: []config.SkillConfig{{
-			Name: "d1", TriggerKinds: []string{"manual", "event-subscription"},
+			Name: "d1", Role: domain.JobDeveloper, TriggerKinds: []string{"manual", "event-subscription"},
 		}},
 		Assignments: []config.AssignmentConfig{{
 			Agent: "a1", Skill: "d1",
@@ -782,8 +782,8 @@ func TestValidateForEach(t *testing.T) {
 	base := func(forEach string) *config.Config {
 		return &config.Config{
 			Backends: []config.Backend{{Name: "b", Kind: "claude", Auth: config.BackendAuth{Mode: "subscription"}}},
-			Agents:   []config.AgentConfig{{Name: "a", Enabled: true, DefaultBackend: domain.BackendRef{Name: "b"}}},
-			Skills:   []config.SkillConfig{{Name: "d", TriggerKinds: []string{"manual"}}},
+			Agents:   []config.AgentConfig{{Name: "a", Role: domain.JobDeveloper, Enabled: true, DefaultBackend: domain.BackendRef{Name: "b"}}},
+			Skills:   []config.SkillConfig{{Name: "d", Role: domain.JobDeveloper, TriggerKinds: []string{"manual"}}},
 			Assignments: []config.AssignmentConfig{{
 				Agent: "a", Skill: "d",
 				Trigger: domain.TriggerConfig{Kind: "manual"},
@@ -812,8 +812,8 @@ func TestValidate_DuplicateAssignmentTuple(t *testing.T) {
 	withTwo := func(name1, name2 string) *config.Config {
 		return &config.Config{
 			Backends: []config.Backend{{Name: "b", Kind: "claude", Auth: config.BackendAuth{Mode: "subscription"}}},
-			Agents:   []config.AgentConfig{{Name: "a", Enabled: true, DefaultBackend: domain.BackendRef{Name: "b"}}},
-			Skills:   []config.SkillConfig{{Name: "d", TriggerKinds: []string{"manual"}}},
+			Agents:   []config.AgentConfig{{Name: "a", Role: domain.JobDeveloper, Enabled: true, DefaultBackend: domain.BackendRef{Name: "b"}}},
+			Skills:   []config.SkillConfig{{Name: "d", Role: domain.JobDeveloper, TriggerKinds: []string{"manual"}}},
 			Assignments: []config.AssignmentConfig{
 				{Agent: "a", Skill: "d", Name: name1, Trigger: domain.TriggerConfig{Kind: "manual"}},
 				{Agent: "a", Skill: "d", Name: name2, Trigger: domain.TriggerConfig{Kind: "manual"}},
@@ -825,6 +825,83 @@ func TestValidate_DuplicateAssignmentTuple(t *testing.T) {
 	// Distinct names make the pair legal (e.g. a manual and a cron variant).
 	if errs := config.Validate(withTwo("adhoc", "nightly")); len(errs) != 0 {
 		t.Errorf("distinct assignment names must validate: %v", errs)
+	}
+}
+
+func hasErr(errs []error, substr string) bool {
+	for _, e := range errs {
+		if strings.Contains(e.Error(), substr) {
+			return true
+		}
+	}
+	return false
+}
+
+func baseJobCfg() *config.Config {
+	return &config.Config{
+		Backends: []config.Backend{
+			{Name: "b", Kind: "claude", Auth: config.BackendAuth{Mode: "subscription"}},
+		},
+		Agents: []config.AgentConfig{
+			{Name: "a1", Role: domain.JobDeveloper, DefaultBackend: domain.BackendRef{Name: "b"}},
+		},
+		Skills: []config.SkillConfig{
+			{Name: "s1", Role: domain.JobDeveloper, TriggerKinds: []string{"manual"}, Prompt: "p"},
+		},
+	}
+}
+
+func TestValidate_InvalidAgentJob(t *testing.T) {
+	cfg := baseJobCfg()
+	cfg.Agents[0].Role = domain.Job("lawyer")
+	if errs := config.Validate(cfg); !hasErr(errs, "invalid job") {
+		t.Fatalf("expected invalid agent job error, got %v", errs)
+	}
+}
+
+func TestValidate_EmptyAgentJob(t *testing.T) {
+	cfg := baseJobCfg()
+	cfg.Agents[0].Role = ""
+	if errs := config.Validate(cfg); !hasErr(errs, "invalid job") {
+		t.Fatalf("expected empty agent job error, got %v", errs)
+	}
+}
+
+func TestValidate_UnknownAgentJob(t *testing.T) {
+	cfg := baseJobCfg()
+	cfg.Agents[0].Role = domain.JobUnknown
+	if errs := config.Validate(cfg); !hasErr(errs, "invalid job") {
+		t.Fatalf("expected unknown agent job to be rejected, got %v", errs)
+	}
+}
+
+func TestValidate_InvalidSkillJob(t *testing.T) {
+	cfg := baseJobCfg()
+	cfg.Skills[0].Role = domain.Job("lawyer")
+	if errs := config.Validate(cfg); !hasErr(errs, "invalid job") {
+		t.Fatalf("expected invalid skill job error, got %v", errs)
+	}
+}
+
+func TestValidate_AssignmentJobMismatch(t *testing.T) {
+	cfg := baseJobCfg()
+	cfg.Skills[0].Role = domain.Job("data-scientist") // != agent's developer
+	cfg.Assignments = []config.AssignmentConfig{
+		{Agent: "a1", Skill: "s1", Trigger: domain.TriggerConfig{Kind: "manual"}},
+	}
+	if errs := config.Validate(cfg); !hasErr(errs, "does not match agent job") {
+		t.Fatalf("expected job mismatch error, got %v", errs)
+	}
+}
+
+func TestValidate_MatchingJobs_OK(t *testing.T) {
+	cfg := baseJobCfg()
+	cfg.Assignments = []config.AssignmentConfig{
+		{Agent: "a1", Skill: "s1", Trigger: domain.TriggerConfig{Kind: "manual"}},
+	}
+	errs := config.Validate(cfg)
+	if hasErr(errs, "invalid job") || hasErr(errs, "does not match agent job") {
+		t.Fatalf("unexpected job errors: %v", errs)
 	}
 }
 

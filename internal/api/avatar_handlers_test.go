@@ -146,7 +146,7 @@ func TestUploadAvatarUnknownAgent(t *testing.T) {
 
 func TestCreateAgentTriggersAvatarAssign(t *testing.T) {
 	a, _, avatars, token := avatarTestAPI(t, domain.RoleAdmin)
-	body := []byte(`{"name": "Newbie", "role": "Tester"}`)
+	body := []byte(`{"name": "Newbie", "role": "developer"}`)
 	resp := avatarReq(t, a, http.MethodPost, "/api/v1/agents", token, "application/json", body)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("status = %d, want 201", resp.StatusCode)
@@ -166,7 +166,7 @@ func TestCreateAgentNilAvatarServiceIsSafe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp := avatarReq(t, a, http.MethodPost, "/api/v1/agents", token, "application/json", []byte(`{"name":"X"}`))
+	resp := avatarReq(t, a, http.MethodPost, "/api/v1/agents", token, "application/json", []byte(`{"name":"X","role":"developer"}`))
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("status = %d, want 201", resp.StatusCode)
 	}

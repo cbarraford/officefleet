@@ -74,7 +74,10 @@ func (a *API) applyAgentBody(b *agentBody, agent *domain.Agent) error {
 		agent.Name = *b.Name
 	}
 	if b.Role != nil {
-		agent.Role = *b.Role
+		if !domain.Job(*b.Role).Valid() {
+			return errValidation("invalid job " + *b.Role)
+		}
+		agent.Role = domain.Job(*b.Role)
 	}
 	if b.SystemPrompt != nil {
 		agent.SystemPrompt = *b.SystemPrompt
@@ -114,6 +117,10 @@ func (a *API) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	if agent.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if agent.Role == "" {
+		writeError(w, http.StatusBadRequest, "role is required")
 		return
 	}
 	if err := a.agents.Insert(r.Context(), agent); err != nil {
@@ -220,7 +227,10 @@ func (a *API) applySkillBody(b *skillBody, skill *domain.Skill) error {
 		skill.Name = *b.Name
 	}
 	if b.Role != nil {
-		skill.Role = *b.Role
+		if !domain.Job(*b.Role).Valid() {
+			return errValidation("invalid job " + *b.Role)
+		}
+		skill.Role = domain.Job(*b.Role)
 	}
 	if b.Description != nil {
 		skill.Description = *b.Description
@@ -285,6 +295,10 @@ func (a *API) handleCreateSkill(w http.ResponseWriter, r *http.Request) {
 	}
 	if skill.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if skill.Role == "" {
+		writeError(w, http.StatusBadRequest, "role is required")
 		return
 	}
 	if err := a.skills.Insert(r.Context(), skill); err != nil {
@@ -379,11 +393,13 @@ func (a *API) validateAssignment(ctx context.Context, asg *domain.Assignment) er
 			return errValidation("event-subscription trigger requires non-empty filter.source and filter.event_type")
 		}
 	}
-	if asg.Trigger.Kind != "" {
-		skill, err := a.skills.GetByID(ctx, asg.SkillID)
-		if err == nil && len(skill.TriggerKinds) > 0 && !slices.Contains(skill.TriggerKinds, asg.Trigger.Kind) {
-			return errValidation("skill does not support trigger kind " + asg.Trigger.Kind)
-		}
+	// Resolve agent and skill once; the trigger-kind and job-match checks below
+	// reuse them. A lookup error here is not fatal — the create/patch handlers
+	// report unknown agent/skill ids separately.
+	agentRow, aerr := a.agents.GetByID(ctx, asg.AgentID)
+	skillRow, serr := a.skills.GetByID(ctx, asg.SkillID)
+	if asg.Trigger.Kind != "" && serr == nil && len(skillRow.TriggerKinds) > 0 && !slices.Contains(skillRow.TriggerKinds, asg.Trigger.Kind) {
+		return errValidation("skill does not support trigger kind " + asg.Trigger.Kind)
 	}
 	if !a.backendNameExists(asg.Backend) {
 		return errValidation("unknown backend " + asg.Backend.Name)
@@ -392,6 +408,9 @@ func (a *API) validateAssignment(ctx context.Context, asg *domain.Assignment) er
 		if err := out.ValidateForEach(); err != nil {
 			return errValidation(err.Error())
 		}
+	}
+	if aerr == nil && serr == nil && agentRow.Role != skillRow.Role {
+		return errValidation("skill job " + string(skillRow.Role) + " does not match agent job " + string(agentRow.Role))
 	}
 	return nil
 }

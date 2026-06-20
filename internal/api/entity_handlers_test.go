@@ -365,7 +365,7 @@ func TestAgentCreate_201AndListed(t *testing.T) {
 
 	resp := f.do(t, "POST", "/api/v1/agents", map[string]any{
 		"name":    "Alice",
-		"role":    "analyst",
+		"role":    "developer",
 		"enabled": true,
 	})
 	if resp.StatusCode != http.StatusCreated {
@@ -395,8 +395,8 @@ func TestAgentCreate_201AndListed(t *testing.T) {
 func TestAgentCreate_DuplicateName_409(t *testing.T) {
 	f := newEntityFixture(t)
 
-	f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "Bob"})
-	resp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "Bob"})
+	f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "Bob", "role": "developer"})
+	resp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "Bob", "role": "developer"})
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("duplicate create: status = %d, want 409", resp.StatusCode)
 	}
@@ -407,7 +407,7 @@ func TestAgentPatch_PartialUpdate(t *testing.T) {
 
 	createResp := f.do(t, "POST", "/api/v1/agents", map[string]any{
 		"name":    "Charlie",
-		"role":    "engineer",
+		"role":    "developer",
 		"enabled": true,
 	})
 	if createResp.StatusCode != http.StatusCreated {
@@ -432,15 +432,15 @@ func TestAgentPatch_PartialUpdate(t *testing.T) {
 	if patched["name"] != "Charlie" {
 		t.Errorf("name changed to %v, want Charlie", patched["name"])
 	}
-	if patched["role"] != "engineer" {
-		t.Errorf("role changed to %v, want engineer", patched["role"])
+	if patched["role"] != "developer" {
+		t.Errorf("role changed to %v, want developer", patched["role"])
 	}
 }
 
 func TestAgentPatch_BadHiredAt_400(t *testing.T) {
 	f := newEntityFixture(t)
 
-	createResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "Dana"})
+	createResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "Dana", "role": "developer"})
 	var created map[string]any
 	decodeBody(t, createResp, &created)
 	agentID := created["id"].(string)
@@ -456,7 +456,7 @@ func TestAgentPatch_BadHiredAt_400(t *testing.T) {
 func TestAgentPatch_UnknownBackend_400(t *testing.T) {
 	f := newEntityFixture(t)
 
-	createResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "Eve"})
+	createResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "Eve", "role": "developer"})
 	var created map[string]any
 	decodeBody(t, createResp, &created)
 	agentID := created["id"].(string)
@@ -472,7 +472,7 @@ func TestAgentPatch_UnknownBackend_400(t *testing.T) {
 func TestAgentGet_EmbedsStats(t *testing.T) {
 	f := newEntityFixture(t)
 
-	createResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "Frank"})
+	createResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "Frank", "role": "developer"})
 	var created map[string]any
 	decodeBody(t, createResp, &created)
 	agentID := created["id"].(string)
@@ -509,7 +509,7 @@ func TestAgentGet_EmbedsStats(t *testing.T) {
 func TestAgentDelete_404After(t *testing.T) {
 	f := newEntityFixture(t)
 
-	createResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "Grace"})
+	createResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "Grace", "role": "developer"})
 	var created map[string]any
 	decodeBody(t, createResp, &created)
 	agentID := created["id"].(string)
@@ -532,6 +532,7 @@ func TestSkillCreate_BadTriggerKind_400(t *testing.T) {
 
 	resp := f.do(t, "POST", "/api/v1/skills", map[string]any{
 		"name":          "ReviewSkill",
+		"role":          "developer",
 		"trigger_kinds": []string{"manual", "foobar"},
 	})
 	if resp.StatusCode != http.StatusBadRequest {
@@ -549,6 +550,7 @@ func TestSkillCreate_ValidTriggerKinds_201(t *testing.T) {
 
 	resp := f.do(t, "POST", "/api/v1/skills", map[string]any{
 		"name":          "MRReview",
+		"role":          "developer",
 		"trigger_kinds": []string{"manual", "event-subscription"},
 	})
 	if resp.StatusCode != http.StatusCreated {
@@ -564,13 +566,14 @@ func TestAssignment_EventSubscription_MissingSource_400(t *testing.T) {
 	// Create the skill that supports event-subscription
 	skillResp := f.do(t, "POST", "/api/v1/skills", map[string]any{
 		"name":          "OnEvent",
+		"role":          "developer",
 		"trigger_kinds": []string{"event-subscription"},
 	})
 	var skill map[string]any
 	decodeBody(t, skillResp, &skill)
 	skillID := skill["id"].(string)
 
-	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentH"})
+	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentH", "role": "developer"})
 	var agent map[string]any
 	decodeBody(t, agentResp, &agent)
 	agentID := agent["id"].(string)
@@ -595,13 +598,14 @@ func TestAssignment_SkillKindMismatch_400(t *testing.T) {
 	// Skill only supports "manual"
 	skillResp := f.do(t, "POST", "/api/v1/skills", map[string]any{
 		"name":          "ManualOnly",
+		"role":          "developer",
 		"trigger_kinds": []string{"manual"},
 	})
 	var skill map[string]any
 	decodeBody(t, skillResp, &skill)
 	skillID := skill["id"].(string)
 
-	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentI"})
+	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentI", "role": "developer"})
 	var agent map[string]any
 	decodeBody(t, agentResp, &agent)
 	agentID := agent["id"].(string)
@@ -625,13 +629,14 @@ func TestAssignment_Valid_201(t *testing.T) {
 
 	skillResp := f.do(t, "POST", "/api/v1/skills", map[string]any{
 		"name":          "CronSkill",
+		"role":          "developer",
 		"trigger_kinds": []string{"cron"},
 	})
 	var skill map[string]any
 	decodeBody(t, skillResp, &skill)
 	skillID := skill["id"].(string)
 
-	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentJ"})
+	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentJ", "role": "developer"})
 	var agent map[string]any
 	decodeBody(t, agentResp, &agent)
 	agentID := agent["id"].(string)
@@ -659,13 +664,14 @@ func TestAssignment_EventSubscription_Valid_201(t *testing.T) {
 
 	skillResp := f.do(t, "POST", "/api/v1/skills", map[string]any{
 		"name":          "EventSkill",
+		"role":          "developer",
 		"trigger_kinds": []string{"event-subscription"},
 	})
 	var skill map[string]any
 	decodeBody(t, skillResp, &skill)
 	skillID := skill["id"].(string)
 
-	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentK"})
+	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentK", "role": "developer"})
 	var agent map[string]any
 	decodeBody(t, agentResp, &agent)
 	agentID := agent["id"].(string)
@@ -693,13 +699,14 @@ func TestAssignment_InvalidForEach_400(t *testing.T) {
 
 	skillResp := f.do(t, "POST", "/api/v1/skills", map[string]any{
 		"name":          "ForEachSkillBad",
+		"role":          "developer",
 		"trigger_kinds": []string{"cron"},
 	})
 	var skill map[string]any
 	decodeBody(t, skillResp, &skill)
 	skillID := skill["id"].(string)
 
-	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentForEachBad"})
+	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentForEachBad", "role": "developer"})
 	var agent map[string]any
 	decodeBody(t, agentResp, &agent)
 	agentID := agent["id"].(string)
@@ -724,13 +731,14 @@ func TestAssignment_ValidForEach_201(t *testing.T) {
 
 	skillResp := f.do(t, "POST", "/api/v1/skills", map[string]any{
 		"name":          "ForEachSkillOK",
+		"role":          "developer",
 		"trigger_kinds": []string{"cron"},
 	})
 	var skill map[string]any
 	decodeBody(t, skillResp, &skill)
 	skillID := skill["id"].(string)
 
-	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentForEachOK"})
+	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentForEachOK", "role": "developer"})
 	var agent map[string]any
 	decodeBody(t, agentResp, &agent)
 	agentID := agent["id"].(string)
@@ -753,13 +761,14 @@ func TestAssignment_Duplicate_409(t *testing.T) {
 
 	skillResp := f.do(t, "POST", "/api/v1/skills", map[string]any{
 		"name":          "DupSkill",
+		"role":          "developer",
 		"trigger_kinds": []string{"manual"},
 	})
 	var skill map[string]any
 	decodeBody(t, skillResp, &skill)
 	skillID := skill["id"].(string)
 
-	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentDup"})
+	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentDup", "role": "developer"})
 	var agent map[string]any
 	decodeBody(t, agentResp, &agent)
 	agentID := agent["id"].(string)
@@ -783,7 +792,7 @@ func TestAssignment_Duplicate_409(t *testing.T) {
 func TestAssignment_UnknownSkillID_400(t *testing.T) {
 	f := newEntityFixture(t)
 
-	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentUnkSkill"})
+	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentUnkSkill", "role": "developer"})
 	var agent map[string]any
 	decodeBody(t, agentResp, &agent)
 	agentID := agent["id"].(string)
@@ -808,6 +817,7 @@ func TestAssignment_UnknownAgentID_400(t *testing.T) {
 
 	skillResp := f.do(t, "POST", "/api/v1/skills", map[string]any{
 		"name":          "UnkAgentSkill",
+		"role":          "developer",
 		"trigger_kinds": []string{"manual"},
 	})
 	var skill map[string]any
@@ -836,6 +846,7 @@ func TestPatchSkillConfigSchemaSemantics(t *testing.T) {
 	// Create a skill with a non-empty config_schema.
 	createResp := f.do(t, "POST", "/api/v1/skills", map[string]any{
 		"name": "SchemaSkill",
+		"role": "developer",
 		"config_schema": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -875,6 +886,7 @@ func TestPatchSkillConfigSchemaSemantics(t *testing.T) {
 	// Re-seed schema via POST (create a fresh skill).
 	create2Resp := f.do(t, "POST", "/api/v1/skills", map[string]any{
 		"name": "SchemaSkill2",
+		"role": "developer",
 		"config_schema": map[string]any{
 			"type": "object",
 		},
@@ -906,6 +918,7 @@ func TestAgentCreate_KnownBackend_201(t *testing.T) {
 
 	resp := f.do(t, "POST", "/api/v1/agents", map[string]any{
 		"name": "BackendAgent",
+		"role": "developer",
 		"default_backend": map[string]any{
 			"name": "claude-prod",
 		},
@@ -921,9 +934,82 @@ func TestAgentCreate_HiredAt_201(t *testing.T) {
 
 	resp := f.do(t, "POST", "/api/v1/agents", map[string]any{
 		"name":     "HiredAgent",
+		"role":     "developer",
 		"hired_at": time.Now().Format("2006-01-02"),
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("hired_at create: status = %d, want 201", resp.StatusCode)
+	}
+}
+
+func TestAgentCreate_MissingJob_400(t *testing.T) {
+	f := newEntityFixture(t)
+	resp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "NoJob"})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("missing job: status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestSkillCreate_MissingJob_400(t *testing.T) {
+	f := newEntityFixture(t)
+	resp := f.do(t, "POST", "/api/v1/skills", map[string]any{
+		"name":          "NoJobSkill",
+		"trigger_kinds": []string{"manual"},
+		"prompt":        "p",
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("missing skill job: status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestAgentCreate_InvalidJob_400(t *testing.T) {
+	f := newEntityFixture(t)
+	resp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "BadJob", "role": "lawyer"})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("invalid job: status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestAgentCreate_UnknownJob_400(t *testing.T) {
+	f := newEntityFixture(t)
+	resp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "UnknownJob", "role": "unknown"})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("unknown job: status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestSkillCreate_InvalidJob_400(t *testing.T) {
+	f := newEntityFixture(t)
+	resp := f.do(t, "POST", "/api/v1/skills", map[string]any{
+		"name":          "BadJobSkill",
+		"role":          "lawyer",
+		"trigger_kinds": []string{"manual"},
+		"prompt":        "p",
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("invalid skill job: status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestAssignmentCreate_JobMismatch_400(t *testing.T) {
+	f := newEntityFixture(t)
+	ctx := context.Background()
+
+	agentID := uuid.New()
+	if err := f.agents.Insert(ctx, &domain.Agent{ID: agentID, Name: "MatchAgent", Role: domain.JobDeveloper, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	skillID := uuid.New()
+	if err := f.skills.Insert(ctx, &domain.Skill{ID: skillID, Name: "MismatchSkill", Role: domain.Job("data-scientist"), TriggerKinds: []string{"manual"}, Prompt: "p"}); err != nil {
+		t.Fatal(err)
+	}
+
+	resp := f.do(t, "POST", "/api/v1/assignments", map[string]any{
+		"agent_id": agentID.String(),
+		"skill_id": skillID.String(),
+		"trigger":  map[string]any{"kind": "manual"},
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("job mismatch: status = %d, want 400", resp.StatusCode)
 	}
 }
