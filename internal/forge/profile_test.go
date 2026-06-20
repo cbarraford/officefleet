@@ -24,3 +24,20 @@ func TestProfile_Unknown(t *testing.T) {
 		t.Error("expected unknown forge to return ok=false")
 	}
 }
+
+func TestProfile_GroupAFields(t *testing.T) {
+	gl, _ := Profile("gitlab")
+	if gl["listLimitFlag"] != "--per-page" {
+		t.Errorf("gitlab listLimitFlag = %v", gl["listLimitFlag"])
+	}
+	if gl["issueCommentsHowto"] == nil || gl["closesIssuesHowto"] == nil {
+		t.Errorf("gitlab missing howto fields: %v", gl)
+	}
+	gh, _ := Profile("github")
+	if gh["listLimitFlag"] != "--limit" {
+		t.Errorf("github listLimitFlag = %v", gh["listLimitFlag"])
+	}
+	if gh["issueCommentsHowto"] == nil || gh["closesIssuesHowto"] == nil {
+		t.Errorf("github missing howto fields: %v", gh)
+	}
+}

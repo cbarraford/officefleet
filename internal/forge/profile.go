@@ -24,6 +24,9 @@ var Profiles = map[string]map[string]any{
 		"baseFlag":         "--target-branch",
 		"bodyFlag":         "--description",
 		"removeBranchFlag": "--remove-source-branch",
+		"listLimitFlag":      "--per-page",
+		"issueCommentsHowto": "glab issue note list <iid> --repo <project>",
+		"closesIssuesHowto":  "glab api \"projects/<project, url-encoded with / as %2F>/merge_requests/<change_iid>/closes_issues\"",
 	},
 	"github": {
 		"name":             "github",
@@ -40,6 +43,9 @@ var Profiles = map[string]map[string]any{
 		"baseFlag":         "--base",
 		"bodyFlag":         "--body",
 		"removeBranchFlag": "--delete-branch",
+		"listLimitFlag":      "--limit",
+		"issueCommentsHowto": "gh issue view <iid> --repo <project> --comments",
+		"closesIssuesHowto":  "gh pr view <change_iid> --repo <project> --json closingIssuesReferences --jq '.closingIssuesReferences[].number'",
 	},
 }
 
