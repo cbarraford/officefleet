@@ -236,7 +236,7 @@ function AssignmentModal({
         </label>
         {error && <div className="form-error">{error}</div>}
         <div className="row">
-          <button className="primary" type="submit" disabled={busy}>
+          <button className="primary" type="submit" disabled={busy || (!existing && available.length === 0)}>
             {busy ? 'Saving…' : 'Save'}
           </button>
           <button type="button" onClick={onClose}>
