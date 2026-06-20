@@ -58,7 +58,7 @@ type ImageBackend struct {
 // AgentConfig configures one agent (mirrors domain.Agent plus YAML BackendRef).
 type AgentConfig struct {
 	Name           string            `yaml:"name"`
-	Role           string            `yaml:"role"`
+	Role           domain.Job        `yaml:"role"`
 	SystemPrompt   string            `yaml:"system_prompt"`
 	DefaultBackend domain.BackendRef `yaml:"default_backend"`
 	Enabled        bool              `yaml:"enabled"`
@@ -67,7 +67,7 @@ type AgentConfig struct {
 // SkillConfig configures one skill.
 type SkillConfig struct {
 	Name          string                    `yaml:"name"`
-	Role          string                    `yaml:"role"`
+	Role          domain.Job                `yaml:"role"`
 	Description   string                    `yaml:"description"`
 	TriggerKinds  []string                  `yaml:"trigger_kinds"`
 	Prompt        string                    `yaml:"prompt"`

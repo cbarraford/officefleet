@@ -74,7 +74,7 @@ func (a *API) applyAgentBody(b *agentBody, agent *domain.Agent) error {
 		agent.Name = *b.Name
 	}
 	if b.Role != nil {
-		agent.Role = *b.Role
+		agent.Role = domain.Job(*b.Role)
 	}
 	if b.SystemPrompt != nil {
 		agent.SystemPrompt = *b.SystemPrompt
@@ -220,7 +220,7 @@ func (a *API) applySkillBody(b *skillBody, skill *domain.Skill) error {
 		skill.Name = *b.Name
 	}
 	if b.Role != nil {
-		skill.Role = *b.Role
+		skill.Role = domain.Job(*b.Role)
 	}
 	if b.Description != nil {
 		skill.Description = *b.Description

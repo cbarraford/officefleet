@@ -127,8 +127,8 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 	// Build prompt context.
 	promptCtx := prompt.Context{
 		Event:      req.EventParams,
-		Agent:      map[string]any{"name": req.Agent.Name, "role": req.Agent.Role, "system_prompt": req.Agent.SystemPrompt},
-		Skill:       map[string]any{"name": req.Skill.Name, "role": req.Skill.Role, "description": req.Skill.Description},
+		Agent:      map[string]any{"name": req.Agent.Name, "role": req.Agent.Role.String(), "system_prompt": req.Agent.SystemPrompt},
+		Skill:       map[string]any{"name": req.Skill.Name, "role": req.Skill.Role.String(), "description": req.Skill.Description},
 		Assignment: req.Assignment.Config,
 		State:      map[string]any{},
 		Now:        time.Now(),

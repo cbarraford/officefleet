@@ -65,7 +65,7 @@ func (s *Service) Assign(agent *domain.Agent) {
 	s.mu.Unlock()
 
 	// Copy what we need — the caller's pointer belongs to its request.
-	id, name, role := agent.ID, agent.Name, agent.Role
+	id, name, role := agent.ID, agent.Name, agent.Role.String()
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()

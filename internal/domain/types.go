@@ -20,7 +20,7 @@ type BackendRef struct {
 type Agent struct {
 	ID             uuid.UUID  `db:"id" json:"id"`
 	Name           string     `db:"name" json:"name"`
-	Role           string     `db:"role" json:"role"`
+	Role           Job        `db:"role" json:"role"`
 	SystemPrompt   string     `db:"system_prompt" json:"system_prompt"`
 	DefaultBackend BackendRef `db:"default_backend" json:"default_backend"`
 	Enabled        bool       `db:"enabled" json:"enabled"`
@@ -40,7 +40,7 @@ type OutputActionType struct {
 type Skill struct {
 	ID            uuid.UUID          `db:"id" json:"id"`
 	Name          string             `db:"name" json:"name"`
-	Role          string             `db:"role" json:"role"` // category tag, not operative persona
+	Role          Job                `db:"role" json:"role"` // job; one of domain.Jobs
 	Description   string             `db:"description" json:"description"`
 	TriggerKinds  []string           `db:"trigger_kinds" json:"trigger_kinds"`
 	Prompt        string             `db:"prompt" json:"prompt"`
