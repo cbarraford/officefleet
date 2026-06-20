@@ -97,6 +97,31 @@ func TestIssueBatchImplementPrompt_RendersBothForges(t *testing.T) {
 	}
 }
 
+func TestCodeAuditPrompt_RendersBothForges(t *testing.T) {
+	tmpl := skillPrompt(t, "code-audit")
+	secrets := map[string]string{"gitlab_token": "glt", "github_token": "ght"}
+	cases := []struct{ forge, wantHost, wantList, wantLimit string }{
+		{"gitlab", "gitlab.com", "glab issue list", "--per-page"},
+		{"github", "github.com", "gh issue list", "--limit"},
+	}
+	for _, tc := range cases {
+		fp, _ := forge.Profile(tc.forge)
+		ctx := prompt.Context{
+			Assignment: map[string]any{"project": "o/r", "category": "general-security"},
+			Forge:      fp,
+		}
+		out, err := prompt.Render(tmpl, ctx, secrets)
+		if err != nil {
+			t.Fatalf("forge %s render: %v", tc.forge, err)
+		}
+		for _, want := range []string{tc.wantHost, tc.wantList, tc.wantLimit} {
+			if !strings.Contains(out, want) {
+				t.Errorf("forge %s: missing %q", tc.forge, want)
+			}
+		}
+	}
+}
+
 func TestCodeReviewPrompt_RendersBothForges(t *testing.T) {
 	tmpl := codeReviewPrompt(t)
 	secrets := map[string]string{"gitlab_token": "glt", "github_token": "ght"}

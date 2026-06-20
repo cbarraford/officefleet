@@ -571,6 +571,7 @@ skills:
     config_schema:
       type: object
       properties:
+        forge: { type: string, description: "Which forge this assignment targets", enum: [gitlab, github], default: "gitlab" }
         project: { type: string, description: "GitLab project path (namespace/repo)" }
         category:
           type: string
@@ -581,11 +582,11 @@ skills:
       Audit {{.Assignment.project}} for {{.Assignment.category}} defects.
 
       Workspace:
-        git clone --depth 1 https://oauth2:{{secret "gitlab_token"}}@gitlab.com/{{.Assignment.project}}.git repo
-        cd repo && export GITLAB_TOKEN={{secret "gitlab_token"}}
+        git clone --depth 1 https://{{.Forge.cloneUser}}:{{secret .Forge.tokenSecret}}@{{.Forge.host}}/{{.Assignment.project}}.git repo
+        cd repo && export {{.Forge.tokenEnv}}={{secret .Forge.tokenSecret}}
       Load existing findings first so you never duplicate them (huginn labels its
       audit issues "huginn-code-audit"):
-        glab issue list --label huginn-code-audit --repo {{.Assignment.project}} --per-page 100
+        {{.Forge.cli}} issue list --label huginn-code-audit --repo {{.Assignment.project}} {{.Forge.listLimitFlag}} 100
 
       Category focus ({{.Assignment.category}}):
       - general-security: injection, authn/authz gaps, secret handling, unsafe
@@ -627,6 +628,8 @@ skills:
       fenced ```json code block containing it.
     output_actions:
       - plugin: gitlab
+        action: create_issue
+      - plugin: github
         action: create_issue
 
 assignments:
@@ -745,6 +748,7 @@ assignments:
       kind: continuous
       delay: 6h      # wait 6h after each pass finishes, then audit again (loop)
     config:
+      forge: gitlab
       project: "myorg/myrepo"
       category: "general-security"
     # Loops one category forever; re-runs are idempotent (the prompt dedups
@@ -752,6 +756,27 @@ assignments:
     # category to loop additional categories concurrently.
     outputs:
       - plugin: gitlab
+        action: create_issue
+        for_each: issues
+        params:
+          project: "{{.Assignment.project}}"
+          title: "{{.Item.title}}"
+          description: "{{.Item.description}}"
+          labels: "{{.Item.labels}}"
+
+  - agent: huginn
+    skill: code-audit
+    name: gh-security-loop
+    enabled: false               # opt-in: enable + point at a GitHub repo
+    trigger:
+      kind: continuous
+      delay: 6h
+    config:
+      forge: github
+      project: "myorg/myrepo"
+      category: "general-security"
+    outputs:
+      - plugin: github
         action: create_issue
         for_each: issues
         params:
