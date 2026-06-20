@@ -1,6 +1,10 @@
 // TypeScript mirrors of the /api/v1 JSON wire format (snake_case, see
 // internal/domain/types.go). Optional pointer fields are `| null`.
 
+// Job is the closed set of agent/skill jobs. Keep in sync with domain.Jobs (Go).
+export type Job = 'developer'
+export const JOBS: Job[] = ['developer']
+
 export interface BackendRef {
   name: string
   model?: string
@@ -10,7 +14,7 @@ export interface BackendRef {
 export interface Agent {
   id: string
   name: string
-  role: string
+  role: Job
   system_prompt: string
   default_backend: BackendRef
   enabled: boolean
@@ -28,7 +32,7 @@ export interface OutputActionType {
 export interface Skill {
   id: string
   name: string
-  role: string
+  role: Job
   description: string
   trigger_kinds: string[] | null
   prompt: string
