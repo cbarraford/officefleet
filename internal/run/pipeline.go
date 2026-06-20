@@ -11,6 +11,7 @@ import (
 	"github.com/cbarraford/office-fleet/internal/config"
 	"github.com/cbarraford/office-fleet/internal/domain"
 	"github.com/cbarraford/office-fleet/internal/executor"
+	"github.com/cbarraford/office-fleet/internal/forge"
 	"github.com/cbarraford/office-fleet/internal/outputs"
 	"github.com/cbarraford/office-fleet/internal/plugin"
 	"github.com/cbarraford/office-fleet/internal/prompt"
@@ -136,6 +137,12 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 	if promptCtx.Event == nil {
 		promptCtx.Event = map[string]any{}
 	}
+
+	fp, err := resolveForge(req.Assignment.Config)
+	if err != nil {
+		return nil, err
+	}
+	promptCtx.Forge = fp
 
 	// Load all stored state keys for this assignment into promptCtx.State so
 	// templates like {{.State.last_reviewed_sha}} resolve to their actual values.
@@ -396,6 +403,20 @@ func capTranscript(s string, max int) string {
 		return s
 	}
 	return strings.ToValidUTF8(s[:max], "") + "\n…[transcript truncated]"
+}
+
+// resolveForge picks the Forge profile for an assignment's config. Absent or
+// empty `forge` defaults to gitlab (back-compat). Unknown forge is a hard error.
+func resolveForge(cfg map[string]any) (map[string]any, error) {
+	name := "gitlab"
+	if f, ok := cfg["forge"].(string); ok && f != "" {
+		name = f
+	}
+	fp, ok := forge.Profile(name)
+	if !ok {
+		return nil, fmt.Errorf("unknown forge %q (want gitlab or github)", name)
+	}
+	return fp, nil
 }
 
 // redactSecrets replaces every known secret value in s with a placeholder

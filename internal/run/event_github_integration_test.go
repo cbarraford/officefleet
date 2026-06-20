@@ -72,7 +72,7 @@ func TestEventVertical_GitHubWebhookToRun(t *testing.T) {
 	assignment := &domain.Assignment{
 		ID: assignmentID, AgentID: agentID, SkillID: skillID, Enabled: true,
 		Backend: &domain.BackendRef{Name: backendName},
-		Config:  map[string]any{},
+		Config:  map[string]any{"forge": "github"},
 		Trigger: domain.TriggerConfig{Kind: "event-subscription", Filter: map[string]any{
 			"source": "github", "event_type": "pr_opened", "repo": "org/repo",
 		}},
@@ -90,7 +90,7 @@ func TestEventVertical_GitHubWebhookToRun(t *testing.T) {
 		}}},
 		skills: &fakeSkillLister{skills: []*domain.Skill{{
 			ID: skillID, Name: "sp3b-skill", Role: "dev", Description: "d",
-			Prompt: "Review PR #{{.Event.pr_number}} by {{.Event.author}}",
+			Prompt: "Review PR #{{.Event.pr_number}} by {{.Event.author}} via {{.Forge.cli}}",
 		}}},
 		buildExecutor: func(_ *config.Config, _ *config.Backend) (executor.Executor, error) {
 			return fakeExec, nil
@@ -140,8 +140,9 @@ func TestEventVertical_GitHubWebhookToRun(t *testing.T) {
 	if run.EventID == nil {
 		t.Fatal("run.EventID not stamped")
 	}
-	if !strings.Contains(run.RenderedPrompt, "#9") || !strings.Contains(run.RenderedPrompt, "carol") {
-		t.Errorf("rendered prompt = %q, want PR fields", run.RenderedPrompt)
+	if !strings.Contains(run.RenderedPrompt, "#9") || !strings.Contains(run.RenderedPrompt, "carol") ||
+		!strings.Contains(run.RenderedPrompt, "via gh") {
+		t.Errorf("rendered prompt = %q, want PR fields + forge cli", run.RenderedPrompt)
 	}
 	rparams := recorder.getParams()
 	if rparams["body"] != "pr-reviewed" || rparams["pr"] != "9" {
