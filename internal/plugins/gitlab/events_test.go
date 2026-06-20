@@ -354,3 +354,77 @@ func TestHandleWebhookNonMRNoteIgnored(t *testing.T) {
 		t.Fatalf("issue notes are out of scope, got %d events", len(events))
 	}
 }
+
+const pipelineFailedFixture = `{
+  "object_kind": "pipeline",
+  "user": {"username": "alice"},
+  "project": {"path_with_namespace": "org/repo"},
+  "object_attributes": {"id": 99, "ref": "feat/x", "sha": "deadbeef", "status": "failed"},
+  "merge_request": {"iid": 42, "title": "Add feature", "source_branch": "feat/x", "target_branch": "main"}
+}`
+
+func TestHandlePipelineWebhook_FailedEmits(t *testing.T) {
+	g := webhookPlugin(t, "s3cret")
+	evs, err := g.HandleWebhook(context.Background(), webhookReq(pipelineFailedFixture, "s3cret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 1 {
+		t.Fatalf("got %d events, want 1", len(evs))
+	}
+	ev := evs[0]
+	if ev.SourcePlugin != "gitlab" || ev.EventType != "pipeline_failed" {
+		t.Errorf("envelope = %s/%s", ev.SourcePlugin, ev.EventType)
+	}
+	if ev.PayloadNorm["source_branch"] != "feat/x" {
+		t.Errorf("source_branch = %v", ev.PayloadNorm["source_branch"])
+	}
+	if ev.PayloadNorm["mr_iid"] != 42 {
+		t.Errorf("mr_iid = %v, want 42", ev.PayloadNorm["mr_iid"])
+	}
+	if ev.DedupKey != "pipeline:org/repo:99" {
+		t.Errorf("dedup = %q", ev.DedupKey)
+	}
+}
+
+func TestHandlePipelineWebhook_NonFailedDropped(t *testing.T) {
+	g := webhookPlugin(t, "s3cret")
+	body := strings.Replace(pipelineFailedFixture, `"status": "failed"`, `"status": "success"`, 1)
+	evs, err := g.HandleWebhook(context.Background(), webhookReq(body, "s3cret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 0 {
+		t.Fatalf("non-failed pipeline must emit 0 events, got %d", len(evs))
+	}
+}
+
+const mrUnmergeableFixture = `{
+  "object_kind": "merge_request",
+  "user": {"username": "huginn"},
+  "project": {"path_with_namespace": "org/repo"},
+  "object_attributes": {
+    "iid": 7, "title": "WIP", "action": "update",
+    "source_branch": "huginn/7-fix", "target_branch": "main",
+    "url": "https://gitlab.example.com/org/repo/-/merge_requests/7",
+    "merge_status": "cannot_be_merged",
+    "last_commit": {"id": "c0ffee"}
+  }
+}`
+
+func TestHandleWebhook_MergeStatusSurfaced(t *testing.T) {
+	g := webhookPlugin(t, "s3cret")
+	evs, err := g.HandleWebhook(context.Background(), webhookReq(mrUnmergeableFixture, "s3cret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 1 {
+		t.Fatalf("got %d events, want 1", len(evs))
+	}
+	if evs[0].EventType != "mr_updated" {
+		t.Errorf("event type = %q, want mr_updated", evs[0].EventType)
+	}
+	if got := evs[0].PayloadNorm["merge_status"]; got != "cannot_be_merged" {
+		t.Errorf("merge_status = %v, want cannot_be_merged", got)
+	}
+}

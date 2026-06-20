@@ -851,6 +851,53 @@ func runSchedulerLoop(ctx context.Context, pool *pgxpool.Pool, inv *run.Invoker)
 	return nil
 }
 
+// runContinuousLoops launches one goroutine per enabled continuous-trigger
+// assignment. Each re-runs its assignment forever, waiting Trigger.Delay
+// between the end of one run and the start of the next (so long runs never
+// overlap). Unlike the cron scheduler this never returns a fatal error — a bad
+// assignment is logged and skipped.
+func runContinuousLoops(ctx context.Context, pool *pgxpool.Pool, inv *run.Invoker) {
+	assignments, err := repo.NewAssignmentRepo(pool).List(ctx)
+	if err != nil {
+		slog.Error("continuous: list assignments", "error", err)
+		return
+	}
+	for _, a := range assignments {
+		if !a.Enabled || a.Trigger.Kind != "continuous" {
+			continue
+		}
+		var delay time.Duration
+		if a.Trigger.Delay != "" {
+			delay, _ = time.ParseDuration(a.Trigger.Delay) // validated at config load
+		}
+		id := a.ID
+		slog.Info("continuous assignment running", "assignment_id", id, "delay", delay)
+		go trigger.RunContinuous(ctx, delay, func(runCtx context.Context) {
+			// A panic in one run must not kill the loop (issue #8).
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("continuous: panic in assignment", "assignment_id", id, "panic", r)
+				}
+			}()
+			start := time.Now()
+			result, err := inv.Invoke(runCtx, id, "continuous", nil, map[string]any{})
+			if err != nil {
+				slog.Error("continuous: run errored", "assignment_id", id, "error", err, "duration", time.Since(start))
+				return
+			}
+			attrs := []any{"run_id", result.ID, "assignment_id", id, "status", result.Status, "trigger_kind", "continuous", "duration", time.Since(start)}
+			if result.LLMResult != nil {
+				attrs = append(attrs, "tokens", result.LLMResult.Tokens, "cost", result.LLMResult.Cost)
+			}
+			if result.Error != nil {
+				slog.Error("continuous: run completed with error", append(attrs, "error", *result.Error)...)
+			} else {
+				slog.Info("continuous: run completed", attrs...)
+			}
+		})
+	}
+}
+
 // serveCmd returns the "serve" daemon: webhooks, polling, dispatcher, cron.
 func serveCmd() *cobra.Command {
 	return &cobra.Command{
@@ -1013,6 +1060,8 @@ func serveCmd() *cobra.Command {
 					fmt.Fprintf(os.Stderr, "serve: scheduler: %v\n", err)
 				}
 			}()
+
+			go runContinuousLoops(ctx, pool, inv)
 
 			<-ctx.Done()
 			fmt.Println("shutting down...")

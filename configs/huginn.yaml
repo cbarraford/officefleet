@@ -6,9 +6,12 @@
 # for the per-skill mapping, source refs, and capability gaps.
 #
 # Gaps vs the real huginn (recorded, not silently lost):
-#   - GitLab plugin emits only MR + MR-note events (no issue/pipeline/push
-#     webhooks) -> issue-implement, issue-batch-implement, ci-fix, code-rebase,
-#     code-audit run on cron/manual instead of event-driven.
+#   - GitLab plugin has no issue/push webhooks -> issue-implement and
+#     issue-batch-implement run on cron (the cron interval IS the throughput
+#     knob). Everything else is now event/loop-driven: ci-fix on pipeline_failed,
+#     code-rebase on an MR reaching merge_status=cannot_be_merged, code-review on
+#     mr_opened + mr_updated, and code-audit as a continuous loop with a delay.
+#     (Requires "Pipeline events" enabled on the project webhook for ci-fix.)
 #   - No cross-run state -> CI fix attempt caps and feedback-learning are
 #     approximated in-prompt (count prior bot comments) or dropped.
 #   - verify_findings + challenge_findings are folded into the code-review prompt
@@ -214,6 +217,7 @@ skills:
     trigger_kinds:
       - manual
       - cron
+      - event-subscription   # woken by pipeline_failed; prompt still self-discovers the failed MR
     required_tools:
       - git
       - glab
@@ -293,6 +297,7 @@ skills:
     trigger_kinds:
       - manual
       - cron
+      - event-subscription   # woken when an MR reaches merge_status=cannot_be_merged
     required_tools:
       - git
       - glab
@@ -547,7 +552,7 @@ skills:
     description: Audit the codebase for one category of defects; file an issue per verified finding.
     trigger_kinds:
       - manual
-      - cron
+      - continuous   # runs as a loop with a delay between passes (see the assignment)
     required_tools:
       - git
       - glab
@@ -649,36 +654,55 @@ assignments:
 
   - agent: huginn
     skill: ci-fix
+    name: on-pipeline-fail
     enabled: true
     trigger:
-      kind: cron
-      schedule: "*/15 * * * *"
+      kind: event-subscription
+      filter:
+        source: gitlab
+        event_type: pipeline_failed
+        project: "myorg/myrepo"
     config:
       project: "myorg/myrepo"
       base_branch: "main"
       max_ci_fix_attempts: 5
       regression_command: ""
+    # Fires on ANY failed pipeline in the project; the prompt skips non-bot MRs
+    # (a cheap skip-run is the price of having no bot-author filter at dispatch).
+    # Needs "Pipeline events" enabled on the GitLab project webhook.
     # Posts its own "ci-fix attempt" comment + pushes via glab in-prompt.
 
   - agent: huginn
     skill: code-rebase
+    name: on-cannot-merge
     enabled: true
     trigger:
-      kind: cron
-      schedule: "*/20 * * * *"
+      kind: event-subscription
+      filter:
+        source: gitlab
+        event_type: mr_updated
+        project: "myorg/myrepo"
+        merge_status: cannot_be_merged   # only when GitLab marks the MR unmergeable
     config:
       project: "myorg/myrepo"
       base_branch: "main"
+    # The prompt still confirms the MR is bot-authored before rebasing. Without
+    # webhooks, the MR poller also emits mr_updated (with merge_status), so this
+    # works in poll mode too.
 
   - agent: huginn
     skill: code-audit
+    name: security-loop
     enabled: true
     trigger:
-      kind: cron
-      schedule: "0 6 * * 1"      # Mondays 06:00; duplicate per category for coverage
+      kind: continuous
+      delay: 6h      # wait 6h after each pass finishes, then audit again (loop)
     config:
       project: "myorg/myrepo"
       category: "general-security"
+    # Loops one category forever; re-runs are idempotent (the prompt dedups
+    # against open huginn-code-audit issues). Duplicate with a distinct name +
+    # category to loop additional categories concurrently.
     outputs:
       - plugin: gitlab
         action: create_issue
@@ -699,6 +723,42 @@ assignments:
       filter:
         source: gitlab
         event_type: mr_opened
+        project: "myorg/myrepo"
+    config:
+      project: "myorg/myrepo"
+      review_label: ""
+      min_confidence: 0.5
+      path_instructions: ""
+    outputs:
+      - plugin: gitlab
+        action: post_inline_comment
+        for_each: comments
+        params:
+          project: "{{.Assignment.project}}"
+          mr_iid: "{{.Event.mr_iid}}"
+          path: "{{.Item.path}}"
+          line: "{{.Item.line}}"
+          body: "**{{.Item.severity}}/{{.Item.category}}** — {{.Item.body}}"
+      - plugin: gitlab
+        action: post_mr_comment
+        params:
+          project: "{{.Assignment.project}}"
+          mr_iid: "{{.Event.mr_iid}}"
+          body: "{{.Event.llm_summary}}"
+
+  # Re-review when new commits are pushed. mr_updated also fires on label/title
+  # edits, but the event dedup key is the MR head SHA — a same-SHA update
+  # collapses against the already-seen event, so this effectively re-runs only
+  # when the commits actually change.
+  - agent: huginn
+    skill: code-review
+    name: on-update
+    enabled: true
+    trigger:
+      kind: event-subscription
+      filter:
+        source: gitlab
+        event_type: mr_updated
         project: "myorg/myrepo"
     config:
       project: "myorg/myrepo"

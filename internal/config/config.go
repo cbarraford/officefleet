@@ -400,6 +400,19 @@ func Validate(cfg *Config) []error {
 				}
 			}
 		}
+		if a.Trigger.Kind == "continuous" {
+			// A malformed delay must fail here: runContinuousLoops parses it with
+			// the error ignored, so a parse failure would silently become a
+			// zero-delay (back-to-back) loop of paid runs.
+			if a.Trigger.Delay != "" {
+				if _, err := time.ParseDuration(a.Trigger.Delay); err != nil {
+					errs = append(errs, fmt.Errorf("assignment[%d]: continuous trigger has invalid delay %q: %w", i, a.Trigger.Delay, err))
+				}
+			}
+			if skillOK && !slices.Contains(skillByName[a.Skill].TriggerKinds, "continuous") {
+				errs = append(errs, fmt.Errorf("assignment[%d]: skill %q trigger_kinds does not include continuous", i, a.Skill))
+			}
+		}
 		for _, out := range a.Outputs {
 			if err := out.ValidateForEach(); err != nil {
 				errs = append(errs, fmt.Errorf("assignment (%s, %s): %w", a.Agent, a.Skill, err))

@@ -52,7 +52,12 @@ type webhookMRPayload struct {
 		SourceBranch string `json:"source_branch"`
 		TargetBranch string `json:"target_branch"`
 		URL          string `json:"url"`
-		LastCommit   struct {
+		// merge_status is "cannot_be_merged" when the branch has conflicts with
+		// its target (GitLab's signal that a rebase is needed). It is deprecated
+		// in favour of detailed_merge_status but still populated; we surface both.
+		MergeStatus         string `json:"merge_status"`
+		DetailedMergeStatus string `json:"detailed_merge_status"`
+		LastCommit          struct {
 			ID string `json:"id"`
 		} `json:"last_commit"`
 	} `json:"object_attributes"`
@@ -112,10 +117,12 @@ func (g *GitLabPlugin) HandleWebhook(_ context.Context, r *http.Request) ([]doma
 		}
 		a := payload.ObjectAttributes
 		ev := normalizeMR(eventType, payload.Project.PathWithNamespace, a.IID, a.Title, a.Action,
-			a.SourceBranch, a.TargetBranch, a.LastCommit.ID, payload.User.Username, a.URL, body)
+			a.SourceBranch, a.TargetBranch, a.LastCommit.ID, payload.User.Username, a.URL, a.MergeStatus, body)
 		return []domain.Event{ev}, nil
 	case "note":
 		return g.handleNoteWebhook(body)
+	case "pipeline":
+		return g.handlePipelineWebhook(body)
 	default:
 		return nil, nil // not an event kind we ingest; acknowledged and ignored
 	}
@@ -158,7 +165,7 @@ func (g *GitLabPlugin) handleNoteWebhook(body []byte) ([]domain.Event, error) {
 
 // normalizeMR builds the shared envelope both ingestion surfaces emit.
 // The dedup key changes only when the MR head SHA changes.
-func normalizeMR(eventType, project string, iid int, title, action, sourceBranch, targetBranch, sha, author, mrURL string, raw []byte) domain.Event {
+func normalizeMR(eventType, project string, iid int, title, action, sourceBranch, targetBranch, sha, author, mrURL, mergeStatus string, raw []byte) domain.Event {
 	return domain.Event{
 		SourcePlugin: "gitlab",
 		EventType:    eventType,
@@ -173,10 +180,73 @@ func normalizeMR(eventType, project string, iid int, title, action, sourceBranch
 			"last_commit_sha": sha,
 			"author":          author,
 			"url":             mrURL,
+			// "cannot_be_merged" => code-rebase territory; filterable per assignment.
+			"merge_status": mergeStatus,
 		},
 		Identity: author,
 		DedupKey: fmt.Sprintf("mr:%s:%d:%s", project, iid, sha),
 	}
+}
+
+// webhookPipelinePayload is the subset of GitLab's Pipeline Hook we use. The
+// pipeline may be MR-attached (carrying the MR's branches) or a plain branch
+// pipeline (only ref).
+type webhookPipelinePayload struct {
+	User    struct{ Username string `json:"username"` } `json:"user"`
+	Project struct {
+		PathWithNamespace string `json:"path_with_namespace"`
+	} `json:"project"`
+	ObjectAttributes struct {
+		ID     int    `json:"id"`
+		Ref    string `json:"ref"`
+		SHA    string `json:"sha"`
+		Status string `json:"status"`
+	} `json:"object_attributes"`
+	MergeRequest struct {
+		IID          int    `json:"iid"`
+		Title        string `json:"title"`
+		SourceBranch string `json:"source_branch"`
+		TargetBranch string `json:"target_branch"`
+	} `json:"merge_request"`
+}
+
+// handlePipelineWebhook emits a pipeline_failed event ONLY for failed pipelines
+// (every other status is acknowledged and dropped, so ci-fix is not woken on
+// success/running). Requires "Pipeline events" enabled on the project webhook.
+func (g *GitLabPlugin) handlePipelineWebhook(body []byte) ([]domain.Event, error) {
+	var payload webhookPipelinePayload
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, fmt.Errorf("gitlab: parse pipeline webhook: %w", err)
+	}
+	a := payload.ObjectAttributes
+	if a.Status != "failed" {
+		return nil, nil
+	}
+	sourceBranch := payload.MergeRequest.SourceBranch
+	if sourceBranch == "" {
+		sourceBranch = a.Ref // branch pipeline: no MR, fall back to the ref
+	}
+	return []domain.Event{{
+		SourcePlugin: "gitlab",
+		EventType:    "pipeline_failed",
+		PayloadRaw:   json.RawMessage(body),
+		PayloadNorm: map[string]any{
+			"project":       payload.Project.PathWithNamespace,
+			"pipeline_id":   a.ID,
+			"ref":           a.Ref,
+			"sha":           a.SHA,
+			"status":        a.Status,
+			"source_branch": sourceBranch,
+			"target_branch": payload.MergeRequest.TargetBranch,
+			"mr_iid":        payload.MergeRequest.IID,
+			"mr_title":      payload.MergeRequest.Title,
+			"author":        payload.User.Username,
+		},
+		Identity: payload.User.Username,
+		// Dedup on pipeline id: GitLab may resend the failed hook; a retry is a
+		// new pipeline id, so a genuine re-failure re-triggers ci-fix.
+		DedupKey: fmt.Sprintf("pipeline:%s:%d", payload.Project.PathWithNamespace, a.ID),
+	}}, nil
 }
 
 type pollMR struct {
@@ -186,6 +256,7 @@ type pollMR struct {
 	SourceBranch string    `json:"source_branch"`
 	TargetBranch string    `json:"target_branch"`
 	WebURL       string    `json:"web_url"`
+	MergeStatus  string    `json:"merge_status"`
 	UpdatedAt    time.Time `json:"updated_at"`
 	Author       struct {
 		Username string `json:"username"`
@@ -221,7 +292,7 @@ func (g *GitLabPlugin) Poll(ctx context.Context, cursor string) ([]domain.Event,
 		for _, mr := range mrs {
 			raw, _ := json.Marshal(mr)
 			events = append(events, normalizeMR("mr_updated", project, mr.IID, mr.Title, "update",
-				mr.SourceBranch, mr.TargetBranch, mr.SHA, mr.Author.Username, mr.WebURL, raw))
+				mr.SourceBranch, mr.TargetBranch, mr.SHA, mr.Author.Username, mr.WebURL, mr.MergeStatus, raw))
 			if mr.UpdatedAt.After(maxUpdated) {
 				maxUpdated = mr.UpdatedAt
 			}

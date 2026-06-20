@@ -56,6 +56,7 @@ type Skill struct {
 type TriggerConfig struct {
 	Kind     string         `json:"kind"`
 	Schedule string         `json:"schedule,omitempty"` // cron expression
+	Delay    string         `json:"delay,omitempty"`    // continuous: gap after each run finishes (Go duration; empty = back-to-back)
 	Filter   map[string]any `json:"filter,omitempty"`
 }
 
