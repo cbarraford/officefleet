@@ -14,7 +14,7 @@ skills using only prompt + config — no new Go code in office-fleet.
 **Approach:** Each huginn AI prompt becomes one fleet skill in `configs/huginn.yaml`,
 bound to a single `huginn` agent. The agent does all git/glab work *inside the
 prompt* (clone, push, `glab mr create`, `glab ci retry`, merge) exactly like the
-existing `mr-review` skill clones the repo itself — so push/merge/retry need no
+existing `code-review` skill clones the repo itself — so push/merge/retry need no
 new output_actions. Output_actions are only for structured post-back
 (comments/issues/discussion replies). huginn's curated decision rules (priority
 sorting, capacity caps, CI infra-vs-code classification, review false-positive
@@ -46,15 +46,15 @@ notifications, webhook routing, health checks — are harness/plumbing, not skil
 | 1 | `issue-implement` | `claude_runner.py:1935` `implement` | cron, manual | webhook: issue assigned | clone→push→`glab mr create` |
 | 2 | `issue-batch-implement` | `claude_runner.py:2018` `batch_implement` | cron, manual | poll: `batch` label | one MR for N issues |
 | 3 | `ci-fix` | `claude_runner.py:2145` `fix_ci` | cron, manual | webhook: pipeline failed | retry / fix & push + comment |
-| 4 | `mr-rebase` | `claude_runner.py:2452` `rebase` | cron, manual | poll: conflicts/needs_rebase | force-with-lease push |
-| 5 | `mr-feedback` | `claude_runner.py:2308` `address_feedback` | event (mr_note), manual | webhook: MR note | fix & push + reply/resolve |
-| 6 | `mr-review` | `claude_runner.py:2485` `code_review` (+ `verify_findings:3440`, `challenge_findings:3511`) | event (mr_opened/updated), manual | poll: reviewer assigned | inline comments + verdict |
+| 4 | `code-rebase` | `claude_runner.py:2452` `rebase` | cron, manual | poll: conflicts/needs_rebase | force-with-lease push |
+| 5 | `code-feedback` | `claude_runner.py:2308` `address_feedback` | event (mr_note), manual | webhook: MR note | fix & push + reply/resolve |
+| 6 | `code-review` | `claude_runner.py:2485` `code_review` (+ `verify_findings:3440`, `challenge_findings:3511`) | event (mr_opened/updated), manual | poll: reviewer assigned | inline comments + verdict |
 | 7 | `review-finding-reply` | `claude_runner.py:3365` `finding_reply` | event (mr_note), manual | poll: author replied | reply + auto-resolve |
 | 8 | `code-audit` | `code_audit/agents/prompts/*.md` (14 categories) | cron, manual | CLI / cron | issue per finding |
 
 ### Folded / dropped (with reason)
 
-- **`verify_findings` + `challenge_findings`** → folded into `mr-review`'s
+- **`verify_findings` + `challenge_findings`** → folded into `code-review`'s
   *Self-verification (MANDATORY)* block (re-read file → confirm in new code →
   not handled elsewhere → devil's-advocate counter-evidence → senior-engineer
   test). huginn already runs this inline in `code_review`; the separate Python
@@ -92,15 +92,15 @@ not Go. Mapping of every curated rule:
 - Regression/fixture failures never hand-edited; use regen command — **prompt** + **config** `regression_command`.
 - Attempt cap (huginn: 5, persisted per-MR) — **approximated in prompt** by counting prior `"ci-fix attempt"` bot comments; cap is **config** `max_ci_fix_attempts`. *(see gap #2)*
 
-### mr-rebase
+### code-rebase
 - Fetch → rebase → resolve keeping both intents → `--force-with-lease`; abort+comment on failure — **prompt** (verbatim).
 
-### mr-feedback
+### code-feedback
 - Act only on feedback directed at the author; skip thanks/bot chatter; never reply to self — **prompt** (+ plugin drops the bot's own notes at ingest, `events.go:135`).
 - Minimal targeted change, no scope creep; reply formatting (backtick all identifiers, bold/bullets) — **prompt** (verbatim).
 - Resolve on full resolution — **output_action** `resolve_discussion`.
 
-### mr-review
+### code-review
 - Skip self-authored MRs; optional review label gate — **prompt** + **config** `review_label`.
 - False-positive DO-NOT-flag list, gap analysis (P0/P1 only), self-verification + devil's advocate — **prompt** (verbatim).
 - Severity `critical|major|minor|suggestion`, category `bug|security|performance|style|documentation`, confidence 0–1 — **prompt**.
@@ -135,7 +135,7 @@ not Go. Mapping of every curated rule:
    calibration, and explicit diff chunking are huginn Python orchestration with
    no prompt/config equivalent; the single self-verifying prompt is the
    substitute.
-4. **Routing overlap on `mr_note`.** Both `mr-feedback` (feedback on *our* MR)
+4. **Routing overlap on `mr_note`.** Both `code-feedback` (feedback on *our* MR)
    and `review-finding-reply` (author replying to *our finding* on *their* MR)
    trigger on `mr_note`. Each prompt self-gates ("only act if…"), but if both are
    assigned to the same agent/project a note fires both runs; one will skip.
@@ -170,7 +170,7 @@ wiring assignments and seeding — do these only when you actually want it runni
 ### Task 3: Seed + smoke test (needs Postgres)
 - [ ] `go run ./cmd/fleet --config configs/huginn.yaml seed --force`
 - [ ] `go run ./cmd/fleet skills list` → the 8 skills appear.
-- [ ] `go run ./cmd/fleet run --agent huginn --skill mr-review --fake` (dry run, no tokens).
+- [ ] `go run ./cmd/fleet run --agent huginn --skill code-review --fake` (dry run, no tokens).
 
 ---
 
