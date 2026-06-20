@@ -26,11 +26,11 @@ type AgentStore interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 }
 
-type DutyStore interface {
-	List(ctx context.Context) ([]*domain.Duty, error)
-	GetByID(ctx context.Context, id uuid.UUID) (*domain.Duty, error)
-	Insert(ctx context.Context, d *domain.Duty) error
-	Update(ctx context.Context, d *domain.Duty) error
+type SkillStore interface {
+	List(ctx context.Context) ([]*domain.Skill, error)
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.Skill, error)
+	Insert(ctx context.Context, d *domain.Skill) error
+	Update(ctx context.Context, d *domain.Skill) error
 	Delete(ctx context.Context, id uuid.UUID) error
 }
 
@@ -92,7 +92,7 @@ type AvatarService interface {
 // API carries the dependencies for every handler.
 type API struct {
 	agents        AgentStore
-	duties        DutyStore
+	skills        SkillStore
 	assignments   AssignmentStore
 	runs          RunStore
 	state         StateStore
@@ -116,7 +116,7 @@ type API struct {
 
 type Deps struct {
 	Agents        AgentStore
-	Duties        DutyStore
+	Skills        SkillStore
 	Assignments   AssignmentStore
 	Runs          RunStore
 	State         StateStore
@@ -135,7 +135,7 @@ type Deps struct {
 
 func New(d Deps) *API {
 	return &API{
-		agents: d.Agents, duties: d.Duties, assignments: d.Assignments,
+		agents: d.Agents, skills: d.Skills, assignments: d.Assignments,
 		runs: d.Runs, state: d.State, events: d.Events, secretsRepo: d.Secrets, users: d.Users,
 		sessions: d.Sessions, invoker: d.Invoker, encryptor: d.Encryptor,
 		isEncrypted: d.IsEncrypted, notify: d.Notify, cfg: d.Config,
@@ -172,11 +172,11 @@ func (a *API) authedMux() *http.ServeMux {
 	m.HandleFunc("POST /api/v1/agents/{id}/avatar/regenerate", a.handleRegenerateAvatar)
 	m.HandleFunc("PUT /api/v1/agents/{id}/avatar", a.handleUploadAvatar)
 
-	m.HandleFunc("GET /api/v1/duties", a.handleListDuties)
-	m.HandleFunc("POST /api/v1/duties", a.handleCreateDuty)
-	m.HandleFunc("GET /api/v1/duties/{id}", a.handleGetDuty)
-	m.HandleFunc("PATCH /api/v1/duties/{id}", a.handlePatchDuty)
-	m.HandleFunc("DELETE /api/v1/duties/{id}", a.handleDeleteDuty)
+	m.HandleFunc("GET /api/v1/skills", a.handleListSkills)
+	m.HandleFunc("POST /api/v1/skills", a.handleCreateSkill)
+	m.HandleFunc("GET /api/v1/skills/{id}", a.handleGetSkill)
+	m.HandleFunc("PATCH /api/v1/skills/{id}", a.handlePatchSkill)
+	m.HandleFunc("DELETE /api/v1/skills/{id}", a.handleDeleteSkill)
 
 	m.HandleFunc("GET /api/v1/assignments", a.handleListAssignments)
 	m.HandleFunc("POST /api/v1/assignments", a.handleCreateAssignment)

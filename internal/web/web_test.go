@@ -79,7 +79,7 @@ func TestRootServesIndex(t *testing.T) {
 }
 
 func TestSPAFallbackServesIndex(t *testing.T) {
-	for _, path := range []string{"/agents/123", "/duties", "/login", "/settings"} {
+	for _, path := range []string{"/agents/123", "/skills", "/login", "/settings"} {
 		rec := serveFS(t, builtFS(), http.MethodGet, path)
 		if rec.Code != http.StatusOK || !strings.Contains(body(t, rec), "spa-index") {
 			t.Errorf("GET %s = %d, want index fallback", path, rec.Code)

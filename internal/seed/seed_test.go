@@ -19,23 +19,23 @@ func (f *fakeAgentSeeder) UpsertByName(_ context.Context, a *domain.Agent) error
 }
 func (f *fakeAgentSeeder) List(_ context.Context) ([]*domain.Agent, error) { return f.existing, nil }
 
-type fakeDutySeeder struct {
-	existing []*domain.Duty
+type fakeSkillSeeder struct {
+	existing []*domain.Skill
 	upserts  int
 }
 
-func (f *fakeDutySeeder) UpsertByName(_ context.Context, d *domain.Duty) error {
+func (f *fakeSkillSeeder) UpsertByName(_ context.Context, d *domain.Skill) error {
 	f.upserts++
 	return nil
 }
-func (f *fakeDutySeeder) List(_ context.Context) ([]*domain.Duty, error) { return f.existing, nil }
+func (f *fakeSkillSeeder) List(_ context.Context) ([]*domain.Skill, error) { return f.existing, nil }
 
 type fakeAssignmentSeeder struct {
 	existing []*domain.Assignment
 	upserts  int
 }
 
-func (f *fakeAssignmentSeeder) UpsertByAgentAndDuty(_ context.Context, a *domain.Assignment) error {
+func (f *fakeAssignmentSeeder) UpsertByAgentAndSkill(_ context.Context, a *domain.Assignment) error {
 	f.upserts++
 	return nil
 }
@@ -46,13 +46,13 @@ func (f *fakeAssignmentSeeder) List(_ context.Context) ([]*domain.Assignment, er
 func seedCfg() *config.Config {
 	return &config.Config{
 		Agents:      []config.AgentConfig{{Name: "a1"}},
-		Duties:      []config.DutyConfig{{Name: "d1"}},
-		Assignments: []config.AssignmentConfig{{Agent: "a1", Duty: "d1"}},
+		Skills:      []config.SkillConfig{{Name: "d1"}},
+		Assignments: []config.AssignmentConfig{{Agent: "a1", Skill: "d1"}},
 	}
 }
 
 func TestSeed_EmptyDBSeeds(t *testing.T) {
-	ag, du, as := &fakeAgentSeeder{}, &fakeDutySeeder{}, &fakeAssignmentSeeder{}
+	ag, du, as := &fakeAgentSeeder{}, &fakeSkillSeeder{}, &fakeAssignmentSeeder{}
 	if err := FromConfig(context.Background(), seedCfg(), ag, du, as, false); err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestSeed_EmptyDBSeeds(t *testing.T) {
 
 func TestSeed_PopulatedDBSkips(t *testing.T) {
 	ag := &fakeAgentSeeder{existing: []*domain.Agent{{Name: "existing"}}}
-	du, as := &fakeDutySeeder{}, &fakeAssignmentSeeder{}
+	du, as := &fakeSkillSeeder{}, &fakeAssignmentSeeder{}
 	if err := FromConfig(context.Background(), seedCfg(), ag, du, as, false); err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestSeed_PopulatedDBSkips(t *testing.T) {
 
 func TestSeed_ForceOverwrites(t *testing.T) {
 	ag := &fakeAgentSeeder{existing: []*domain.Agent{{Name: "existing"}}}
-	du, as := &fakeDutySeeder{}, &fakeAssignmentSeeder{}
+	du, as := &fakeSkillSeeder{}, &fakeAssignmentSeeder{}
 	if err := FromConfig(context.Background(), seedCfg(), ag, du, as, true); err != nil {
 		t.Fatal(err)
 	}

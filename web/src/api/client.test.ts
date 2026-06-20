@@ -47,7 +47,7 @@ describe('api client', () => {
   it('throws ApiError with the server error envelope message', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(409, { error: 'duplicate' })))
 
-    const err = await api.post('/api/v1/duties', {}).then(
+    const err = await api.post('/api/v1/skills', {}).then(
       () => null,
       (e: unknown) => e,
     )

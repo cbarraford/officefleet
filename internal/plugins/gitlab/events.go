@@ -122,7 +122,7 @@ func (g *GitLabPlugin) HandleWebhook(_ context.Context, r *http.Request) ([]doma
 }
 
 // handleNoteWebhook ingests MR comments as mr_note events. Notes by the
-// configured bot_username are dropped here so the mr-feedback duty can never
+// configured bot_username are dropped here so the mr-feedback skill can never
 // be triggered by its own replies (reply-loop protection).
 func (g *GitLabPlugin) handleNoteWebhook(body []byte) ([]domain.Event, error) {
 	var payload webhookNotePayload

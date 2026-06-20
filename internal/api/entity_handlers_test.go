@@ -89,19 +89,19 @@ func (f *fakeAgentStore) Delete(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
-type fakeDutyStore struct {
+type fakeSkillStore struct {
 	mu   sync.Mutex
-	rows map[uuid.UUID]*domain.Duty
+	rows map[uuid.UUID]*domain.Skill
 }
 
-func newFakeDutyStore() *fakeDutyStore {
-	return &fakeDutyStore{rows: map[uuid.UUID]*domain.Duty{}}
+func newFakeSkillStore() *fakeSkillStore {
+	return &fakeSkillStore{rows: map[uuid.UUID]*domain.Skill{}}
 }
 
-func (f *fakeDutyStore) List(_ context.Context) ([]*domain.Duty, error) {
+func (f *fakeSkillStore) List(_ context.Context) ([]*domain.Skill, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	out := make([]*domain.Duty, 0, len(f.rows))
+	out := make([]*domain.Skill, 0, len(f.rows))
 	for _, d := range f.rows {
 		cp := *d
 		out = append(out, &cp)
@@ -109,18 +109,18 @@ func (f *fakeDutyStore) List(_ context.Context) ([]*domain.Duty, error) {
 	return out, nil
 }
 
-func (f *fakeDutyStore) GetByID(_ context.Context, id uuid.UUID) (*domain.Duty, error) {
+func (f *fakeSkillStore) GetByID(_ context.Context, id uuid.UUID) (*domain.Skill, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	d, ok := f.rows[id]
 	if !ok {
-		return nil, fmt.Errorf("duty %s not found", id)
+		return nil, fmt.Errorf("skill %s not found", id)
 	}
 	cp := *d
 	return &cp, nil
 }
 
-func (f *fakeDutyStore) Insert(_ context.Context, d *domain.Duty) error {
+func (f *fakeSkillStore) Insert(_ context.Context, d *domain.Skill) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if d.ID == uuid.Nil {
@@ -131,22 +131,22 @@ func (f *fakeDutyStore) Insert(_ context.Context, d *domain.Duty) error {
 	return nil
 }
 
-func (f *fakeDutyStore) Update(_ context.Context, d *domain.Duty) error {
+func (f *fakeSkillStore) Update(_ context.Context, d *domain.Skill) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if _, ok := f.rows[d.ID]; !ok {
-		return fmt.Errorf("duty %s not found", d.ID)
+		return fmt.Errorf("skill %s not found", d.ID)
 	}
 	cp := *d
 	f.rows[d.ID] = &cp
 	return nil
 }
 
-func (f *fakeDutyStore) Delete(_ context.Context, id uuid.UUID) error {
+func (f *fakeSkillStore) Delete(_ context.Context, id uuid.UUID) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if _, ok := f.rows[id]; !ok {
-		return fmt.Errorf("duty %s not found", id)
+		return fmt.Errorf("skill %s not found", id)
 	}
 	delete(f.rows, id)
 	return nil
@@ -186,9 +186,9 @@ func (f *fakeAssignmentStore) GetByID(_ context.Context, id uuid.UUID) (*domain.
 func (f *fakeAssignmentStore) Insert(_ context.Context, a *domain.Assignment) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	// Simulate unique (agent_id, duty_id) violation
+	// Simulate unique (agent_id, skill_id) violation
 	for _, existing := range f.rows {
-		if existing.AgentID == a.AgentID && existing.DutyID == a.DutyID {
+		if existing.AgentID == a.AgentID && existing.SkillID == a.SkillID {
 			return fmt.Errorf("duplicate: 23505 unique constraint violation")
 		}
 	}
@@ -245,7 +245,7 @@ func (f *fakeRunStoreEntity) AgentStats(_ context.Context, id uuid.UUID) (*domai
 type entityFixture struct {
 	api    *API
 	agents *fakeAgentStore
-	duties *fakeDutyStore
+	skills *fakeSkillStore
 	asgns  *fakeAssignmentStore
 	runs   *fakeRunStoreEntity
 	state  *fakeStateStore
@@ -263,7 +263,7 @@ func (f *fakeStateStore) List(_ context.Context, assignmentID string) (map[strin
 func newEntityFixture(t *testing.T) *entityFixture {
 	t.Helper()
 	agents := newFakeAgentStore()
-	duties := newFakeDutyStore()
+	skills := newFakeSkillStore()
 	asgns := newFakeAssignmentStore()
 	runs := &fakeRunStoreEntity{}
 
@@ -284,7 +284,7 @@ func newEntityFixture(t *testing.T) *entityFixture {
 
 	a := New(Deps{
 		Agents:      agents,
-		Duties:      duties,
+		Skills:      skills,
 		Assignments: asgns,
 		Runs:        runs,
 		State:       stateStore,
@@ -300,7 +300,7 @@ func newEntityFixture(t *testing.T) *entityFixture {
 	return &entityFixture{
 		api:    a,
 		agents: agents,
-		duties: duties,
+		skills: skills,
 		asgns:  asgns,
 		runs:   runs,
 		state:  stateStore,
@@ -525,13 +525,13 @@ func TestAgentDelete_404After(t *testing.T) {
 	}
 }
 
-// --- Duty tests ---
+// --- Skill tests ---
 
-func TestDutyCreate_BadTriggerKind_400(t *testing.T) {
+func TestSkillCreate_BadTriggerKind_400(t *testing.T) {
 	f := newEntityFixture(t)
 
-	resp := f.do(t, "POST", "/api/v1/duties", map[string]any{
-		"name":          "ReviewDuty",
+	resp := f.do(t, "POST", "/api/v1/skills", map[string]any{
+		"name":          "ReviewSkill",
 		"trigger_kinds": []string{"manual", "foobar"},
 	})
 	if resp.StatusCode != http.StatusBadRequest {
@@ -544,15 +544,15 @@ func TestDutyCreate_BadTriggerKind_400(t *testing.T) {
 	}
 }
 
-func TestDutyCreate_ValidTriggerKinds_201(t *testing.T) {
+func TestSkillCreate_ValidTriggerKinds_201(t *testing.T) {
 	f := newEntityFixture(t)
 
-	resp := f.do(t, "POST", "/api/v1/duties", map[string]any{
+	resp := f.do(t, "POST", "/api/v1/skills", map[string]any{
 		"name":          "MRReview",
 		"trigger_kinds": []string{"manual", "event-subscription"},
 	})
 	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("valid duty create: status = %d, want 201", resp.StatusCode)
+		t.Fatalf("valid skill create: status = %d, want 201", resp.StatusCode)
 	}
 }
 
@@ -561,14 +561,14 @@ func TestDutyCreate_ValidTriggerKinds_201(t *testing.T) {
 func TestAssignment_EventSubscription_MissingSource_400(t *testing.T) {
 	f := newEntityFixture(t)
 
-	// Create the duty that supports event-subscription
-	dutyResp := f.do(t, "POST", "/api/v1/duties", map[string]any{
+	// Create the skill that supports event-subscription
+	skillResp := f.do(t, "POST", "/api/v1/skills", map[string]any{
 		"name":          "OnEvent",
 		"trigger_kinds": []string{"event-subscription"},
 	})
-	var duty map[string]any
-	decodeBody(t, dutyResp, &duty)
-	dutyID := duty["id"].(string)
+	var skill map[string]any
+	decodeBody(t, skillResp, &skill)
+	skillID := skill["id"].(string)
 
 	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentH"})
 	var agent map[string]any
@@ -578,7 +578,7 @@ func TestAssignment_EventSubscription_MissingSource_400(t *testing.T) {
 	// Missing source in filter
 	resp := f.do(t, "POST", "/api/v1/assignments", map[string]any{
 		"agent_id": agentID,
-		"duty_id":  dutyID,
+		"skill_id":  skillID,
 		"trigger": map[string]any{
 			"kind":   "event-subscription",
 			"filter": map[string]any{"event_type": "mr_opened"}, // source missing
@@ -589,47 +589,47 @@ func TestAssignment_EventSubscription_MissingSource_400(t *testing.T) {
 	}
 }
 
-func TestAssignment_DutyKindMismatch_400(t *testing.T) {
+func TestAssignment_SkillKindMismatch_400(t *testing.T) {
 	f := newEntityFixture(t)
 
-	// Duty only supports "manual"
-	dutyResp := f.do(t, "POST", "/api/v1/duties", map[string]any{
+	// Skill only supports "manual"
+	skillResp := f.do(t, "POST", "/api/v1/skills", map[string]any{
 		"name":          "ManualOnly",
 		"trigger_kinds": []string{"manual"},
 	})
-	var duty map[string]any
-	decodeBody(t, dutyResp, &duty)
-	dutyID := duty["id"].(string)
+	var skill map[string]any
+	decodeBody(t, skillResp, &skill)
+	skillID := skill["id"].(string)
 
 	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentI"})
 	var agent map[string]any
 	decodeBody(t, agentResp, &agent)
 	agentID := agent["id"].(string)
 
-	// Trigger kind "cron" not in duty's trigger_kinds
+	// Trigger kind "cron" not in skill's trigger_kinds
 	resp := f.do(t, "POST", "/api/v1/assignments", map[string]any{
 		"agent_id": agentID,
-		"duty_id":  dutyID,
+		"skill_id":  skillID,
 		"trigger": map[string]any{
 			"kind":     "cron",
 			"schedule": "0 * * * *",
 		},
 	})
 	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("duty kind mismatch: status = %d, want 400", resp.StatusCode)
+		t.Fatalf("skill kind mismatch: status = %d, want 400", resp.StatusCode)
 	}
 }
 
 func TestAssignment_Valid_201(t *testing.T) {
 	f := newEntityFixture(t)
 
-	dutyResp := f.do(t, "POST", "/api/v1/duties", map[string]any{
-		"name":          "CronDuty",
+	skillResp := f.do(t, "POST", "/api/v1/skills", map[string]any{
+		"name":          "CronSkill",
 		"trigger_kinds": []string{"cron"},
 	})
-	var duty map[string]any
-	decodeBody(t, dutyResp, &duty)
-	dutyID := duty["id"].(string)
+	var skill map[string]any
+	decodeBody(t, skillResp, &skill)
+	skillID := skill["id"].(string)
 
 	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentJ"})
 	var agent map[string]any
@@ -638,7 +638,7 @@ func TestAssignment_Valid_201(t *testing.T) {
 
 	resp := f.do(t, "POST", "/api/v1/assignments", map[string]any{
 		"agent_id": agentID,
-		"duty_id":  dutyID,
+		"skill_id":  skillID,
 		"trigger": map[string]any{
 			"kind":     "cron",
 			"schedule": "0 * * * *",
@@ -657,13 +657,13 @@ func TestAssignment_Valid_201(t *testing.T) {
 func TestAssignment_EventSubscription_Valid_201(t *testing.T) {
 	f := newEntityFixture(t)
 
-	dutyResp := f.do(t, "POST", "/api/v1/duties", map[string]any{
-		"name":          "EventDuty",
+	skillResp := f.do(t, "POST", "/api/v1/skills", map[string]any{
+		"name":          "EventSkill",
 		"trigger_kinds": []string{"event-subscription"},
 	})
-	var duty map[string]any
-	decodeBody(t, dutyResp, &duty)
-	dutyID := duty["id"].(string)
+	var skill map[string]any
+	decodeBody(t, skillResp, &skill)
+	skillID := skill["id"].(string)
 
 	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentK"})
 	var agent map[string]any
@@ -672,7 +672,7 @@ func TestAssignment_EventSubscription_Valid_201(t *testing.T) {
 
 	resp := f.do(t, "POST", "/api/v1/assignments", map[string]any{
 		"agent_id": agentID,
-		"duty_id":  dutyID,
+		"skill_id":  skillID,
 		"trigger": map[string]any{
 			"kind": "event-subscription",
 			"filter": map[string]any{
@@ -687,17 +687,17 @@ func TestAssignment_EventSubscription_Valid_201(t *testing.T) {
 }
 
 // TestAssignment_Duplicate_409 verifies that creating the same (agent_id,
-// duty_id) pair twice returns 409 Conflict.
+// skill_id) pair twice returns 409 Conflict.
 func TestAssignment_InvalidForEach_400(t *testing.T) {
 	f := newEntityFixture(t)
 
-	dutyResp := f.do(t, "POST", "/api/v1/duties", map[string]any{
-		"name":          "ForEachDutyBad",
+	skillResp := f.do(t, "POST", "/api/v1/skills", map[string]any{
+		"name":          "ForEachSkillBad",
 		"trigger_kinds": []string{"cron"},
 	})
-	var duty map[string]any
-	decodeBody(t, dutyResp, &duty)
-	dutyID := duty["id"].(string)
+	var skill map[string]any
+	decodeBody(t, skillResp, &skill)
+	skillID := skill["id"].(string)
 
 	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentForEachBad"})
 	var agent map[string]any
@@ -707,7 +707,7 @@ func TestAssignment_InvalidForEach_400(t *testing.T) {
 	for _, bad := range []string{"{{.Event.x}}", "issues[0]", "a b"} {
 		resp := f.do(t, "POST", "/api/v1/assignments", map[string]any{
 			"agent_id": agentID,
-			"duty_id":  dutyID,
+			"skill_id":  skillID,
 			"trigger":  map[string]any{"kind": "cron", "schedule": "0 * * * *"},
 			"outputs": []map[string]any{
 				{"plugin": "gitlab", "action": "create_issue", "for_each": bad},
@@ -722,13 +722,13 @@ func TestAssignment_InvalidForEach_400(t *testing.T) {
 func TestAssignment_ValidForEach_201(t *testing.T) {
 	f := newEntityFixture(t)
 
-	dutyResp := f.do(t, "POST", "/api/v1/duties", map[string]any{
-		"name":          "ForEachDutyOK",
+	skillResp := f.do(t, "POST", "/api/v1/skills", map[string]any{
+		"name":          "ForEachSkillOK",
 		"trigger_kinds": []string{"cron"},
 	})
-	var duty map[string]any
-	decodeBody(t, dutyResp, &duty)
-	dutyID := duty["id"].(string)
+	var skill map[string]any
+	decodeBody(t, skillResp, &skill)
+	skillID := skill["id"].(string)
 
 	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentForEachOK"})
 	var agent map[string]any
@@ -737,7 +737,7 @@ func TestAssignment_ValidForEach_201(t *testing.T) {
 
 	resp := f.do(t, "POST", "/api/v1/assignments", map[string]any{
 		"agent_id": agentID,
-		"duty_id":  dutyID,
+		"skill_id":  skillID,
 		"trigger":  map[string]any{"kind": "cron", "schedule": "0 * * * *"},
 		"outputs": []map[string]any{
 			{"plugin": "gitlab", "action": "create_issue", "for_each": "issues"},
@@ -751,13 +751,13 @@ func TestAssignment_ValidForEach_201(t *testing.T) {
 func TestAssignment_Duplicate_409(t *testing.T) {
 	f := newEntityFixture(t)
 
-	dutyResp := f.do(t, "POST", "/api/v1/duties", map[string]any{
-		"name":          "DupDuty",
+	skillResp := f.do(t, "POST", "/api/v1/skills", map[string]any{
+		"name":          "DupSkill",
 		"trigger_kinds": []string{"manual"},
 	})
-	var duty map[string]any
-	decodeBody(t, dutyResp, &duty)
-	dutyID := duty["id"].(string)
+	var skill map[string]any
+	decodeBody(t, skillResp, &skill)
+	skillID := skill["id"].(string)
 
 	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentDup"})
 	var agent map[string]any
@@ -766,7 +766,7 @@ func TestAssignment_Duplicate_409(t *testing.T) {
 
 	body := map[string]any{
 		"agent_id": agentID,
-		"duty_id":  dutyID,
+		"skill_id":  skillID,
 	}
 	first := f.do(t, "POST", "/api/v1/assignments", body)
 	if first.StatusCode != http.StatusCreated {
@@ -779,26 +779,26 @@ func TestAssignment_Duplicate_409(t *testing.T) {
 	}
 }
 
-// TestAssignment_UnknownDutyID_400 verifies that a random duty_id returns 400.
-func TestAssignment_UnknownDutyID_400(t *testing.T) {
+// TestAssignment_UnknownSkillID_400 verifies that a random skill_id returns 400.
+func TestAssignment_UnknownSkillID_400(t *testing.T) {
 	f := newEntityFixture(t)
 
-	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentUnkDuty"})
+	agentResp := f.do(t, "POST", "/api/v1/agents", map[string]any{"name": "AgentUnkSkill"})
 	var agent map[string]any
 	decodeBody(t, agentResp, &agent)
 	agentID := agent["id"].(string)
 
 	resp := f.do(t, "POST", "/api/v1/assignments", map[string]any{
 		"agent_id": agentID,
-		"duty_id":  uuid.New().String(),
+		"skill_id":  uuid.New().String(),
 	})
 	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("unknown duty_id: status = %d, want 400", resp.StatusCode)
+		t.Fatalf("unknown skill_id: status = %d, want 400", resp.StatusCode)
 	}
 	var body map[string]any
 	decodeBody(t, resp, &body)
-	if !strings.Contains(body["error"].(string), "duty_id") {
-		t.Errorf("error should mention 'duty_id': %v", body["error"])
+	if !strings.Contains(body["error"].(string), "skill_id") {
+		t.Errorf("error should mention 'skill_id': %v", body["error"])
 	}
 }
 
@@ -806,17 +806,17 @@ func TestAssignment_UnknownDutyID_400(t *testing.T) {
 func TestAssignment_UnknownAgentID_400(t *testing.T) {
 	f := newEntityFixture(t)
 
-	dutyResp := f.do(t, "POST", "/api/v1/duties", map[string]any{
-		"name":          "UnkAgentDuty",
+	skillResp := f.do(t, "POST", "/api/v1/skills", map[string]any{
+		"name":          "UnkAgentSkill",
 		"trigger_kinds": []string{"manual"},
 	})
-	var duty map[string]any
-	decodeBody(t, dutyResp, &duty)
-	dutyID := duty["id"].(string)
+	var skill map[string]any
+	decodeBody(t, skillResp, &skill)
+	skillID := skill["id"].(string)
 
 	resp := f.do(t, "POST", "/api/v1/assignments", map[string]any{
 		"agent_id": uuid.New().String(),
-		"duty_id":  dutyID,
+		"skill_id":  skillID,
 	})
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("unknown agent_id: status = %d, want 400", resp.StatusCode)
@@ -828,14 +828,14 @@ func TestAssignment_UnknownAgentID_400(t *testing.T) {
 	}
 }
 
-// TestPatchDutyConfigSchemaSemantics verifies that explicit JSON null clears
+// TestPatchSkillConfigSchemaSemantics verifies that explicit JSON null clears
 // config_schema while an absent field leaves it untouched (PATCH semantics).
-func TestPatchDutyConfigSchemaSemantics(t *testing.T) {
+func TestPatchSkillConfigSchemaSemantics(t *testing.T) {
 	f := newEntityFixture(t)
 
-	// Create a duty with a non-empty config_schema.
-	createResp := f.do(t, "POST", "/api/v1/duties", map[string]any{
-		"name": "SchemaDuty",
+	// Create a skill with a non-empty config_schema.
+	createResp := f.do(t, "POST", "/api/v1/skills", map[string]any{
+		"name": "SchemaSkill",
 		"config_schema": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -844,14 +844,14 @@ func TestPatchDutyConfigSchemaSemantics(t *testing.T) {
 		},
 	})
 	if createResp.StatusCode != http.StatusCreated {
-		t.Fatalf("create duty: status = %d, want 201", createResp.StatusCode)
+		t.Fatalf("create skill: status = %d, want 201", createResp.StatusCode)
 	}
 	var created map[string]any
 	decodeBody(t, createResp, &created)
-	dutyID := created["id"].(string)
+	skillID := created["id"].(string)
 
 	// Sanity: GET confirms schema is set.
-	getResp := f.do(t, "GET", "/api/v1/duties/"+dutyID, nil)
+	getResp := f.do(t, "GET", "/api/v1/skills/"+skillID, nil)
 	var got map[string]any
 	decodeBody(t, getResp, &got)
 	if got["config_schema"] == nil {
@@ -860,7 +860,7 @@ func TestPatchDutyConfigSchemaSemantics(t *testing.T) {
 
 	// PATCH with "config_schema": null → should clear the schema.
 	// json.Marshal(nil interface{}) produces "null", which is what we want.
-	patchNullResp := f.do(t, "PATCH", "/api/v1/duties/"+dutyID, map[string]any{
+	patchNullResp := f.do(t, "PATCH", "/api/v1/skills/"+skillID, map[string]any{
 		"config_schema": nil,
 	})
 	if patchNullResp.StatusCode != http.StatusOK {
@@ -872,23 +872,23 @@ func TestPatchDutyConfigSchemaSemantics(t *testing.T) {
 		t.Errorf("after PATCH null: config_schema = %v, want nil/null", afterNull["config_schema"])
 	}
 
-	// Re-seed schema via POST (create a fresh duty).
-	create2Resp := f.do(t, "POST", "/api/v1/duties", map[string]any{
-		"name": "SchemaDuty2",
+	// Re-seed schema via POST (create a fresh skill).
+	create2Resp := f.do(t, "POST", "/api/v1/skills", map[string]any{
+		"name": "SchemaSkill2",
 		"config_schema": map[string]any{
 			"type": "object",
 		},
 	})
 	if create2Resp.StatusCode != http.StatusCreated {
-		t.Fatalf("create duty2: status = %d, want 201", create2Resp.StatusCode)
+		t.Fatalf("create skill2: status = %d, want 201", create2Resp.StatusCode)
 	}
 	var created2 map[string]any
 	decodeBody(t, create2Resp, &created2)
-	duty2ID := created2["id"].(string)
+	skill2ID := created2["id"].(string)
 
 	// PATCH with config_schema absent → schema must be preserved.
-	patchNameResp := f.do(t, "PATCH", "/api/v1/duties/"+duty2ID, map[string]any{
-		"name": "SchemaDuty2-renamed",
+	patchNameResp := f.do(t, "PATCH", "/api/v1/skills/"+skill2ID, map[string]any{
+		"name": "SchemaSkill2-renamed",
 	})
 	if patchNameResp.StatusCode != http.StatusOK {
 		t.Fatalf("patch name only: status = %d, want 200", patchNameResp.StatusCode)

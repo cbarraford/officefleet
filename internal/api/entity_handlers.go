@@ -196,11 +196,11 @@ func (a *API) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
-// --- Duties ---
+// --- Skills ---
 
 var validTriggerKinds = []string{"manual", "cron", "event-subscription", "continuous"}
 
-type dutyBody struct {
+type skillBody struct {
 	Name          *string                   `json:"name"`
 	Role          *string                   `json:"role"`
 	Description   *string                   `json:"description"`
@@ -212,18 +212,18 @@ type dutyBody struct {
 	Backend       *domain.BackendRef        `json:"backend"`
 }
 
-func (a *API) applyDutyBody(b *dutyBody, duty *domain.Duty) error {
+func (a *API) applySkillBody(b *skillBody, skill *domain.Skill) error {
 	if b.Name != nil {
 		if strings.TrimSpace(*b.Name) == "" {
 			return errValidation("name must not be empty")
 		}
-		duty.Name = *b.Name
+		skill.Name = *b.Name
 	}
 	if b.Role != nil {
-		duty.Role = *b.Role
+		skill.Role = *b.Role
 	}
 	if b.Description != nil {
-		duty.Description = *b.Description
+		skill.Description = *b.Description
 	}
 	if b.TriggerKinds != nil {
 		for _, k := range b.TriggerKinds {
@@ -231,124 +231,124 @@ func (a *API) applyDutyBody(b *dutyBody, duty *domain.Duty) error {
 				return errValidation("invalid trigger_kind " + k + "; must be one of manual, cron, event-subscription, continuous")
 			}
 		}
-		duty.TriggerKinds = b.TriggerKinds
+		skill.TriggerKinds = b.TriggerKinds
 	}
 	if b.Prompt != nil {
-		duty.Prompt = *b.Prompt
+		skill.Prompt = *b.Prompt
 	}
 	if b.RequiredTools != nil {
-		duty.RequiredTools = b.RequiredTools
+		skill.RequiredTools = b.RequiredTools
 	}
 	if b.OutputActions != nil {
-		duty.OutputActions = b.OutputActions
+		skill.OutputActions = b.OutputActions
 	}
 	if len(b.ConfigSchema) > 0 {
 		if string(b.ConfigSchema) == "null" {
-			duty.ConfigSchema = nil
+			skill.ConfigSchema = nil
 		} else {
 			var m map[string]any
 			if err := json.Unmarshal(b.ConfigSchema, &m); err != nil {
 				return errValidation("config_schema must be a JSON object")
 			}
-			duty.ConfigSchema = m
+			skill.ConfigSchema = m
 		}
 	}
 	if b.Backend != nil {
 		if !a.backendNameExists(b.Backend) {
 			return errValidation("unknown backend " + b.Backend.Name)
 		}
-		duty.Backend = b.Backend
+		skill.Backend = b.Backend
 	}
 	return nil
 }
 
-func (a *API) handleListDuties(w http.ResponseWriter, r *http.Request) {
-	duties, err := a.duties.List(r.Context())
+func (a *API) handleListSkills(w http.ResponseWriter, r *http.Request) {
+	skills, err := a.skills.List(r.Context())
 	if err != nil {
-		a.logf("api: list duties: %v", err)
+		a.logf("api: list skills: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	writeJSON(w, http.StatusOK, duties)
+	writeJSON(w, http.StatusOK, skills)
 }
 
-func (a *API) handleCreateDuty(w http.ResponseWriter, r *http.Request) {
-	var body dutyBody
+func (a *API) handleCreateSkill(w http.ResponseWriter, r *http.Request) {
+	var body skillBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	duty := &domain.Duty{}
-	if err := a.applyDutyBody(&body, duty); err != nil {
+	skill := &domain.Skill{}
+	if err := a.applySkillBody(&body, skill); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if duty.Name == "" {
+	if skill.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if err := a.duties.Insert(r.Context(), duty); err != nil {
+	if err := a.skills.Insert(r.Context(), skill); err != nil {
 		if isUniqueViolation(err) {
-			writeError(w, http.StatusConflict, "a duty with that name already exists")
+			writeError(w, http.StatusConflict, "a skill with that name already exists")
 			return
 		}
-		a.logf("api: create duty: %v", err)
+		a.logf("api: create skill: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	writeJSON(w, http.StatusCreated, duty)
+	writeJSON(w, http.StatusCreated, skill)
 }
 
-func (a *API) handleGetDuty(w http.ResponseWriter, r *http.Request) {
+func (a *API) handleGetSkill(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDParam(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	duty, err := a.duties.GetByID(r.Context(), id)
+	skill, err := a.skills.GetByID(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "duty not found")
+		writeError(w, http.StatusNotFound, "skill not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, duty)
+	writeJSON(w, http.StatusOK, skill)
 }
 
-func (a *API) handlePatchDuty(w http.ResponseWriter, r *http.Request) {
+func (a *API) handlePatchSkill(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDParam(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	duty, err := a.duties.GetByID(r.Context(), id)
+	skill, err := a.skills.GetByID(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "duty not found")
+		writeError(w, http.StatusNotFound, "skill not found")
 		return
 	}
-	var body dutyBody
+	var body skillBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if err := a.applyDutyBody(&body, duty); err != nil {
+	if err := a.applySkillBody(&body, skill); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := a.duties.Update(r.Context(), duty); err != nil {
-		a.logf("api: update duty: %v", err)
+	if err := a.skills.Update(r.Context(), skill); err != nil {
+		a.logf("api: update skill: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	writeJSON(w, http.StatusOK, duty)
+	writeJSON(w, http.StatusOK, skill)
 }
 
-func (a *API) handleDeleteDuty(w http.ResponseWriter, r *http.Request) {
+func (a *API) handleDeleteSkill(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDParam(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	if err := a.duties.Delete(r.Context(), id); err != nil {
-		writeError(w, http.StatusNotFound, "duty not found")
+	if err := a.skills.Delete(r.Context(), id); err != nil {
+		writeError(w, http.StatusNotFound, "skill not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
@@ -358,7 +358,7 @@ func (a *API) handleDeleteDuty(w http.ResponseWriter, r *http.Request) {
 
 type assignmentBody struct {
 	AgentID            *uuid.UUID             `json:"agent_id"`
-	DutyID             *uuid.UUID             `json:"duty_id"`
+	SkillID             *uuid.UUID             `json:"skill_id"`
 	Name               *string                `json:"name"`
 	Enabled            *bool                  `json:"enabled"`
 	Trigger            *domain.TriggerConfig  `json:"trigger"`
@@ -380,9 +380,9 @@ func (a *API) validateAssignment(ctx context.Context, asg *domain.Assignment) er
 		}
 	}
 	if asg.Trigger.Kind != "" {
-		duty, err := a.duties.GetByID(ctx, asg.DutyID)
-		if err == nil && len(duty.TriggerKinds) > 0 && !slices.Contains(duty.TriggerKinds, asg.Trigger.Kind) {
-			return errValidation("duty does not support trigger kind " + asg.Trigger.Kind)
+		skill, err := a.skills.GetByID(ctx, asg.SkillID)
+		if err == nil && len(skill.TriggerKinds) > 0 && !slices.Contains(skill.TriggerKinds, asg.Trigger.Kind) {
+			return errValidation("skill does not support trigger kind " + asg.Trigger.Kind)
 		}
 	}
 	if !a.backendNameExists(asg.Backend) {
@@ -401,8 +401,8 @@ func applyAssignmentBody(b *assignmentBody, asg *domain.Assignment, isCreate boo
 		if b.AgentID != nil {
 			asg.AgentID = *b.AgentID
 		}
-		if b.DutyID != nil {
-			asg.DutyID = *b.DutyID
+		if b.SkillID != nil {
+			asg.SkillID = *b.SkillID
 		}
 	}
 	if b.Name != nil {
@@ -453,16 +453,16 @@ func (a *API) handleCreateAssignment(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "agent_id is required")
 		return
 	}
-	if asg.DutyID == uuid.Nil {
-		writeError(w, http.StatusBadRequest, "duty_id is required")
+	if asg.SkillID == uuid.Nil {
+		writeError(w, http.StatusBadRequest, "skill_id is required")
 		return
 	}
 	if err := a.validateAssignment(r.Context(), asg); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if _, err := a.duties.GetByID(r.Context(), asg.DutyID); err != nil {
-		writeError(w, http.StatusBadRequest, "unknown duty_id")
+	if _, err := a.skills.GetByID(r.Context(), asg.SkillID); err != nil {
+		writeError(w, http.StatusBadRequest, "unknown skill_id")
 		return
 	}
 	if _, err := a.agents.GetByID(r.Context(), asg.AgentID); err != nil {
@@ -471,7 +471,7 @@ func (a *API) handleCreateAssignment(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := a.assignments.Insert(r.Context(), asg); err != nil {
 		if isUniqueViolation(err) {
-			writeError(w, http.StatusConflict, "an assignment for that agent and duty already exists")
+			writeError(w, http.StatusConflict, "an assignment for that agent and skill already exists")
 			return
 		}
 		a.logf("api: create assignment: %v", err)

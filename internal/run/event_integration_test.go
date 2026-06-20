@@ -61,7 +61,7 @@ func TestEventVertical_WebhookToRun(t *testing.T) {
 
 	// --- pipeline + invoker with fakes ---
 	backendName := "sp3-backend"
-	agentID, dutyID, assignmentID := uuid.New(), uuid.New(), uuid.New()
+	agentID, skillID, assignmentID := uuid.New(), uuid.New(), uuid.New()
 	cfg := &config.Config{Backends: []config.Backend{{
 		Name: backendName, Kind: "claude", Model: "m",
 		DefaultEffort: "normal", Auth: config.BackendAuth{Mode: "subscription"},
@@ -72,7 +72,7 @@ func TestEventVertical_WebhookToRun(t *testing.T) {
 	fakeExec := executor.NewFakeExecutor(domain.LLMResult{Status: 0, Summary: "auto-reviewed"})
 
 	assignment := &domain.Assignment{
-		ID: assignmentID, AgentID: agentID, DutyID: dutyID, Enabled: true,
+		ID: assignmentID, AgentID: agentID, SkillID: skillID, Enabled: true,
 		Backend: &domain.BackendRef{Name: backendName},
 		Config:  map[string]any{},
 		Trigger: domain.TriggerConfig{Kind: "event-subscription", Filter: map[string]any{
@@ -90,8 +90,8 @@ func TestEventVertical_WebhookToRun(t *testing.T) {
 			ID: agentID, Name: "sp3-agent", Role: "dev", SystemPrompt: "reviewer",
 			DefaultBackend: domain.BackendRef{Name: backendName}, Enabled: true,
 		}}},
-		duties: &fakeDutyLister{duties: []*domain.Duty{{
-			ID: dutyID, Name: "sp3-duty", Role: "dev", Description: "d",
+		skills: &fakeSkillLister{skills: []*domain.Skill{{
+			ID: skillID, Name: "sp3-skill", Role: "dev", Description: "d",
 			Prompt: "Review MR !{{.Event.mr_iid}} by {{.Event.author}}",
 		}}},
 		buildExecutor: func(_ *config.Config, _ *config.Backend) (executor.Executor, error) {

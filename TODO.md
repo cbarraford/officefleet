@@ -25,6 +25,6 @@ Phase 2 requires real accounts/keys and a human in the loop, so it is held for l
 - Continuous trigger supervision/restart semantics (post-SP3).
 - Subscription quota / fail-open / fallback-to-another-backend strategy.
 - Per-agent / per-assignment cost budgets.
-- Agent-scoped shared memory (cross-duty), beyond per-assignment state.
+- Agent-scoped shared memory (cross-skill), beyond per-assignment state.
 - Cross-assignment concurrency & rate limiting.
 - Login rate limiting; `secure_cookies` defaults to false.

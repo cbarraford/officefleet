@@ -74,7 +74,7 @@ func main() {
 	root.AddCommand(configCmd())
 	root.AddCommand(backendsCmd())
 	root.AddCommand(agentsCmd())
-	root.AddCommand(dutiesCmd())
+	root.AddCommand(skillsCmd())
 	root.AddCommand(assignmentsCmd())
 	root.AddCommand(runCmd())
 	root.AddCommand(scheduleCmd())
@@ -264,9 +264,9 @@ func migrateCmd() *cobra.Command {
 			}
 			if cfg != nil {
 				agentRepo := repo.NewAgentRepo(pool)
-				dutyRepo := repo.NewDutyRepo(pool)
+				skillRepo := repo.NewSkillRepo(pool)
 				assignmentRepo := repo.NewAssignmentRepo(pool)
-				if err := seed.FromConfig(ctx, cfg, agentRepo, dutyRepo, assignmentRepo, false); err != nil {
+				if err := seed.FromConfig(ctx, cfg, agentRepo, skillRepo, assignmentRepo, false); err != nil {
 					return fmt.Errorf("seed: %w", err)
 				}
 				fmt.Println("schema migrated and config seeded")
@@ -493,20 +493,20 @@ func agentsListCmd() *cobra.Command {
 	}
 }
 
-// dutiesCmd returns the "duties" group of subcommands.
-func dutiesCmd() *cobra.Command {
+// skillsCmd returns the "skills" group of subcommands.
+func skillsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "duties",
-		Short: "Duty management commands",
+		Use:   "skills",
+		Short: "Skill management commands",
 	}
-	cmd.AddCommand(dutiesListCmd())
+	cmd.AddCommand(skillsListCmd())
 	return cmd
 }
 
-func dutiesListCmd() *cobra.Command {
+func skillsListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
-		Short: "List duties from DB",
+		Short: "List skills from DB",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 			cfg, _ := loadConfig()
@@ -520,17 +520,17 @@ func dutiesListCmd() *cobra.Command {
 			}
 			defer pool.Close()
 
-			duties, err := repo.NewDutyRepo(pool).List(ctx)
+			skills, err := repo.NewSkillRepo(pool).List(ctx)
 			if err != nil {
-				return fmt.Errorf("list duties: %w", err)
+				return fmt.Errorf("list skills: %w", err)
 			}
-			if len(duties) == 0 {
-				fmt.Println("(no duties)")
+			if len(skills) == 0 {
+				fmt.Println("(no skills)")
 				return nil
 			}
 			fmt.Printf("%-36s %-20s %-15s\n", "ID", "NAME", "ROLE")
 			fmt.Println(strings.Repeat("-", 73))
-			for _, d := range duties {
+			for _, d := range skills {
 				fmt.Printf("%-36s %-20s %-15s\n", d.ID, d.Name, d.Role)
 			}
 			return nil
@@ -573,10 +573,10 @@ func assignmentsListCmd() *cobra.Command {
 				fmt.Println("(no assignments)")
 				return nil
 			}
-			fmt.Printf("%-36s %-36s %-36s %-10s %-10s\n", "ID", "AGENT_ID", "DUTY_ID", "ENABLED", "TRIGGER")
+			fmt.Printf("%-36s %-36s %-36s %-10s %-10s\n", "ID", "AGENT_ID", "SKILL_ID", "ENABLED", "TRIGGER")
 			fmt.Println(strings.Repeat("-", 132))
 			for _, a := range assignments {
-				fmt.Printf("%-36s %-36s %-36s %-10v %-10s\n", a.ID, a.AgentID, a.DutyID, a.Enabled, a.Trigger.Kind)
+				fmt.Printf("%-36s %-36s %-36s %-10v %-10s\n", a.ID, a.AgentID, a.SkillID, a.Enabled, a.Trigger.Kind)
 			}
 			return nil
 		},
@@ -588,7 +588,7 @@ func runCmd() *cobra.Command {
 	var (
 		flagID     string
 		flagAgent  string
-		flagDuty   string
+		flagSkill   string
 		flagParams []string
 		flagFake   bool
 	)
@@ -620,10 +620,10 @@ func runCmd() *cobra.Command {
 			defer pool.Close()
 
 			agentRepo := repo.NewAgentRepo(pool)
-			dutyRepo := repo.NewDutyRepo(pool)
+			skillRepo := repo.NewSkillRepo(pool)
 			assignmentRepo := repo.NewAssignmentRepo(pool)
 
-			// Resolve the assignment id (directly, or via agent+duty names).
+			// Resolve the assignment id (directly, or via agent+skill names).
 			var assignmentID uuid.UUID
 			if flagID != "" {
 				id, perr := uuid.Parse(flagID)
@@ -631,22 +631,22 @@ func runCmd() *cobra.Command {
 					return fmt.Errorf("invalid assignment id %q: %w", flagID, perr)
 				}
 				assignmentID = id
-			} else if flagAgent != "" && flagDuty != "" {
+			} else if flagAgent != "" && flagSkill != "" {
 				agent, gerr := agentRepo.GetByName(ctx, flagAgent)
 				if gerr != nil {
 					return fmt.Errorf("get agent %q: %w", flagAgent, gerr)
 				}
-				duty, gerr := dutyRepo.GetByName(ctx, flagDuty)
+				skill, gerr := skillRepo.GetByName(ctx, flagSkill)
 				if gerr != nil {
-					return fmt.Errorf("get duty %q: %w", flagDuty, gerr)
+					return fmt.Errorf("get skill %q: %w", flagSkill, gerr)
 				}
-				asg, gerr := assignmentRepo.GetByAgentAndDuty(ctx, agent.ID, duty.ID)
+				asg, gerr := assignmentRepo.GetByAgentAndSkill(ctx, agent.ID, skill.ID)
 				if gerr != nil {
-					return fmt.Errorf("get assignment for agent=%q duty=%q: %w", flagAgent, flagDuty, gerr)
+					return fmt.Errorf("get assignment for agent=%q skill=%q: %w", flagAgent, flagSkill, gerr)
 				}
 				assignmentID = asg.ID
 			} else {
-				return fmt.Errorf("must provide --id or both --agent and --duty")
+				return fmt.Errorf("must provide --id or both --agent and --skill")
 			}
 
 			// Parse --param key=value flags.
@@ -712,7 +712,7 @@ func runCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&flagID, "id", "", "assignment UUID")
 	cmd.Flags().StringVar(&flagAgent, "agent", "", "agent name")
-	cmd.Flags().StringVar(&flagDuty, "duty", "", "duty name")
+	cmd.Flags().StringVar(&flagSkill, "skill", "", "skill name")
 	cmd.Flags().StringArrayVar(&flagParams, "param", nil, "event param as key=value (repeatable)")
 	cmd.Flags().BoolVar(&flagFake, "fake", false, "use FakeExecutor instead of ClaudeExecutor")
 
@@ -764,7 +764,7 @@ func buildInvoker(cfg *config.Config, pool *pgxpool.Pool, cipher *secrets.Cipher
 	secretsProvider := &dbSecretsProvider{pool: pool, cipher: cipher}
 	pipeline := run.NewPipeline(cfg, repo.NewRunRepo(pool), state.NewPostgresStore(pool), secretsProvider)
 	inv := run.NewInvoker(cfg, pipeline,
-		repo.NewAssignmentRepo(pool), repo.NewAgentRepo(pool), repo.NewDutyRepo(pool), secretsProvider)
+		repo.NewAssignmentRepo(pool), repo.NewAgentRepo(pool), repo.NewSkillRepo(pool), secretsProvider)
 	return inv, pipeline
 }
 
@@ -980,7 +980,7 @@ func serveCmd() *cobra.Command {
 				Agents:        repo.NewAgentRepo(pool),
 				Assignments:   repo.NewAssignmentRepo(pool),
 				Avatars:       avatarSvc,
-				Duties:        repo.NewDutyRepo(pool),
+				Skills:        repo.NewSkillRepo(pool),
 				Events:        eventRepo,
 				Runs:          repo.NewRunRepo(pool),
 				State:         state.NewPostgresStore(pool),
@@ -1210,7 +1210,7 @@ func seedCmd() *cobra.Command {
 				fmt.Println("WARNING: --force overwrites same-named entities, including UI edits")
 			}
 			if err := seed.FromConfig(ctx, cfg,
-				repo.NewAgentRepo(pool), repo.NewDutyRepo(pool), repo.NewAssignmentRepo(pool), flagForce); err != nil {
+				repo.NewAgentRepo(pool), repo.NewSkillRepo(pool), repo.NewAssignmentRepo(pool), flagForce); err != nil {
 				return fmt.Errorf("seed: %w", err)
 			}
 			fmt.Println("seed complete")

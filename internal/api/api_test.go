@@ -462,7 +462,7 @@ func newAPIFixture(t *testing.T) *apiFixture {
 
 	a := New(Deps{
 		Agents:      newFakeAgentStore(),
-		Duties:      newFakeDutyStore(),
+		Skills:      newFakeSkillStore(),
 		Assignments: newFakeAssignmentStore(),
 		Runs:        runStore,
 		Events:      eventStore,
@@ -871,7 +871,7 @@ func TestAPI_PutSecret_NilEncryptor_500(t *testing.T) {
 
 	a := New(Deps{
 		Agents:      newFakeAgentStore(),
-		Duties:      newFakeDutyStore(),
+		Skills:      newFakeSkillStore(),
 		Assignments: newFakeAssignmentStore(),
 		Secrets:     newFakeSecretStore(),
 		Sessions:    sessions,

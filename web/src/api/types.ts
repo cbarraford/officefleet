@@ -25,7 +25,7 @@ export interface OutputActionType {
   action: string
 }
 
-export interface Duty {
+export interface Skill {
   id: string
   name: string
   role: string
@@ -56,7 +56,7 @@ export interface OutputBinding {
 export interface Assignment {
   id: string
   agent_id: string
-  duty_id: string
+  skill_id: string
   name: string
   enabled: boolean
   trigger: TriggerConfig
@@ -92,7 +92,7 @@ export interface Run {
   id: string
   assignment_id: string
   agent_id: string
-  duty_id: string
+  skill_id: string
   trigger_kind: string
   event_id: string | null
   rendered_system_prompt: string
@@ -175,7 +175,7 @@ export interface StreamMsg {
   id: string
   assignment_id: string
   agent_id: string
-  duty_id: string
+  skill_id: string
   trigger_kind: string
   status: RunStatus
   tokens: number

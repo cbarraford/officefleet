@@ -60,7 +60,7 @@ func TestEventVertical_GitHubWebhookToRun(t *testing.T) {
 	plugin.Register(recorder)
 
 	backendName := "sp3b-backend"
-	agentID, dutyID, assignmentID := uuid.New(), uuid.New(), uuid.New()
+	agentID, skillID, assignmentID := uuid.New(), uuid.New(), uuid.New()
 	cfg := &config.Config{Backends: []config.Backend{{
 		Name: backendName, Kind: "claude", Model: "m",
 		DefaultEffort: "normal", Auth: config.BackendAuth{Mode: "subscription"},
@@ -70,7 +70,7 @@ func TestEventVertical_GitHubWebhookToRun(t *testing.T) {
 	fakeExec := executor.NewFakeExecutor(domain.LLMResult{Status: 0, Summary: "pr-reviewed"})
 
 	assignment := &domain.Assignment{
-		ID: assignmentID, AgentID: agentID, DutyID: dutyID, Enabled: true,
+		ID: assignmentID, AgentID: agentID, SkillID: skillID, Enabled: true,
 		Backend: &domain.BackendRef{Name: backendName},
 		Config:  map[string]any{},
 		Trigger: domain.TriggerConfig{Kind: "event-subscription", Filter: map[string]any{
@@ -88,8 +88,8 @@ func TestEventVertical_GitHubWebhookToRun(t *testing.T) {
 			ID: agentID, Name: "sp3b-agent", Role: "dev", SystemPrompt: "reviewer",
 			DefaultBackend: domain.BackendRef{Name: backendName}, Enabled: true,
 		}}},
-		duties: &fakeDutyLister{duties: []*domain.Duty{{
-			ID: dutyID, Name: "sp3b-duty", Role: "dev", Description: "d",
+		skills: &fakeSkillLister{skills: []*domain.Skill{{
+			ID: skillID, Name: "sp3b-skill", Role: "dev", Description: "d",
 			Prompt: "Review PR #{{.Event.pr_number}} by {{.Event.author}}",
 		}}},
 		buildExecutor: func(_ *config.Config, _ *config.Backend) (executor.Executor, error) {

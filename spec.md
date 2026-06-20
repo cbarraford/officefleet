@@ -12,14 +12,14 @@
 OfficeFleet is a self-hosted platform for running **agentic employees**. Instead of a human
 prompting an LLM, OfficeFleet **receives I/O events** from integrations (email, Slack, Discord,
 GitLab, GitHub, generic webhooks) and routes them to **Agents** — configured employees with a
-role, a system prompt, and a default LLM — which carry out **Duties** (reusable units of work
+role, a system prompt, and a default LLM — which carry out **Skills** (reusable units of work
 that subscribe to events or run on a schedule, execute a tool-using LLM, and **deliver outputs**
 like posting a comment, sending an email, or pinging Discord). Operators configure *employees and
-duties*, not prompts.
+skills*, not prompts.
 
 Huginn is the proof of concept for a single hardcoded case: one role (developer), one platform
 (GitLab), one workflow. OfficeFleet generalizes that into a configurable, plugin-driven platform
-where the GitLab-developer workflow is just one Agent performing a few sample Duties.
+where the GitLab-developer workflow is just one Agent performing a few sample Skills.
 
 This document is the **architecture/vision spec for the whole platform** plus an
 **implementable, detailed spec for Sub-Project 1 (SP1), the core-engine vertical slice**.
@@ -34,15 +34,15 @@ implementation cycle.
 - A clean **integration plugin framework** (one plugin per service, exposing event sources
   *and* output actions) that is easy to extend.
 - **Agents** as configurable employees: a persona (role + system prompt + default LLM) that is
-  assigned **Duties**.
-- **Duties** as reusable units of work: trigger + prompt template + required tools + output
+  assigned **Skills**.
+- **Skills** as reusable units of work: trigger + prompt template + required tools + output
   actions, assignable to many Agents.
 - **Promptless operation**: the system reacts to I/O events and schedules, not human prompts.
 - **Hybrid execution**: the tool-using LLM does the real work; the platform delivers outputs
   declaratively (governed, auditable, previewable).
 - **Per-assignment private state** for dedup, memory, and continuity.
-- A **prompt templating system** so prompts are composed from event/agent/duty/state, not hand-typed.
-- A **web operator UI**: live dashboard, Agent management, Duty library, per-agent detail pages,
+- A **prompt templating system** so prompts are composed from event/agent/skill/state, not hand-typed.
+- A **web operator UI**: live dashboard, Agent management, Skill library, per-agent detail pages,
   integrations & settings, with built-in users (Admin/Viewer) and DB-encrypted secrets.
 
 ### Non-goals (v1)
@@ -58,20 +58,20 @@ implementation cycle.
 ## 3. Glossary
 
 - **Agent** — a configured employee: a persona with a `name`, `role`, `system_prompt`, and a
-  `default LLM`. An Agent is assigned Duties and carries them out. *(Distinct from the agentic
-  LLM run that executes a duty — that execution is a **Run** produced by a backend/executor. To
+  `default LLM`. An Agent is assigned Skills and carries them out. *(Distinct from the agentic
+  LLM run that executes a skill — that execution is a **Run** produced by a backend/executor. To
   avoid the overload, the LLM-invocation types are named `LLM*`, not `Agent*`.)*
-- **Duty** — a **reusable definition** of work: the trigger kind(s) it supports, prompt template,
-  required tools, output action types, and a `role` **category tag**. The "what." One Duty can be
+- **Skill** — a **reusable definition** of work: the trigger kind(s) it supports, prompt template,
+  required tools, output action types, and a `role` **category tag**. The "what." One Skill can be
   assigned to many Agents.
-- **Assignment** — binds an Agent to a Duty with **per-agent config**: trigger config (schedule,
+- **Assignment** — binds an Agent to a Skill with **per-agent config**: trigger config (schedule,
   subscription filter, project), output routing, optional overrides, enabled flag. The runtime
-  unit that actually fires. *(In the UI this is presented simply as "this agent's duties" — operators
+  unit that actually fires. *(In the UI this is presented simply as "this agent's skills" — operators
   don't reason about a third noun.)*
 - **Role (two meanings)** — `Agent.role` is the **operative persona** (developer/marketer/lawyer)
-  that, with the system prompt, defines who the agent *is*. `Duty.role` is a **category tag**
-  describing which role a duty suits, used to suggest/filter compatible duties. At runtime the
-  persona is always `Agent.role`; `Duty.role` never overrides it.
+  that, with the system prompt, defines who the agent *is*. `Skill.role` is a **category tag**
+  describing which role a skill suits, used to suggest/filter compatible skills. At runtime the
+  persona is always `Agent.role`; `Skill.role` never overrides it.
 - **Integration plugin** — a first-party, compiled-in module for one external service. Declares
   **event sources** (inputs) and **actions** (outputs), plus its own auth/config.
 - **Trigger** — what causes an Assignment to run. Pluggable kinds: `manual`, `cron`,
@@ -86,7 +86,7 @@ implementation cycle.
   pay-per-use; `none` for keyless local). LLM providers are modeled as backends, **not** as
   integration-style plugins.
 - **BackendRef** — a selector that references a Backend **by name** with optional `model`/`effort`
-  overrides (used by `Agent.default_backend`, `Duty.backend`, `Assignment.backend`).
+  overrides (used by `Agent.default_backend`, `Skill.backend`, `Assignment.backend`).
 - **Executor** — the interface that performs a Run given a resolved Backend (`LLMRequest → LLMResult`).
 - **Output action** — a configured call to a plugin action that delivers a result.
 - **State store** — a private, logically-isolated **per-assignment** KV + structured store.
@@ -103,10 +103,10 @@ implementation cycle.
 | Name | **OfficeFleet** (working; CLI `fleet`) |
 | Plugin loading | **Compiled-in registry (first-party)**, clean interface for out-of-process later |
 | DB isolation | **Logical isolation in one app DB** (no per-unit DB creds) |
-| Domain model | **Two-level: Agent (persona) ↔ Duty (reusable), many-to-many via Assignment** |
-| Role | **On both**: `Agent.role` = operative persona; `Duty.role` = category tag (never overrides) |
-| Per-agent duty config | **Assignment** holds trigger/outputs/config-values + backend override + prompt customization (extra instructions, optional task-prompt override); structural fields stay on the Duty |
-| Prompt composition | **Three layers**: Agent system prompt → Duty task prompt (overridable) → assignment extra instructions |
+| Domain model | **Two-level: Agent (persona) ↔ Skill (reusable), many-to-many via Assignment** |
+| Role | **On both**: `Agent.role` = operative persona; `Skill.role` = category tag (never overrides) |
+| Per-agent skill config | **Assignment** holds trigger/outputs/config-values + backend override + prompt customization (extra instructions, optional task-prompt override); structural fields stay on the Skill |
+| Prompt composition | **Three layers**: Agent system prompt → Skill task prompt (overridable) → assignment extra instructions |
 | Plugin shape | **Unified integration plugin** (inputs + outputs in one plugin) |
 | Execution | **Hybrid**: LLM works with tools; **platform delivers outputs** |
 | LLM backends | **Named, configured backends** (not a plugin kind): built-in CLI agentic set (claude/codex/gemini) + a generic **endpoint backend** (Ollama / OpenAI-compatible) via base_uri/model/api-key/default_effort/custom params |
@@ -134,7 +134,7 @@ later without reshaping the domain.
                     │       ▲  │                                  │      │
                     │  auth/│  │ actions          match event to  ▼      │
    schedules ─────► │  cfg  │  │                  Assignments  (Agent ×  │
-   (cron)           │       │  │                   Duty)          │      │
+   (cron)           │       │  │                   Skill)          │      │
    manual/UI ─────► │       │  ▼                                  ▼      │
                     │   ┌───┴──────────┐   render system+task   Run     │
                     │   │  Plugins reg. │◄───────  prompt    pipeline    │
@@ -144,7 +144,7 @@ later without reshaping the domain.
                     │   Runs / metrics ─────────────► SSE ──► Web UI/API │
                     └──────────────────────────────────────────────────┘
                                   │
-                            PostgreSQL (one DB: agents, duties, assignments, runs, …)
+                            PostgreSQL (one DB: agents, skills, assignments, runs, …)
 ```
 
 **Reused concepts from huginn** (re-implemented in Go): the `ai_backends` abstraction
@@ -157,7 +157,7 @@ pattern; the notifications event→manager→sink pattern → OfficeFleet's **ou
 ## 6. Core domain model
 
 The crux of the many-to-many model is **where each piece of config lives**. The boundary:
-Duty = the reusable "what"; Agent = the persona; Assignment = the "where/when/how, for this agent."
+Skill = the reusable "what"; Agent = the persona; Assignment = the "where/when/how, for this agent."
 
 ### Agent (persona)
 ```
@@ -181,7 +181,7 @@ The run pipeline checks the agent's `enabled` flag at run-start and records the 
 (with reason `agent_paused`) if it is false, so the skip is auditable. A paused agent is visually
 distinguished in the UI (greyed card, "Paused" badge) and excluded from the live activity
 dashboard's "active agents" count. Individual assignments also have their own `enabled` flag for
-finer control (pausing one duty without pausing the whole agent).
+finer control (pausing one skill without pausing the whole agent).
 
 ### Agent statistics (derived, not stored)
 Per-agent stats are computed from the `runs` table on demand (or materialised via a periodic job for the dashboard). They are **read-only views** over run data — not columns on `agents` — so they are always current and require no separate update path.
@@ -211,12 +211,12 @@ AgentStats {
 
 These stats surface on the per-agent detail page (§12 surface 4) and as compact "employee card" metrics on the Agents list view.
 
-### Duty (reusable definition — the "what")
+### Skill (reusable definition — the "what")
 ```
-Duty {
+Skill {
   id              uuid
   name            string
-  role            string         // CATEGORY tag: which role this duty suits (suggest/filter only)
+  role            string         // CATEGORY tag: which role this skill suits (suggest/filter only)
   description     text
   trigger_kinds   []string       // supported kinds: manual | cron | event-subscription | continuous
   prompt          PromptTemplate // the task template (see §9)
@@ -228,36 +228,36 @@ Duty {
 }
 ```
 
-### Assignment (Agent ↔ Duty binding — the "where/when/how, for this agent")
+### Assignment (Agent ↔ Skill binding — the "where/when/how, for this agent")
 ```
 Assignment {
   id                   uuid
   agent_id             uuid -> Agent
-  duty_id              uuid -> Duty
+  skill_id              uuid -> Skill
   enabled              bool
   trigger              Trigger        // chosen kind + config (cron schedule / subscription filter / project)
   outputs              []OutputBinding // per-agent routing (channel, project, recipients)
-  config               json           // values satisfying duty.config_schema
+  config               json           // values satisfying skill.config_schema
   backend              BackendRef?     // optional override (highest precedence)
-  task_prompt_override text?          // optional: replaces Duty.prompt for THIS agent
+  task_prompt_override text?          // optional: replaces Skill.prompt for THIS agent
   extra_instructions   text?          // optional: appended after the task prompt for THIS agent
   created_at, updated_at
 }
 ```
 
-The Assignment is where an operator **configures a duty for a specific agent**: its trigger,
+The Assignment is where an operator **configures a skill for a specific agent**: its trigger,
 outputs, declared config values, backend override, and prompt tailoring. **Structural fields stay
-on the shared Duty** (required tools, output action types, config schema, supported trigger kinds)
+on the shared Skill** (required tools, output action types, config schema, supported trigger kinds)
 so the library definition can't drift per agent.
 
-**Backend resolution (precedence):** `Assignment.backend ?? Duty.backend ?? Agent.default_backend`
+**Backend resolution (precedence):** `Assignment.backend ?? Skill.backend ?? Agent.default_backend`
 selects a **named backend** (§11). Effective `model`/`effort` = the `BackendRef` override **??** the
 backend's own `model`/`default_effort`.
 **Persona at runtime:** always `Agent.role` + `Agent.system_prompt`.
 **Prompt composition (three layers, all rendered with the §9 context and recorded on the Run):**
-1. **System** = `Agent.system_prompt` — who the agent is, across all its duties.
-2. **Task** = `Assignment.task_prompt_override ?? Duty.prompt` — the duty's work, optionally replaced for this agent.
-3. **Add-on** = `Assignment.extra_instructions` (if set) appended after the task — per-agent nuance without forking the Duty.
+1. **System** = `Agent.system_prompt` — who the agent is, across all its skills.
+2. **Task** = `Assignment.task_prompt_override ?? Skill.prompt` — the skill's work, optionally replaced for this agent.
+3. **Add-on** = `Assignment.extra_instructions` (if set) appended after the task — per-agent nuance without forking the Skill.
 
 > *Many-to-many stays light because event-driven specifics (which MR, which project) arrive in the
 > event, not in static config — so an Assignment is usually thin (trigger config + routing + enabled).*
@@ -271,11 +271,11 @@ A plugin owns one service's auth/config and declares two capability sets:
 ```
 Run {
   id
-  assignment_id -> Assignment    // denormalized agent_id + duty_id for queries
-  agent_id, duty_id
+  assignment_id -> Assignment    // denormalized agent_id + skill_id for queries
+  agent_id, skill_id
   trigger_kind, event_id?         // what caused it
   rendered_system_prompt          // exact system prompt (from Agent)
-  rendered_prompt                 // exact task prompt (from Duty template)
+  rendered_prompt                 // exact task prompt (from Skill template)
   llm_result                      // structured result + transcript ref
   outputs_delivered  []           // each action + status
   status             enum         // queued|running|succeeded|failed|skipped
@@ -284,8 +284,8 @@ Run {
 ```
 
 ### State store (per assignment)
-Logically isolated within the one app DB; keyed by `assignment_id` (**not** `duty_id` — two agents
-running the same duty on different projects need independent dedup). Provides:
+Logically isolated within the one app DB; keyed by `assignment_id` (**not** `skill_id` — two agents
+running the same skill on different projects need independent dedup). Provides:
 - KV get/set/delete (dedup keys, cursors, small memory).
 - Structured records (append-only notes / memory rows).
 - Helpers for the common "have I already processed X?" dedup pattern.
@@ -340,7 +340,7 @@ as a fixed built-in set plus one generic endpoint backend rather than a full plu
 
 ## 8. Triggers
 
-Triggers are a pluggable interface. A **Duty** declares which trigger kinds it supports; an
+Triggers are a pluggable interface. A **Skill** declares which trigger kinds it supports; an
 **Assignment** picks one and supplies its config.
 
 - **`manual`** — fired on-demand (CLI or UI). Carries optional operator-supplied params.
@@ -360,7 +360,7 @@ Triggers are a pluggable interface. A **Duty** declares which trigger kinds it s
 - **Context available to a template:**
   - `event` — the event envelope (raw + normalized payload). For manual triggers, operator params.
   - `agent` — the executing agent (name, role, system prompt).
-  - `duty` — the duty definition (name, role category, description).
+  - `skill` — the skill definition (name, role category, description).
   - `assignment` — the per-agent config (the `config` object + routing).
   - `state` — the assignment's private state/memory (read access).
   - `secret "ref"` — explicit, audited secret access by reference (never blindly inlined).
@@ -368,7 +368,7 @@ Triggers are a pluggable interface. A **Duty** declares which trigger kinds it s
     enrichment is **deferred** — registered as a stub only; no sub-project has scoped
     render-time plugin calls, which carry side-effect/governance questions. See §15.)
 - **Three-layer composition** (see §6): the **system prompt** is `Agent.system_prompt`; the **task
-  prompt** is `Assignment.task_prompt_override ?? Duty.prompt`; and `Assignment.extra_instructions`,
+  prompt** is `Assignment.task_prompt_override ?? Skill.prompt`; and `Assignment.extra_instructions`,
   if set, is appended after the task. Every layer is a template rendered with the context above, and
   the final system prompt + final task prompt are both recorded on the Run.
 - Templates being **versioned** and **previewable** in the UI (rendering against a sample/last
@@ -437,11 +437,11 @@ Every backend chooses an **auth mode**:
   API key) **and** endpoint backends. `{ mode: none }` covers keyless local endpoints (e.g. Ollama).
 
 Because backends are **named instances**, the same `kind` can appear under both modes (e.g.
-`claude-sub` and `claude-api`), so different agents/duties can draw on subscription vs. metered
+`claude-sub` and `claude-api`), so different agents/skills can draw on subscription vs. metered
 billing. The platform validates that a backend's required credential (login session or key) is
 present at config-validate and at run start.
 
-A `BackendRef` (`Agent.default_backend`, `Duty.backend`, `Assignment.backend`) selects a backend by
+A `BackendRef` (`Agent.default_backend`, `Skill.backend`, `Assignment.backend`) selects a backend by
 name; effective `model`/`effort` = the ref's override **??** the backend's `model`/`default_effort`.
 
 ### Two execution paths under one Executor interface
@@ -469,7 +469,7 @@ the LLM result.
 > spec + an execution bridge to declared CLIs/plugin actions + iteration & safety limits + transcript
 > capture). The current Executor interface does **not** yet support endpoint tool-use; that's SP2's job.
 
-> **Open seam (decided per sample duty, not now):** output-heavy work like posting *inline* review
+> **Open seam (decided per sample skill, not now):** output-heavy work like posting *inline* review
 > comments may need either a richer structured-output schema (platform posts each comment) or a
 > sanctioned plugin tool the LLM calls directly. Noted; resolved when SP5 ports code-review.
 
@@ -481,18 +481,18 @@ the LLM result.
 - **Surfaces:**
   1. **Live activity dashboard** — running now, recent runs, throughput, success/fail, token/cost.
   2. **Agents management** — create/edit/delete agents; set name, role, system prompt, default LLM,
-     hire date, and avatar; **assign duties** (pick from the Duty library and configure each for this
+     hire date, and avatar; **assign skills** (pick from the Skill library and configure each for this
      agent: trigger, outputs, config values, backend override, and per-agent prompt tweaks — extra
      instructions or a task-prompt override). "Assignment" stays invisible — the screen reads as
-     *"this agent's duties."* The agents list renders as an **employee directory**: avatar, name,
+     *"this agent's skills."* The agents list renders as an **employee directory**: avatar, name,
      role, hire date, enabled/paused status badge, and a compact stats strip (runs last 30d,
      success rate, outputs delivered). A **pause/resume toggle** is available inline on each card
      and on the detail page (Admin only); paused agents display a greyed card with a "Paused" badge
      and are excluded from the live dashboard's active-agents count.
-  3. **Duty library** — browse, define, and edit reusable Duties (trigger kinds, prompt template,
+  3. **Skill library** — browse, define, and edit reusable Skills (trigger kinds, prompt template,
      required tools, output action types, role category).
   4. **Per-agent detail pages** — the agent's avatar/name/role/hire date, full stats panel (see
-     §6.1), duties, run history (event→system+task prompt→result→outputs), and per-assignment
+     §6.1), skills, run history (event→system+task prompt→result→outputs), and per-assignment
      state/memory.
   5. **Integrations & settings** — connect plugins; manage **LLM backends** (define backends, run the
      subscription login flow or enter API keys, see auth status); manage encrypted secrets; manage users.
@@ -508,32 +508,32 @@ the LLM result.
 The platform is too large for one detailed spec. Build order:
 
 - **SP1 — Core engine (vertical slice).** *Detailed below (§14).* Go skeleton, config, Postgres +
-  migrations, domain model (**Agent, Duty, Assignment, Run**), plugin interface + registry, executor
+  migrations, domain model (**Agent, Skill, Assignment, Run**), plugin interface + registry, executor
   interface + **one CLI agentic backend (claude)** with named-backend config, trigger interface
   (manual + cron), the run pipeline, per-assignment state, run recording, **one GitLab plugin + one
-  Agent with one assigned Duty** runnable end-to-end via CLI. No web UI; no Duty-library/catalog UX
+  Agent with one assigned Skill** runnable end-to-end via CLI. No web UI; no Skill-library/catalog UX
   (that's SP4); no generic agent loop / endpoint backends (that's SP2).
 - **SP2 — LLM backends & the generic agent loop.** *The largest single workstream.* Endpoint
   backends (Ollama / OpenAI-compatible) configured by base_uri/model/api-key/default_effort/custom
   params, **plus OfficeFleet's own tool-using agent loop** so non-CLI / open-source models can perform
-  tool duties: a tool-call protocol, iteration control, a **tool-execution bridge** (brokering declared
+  tool skills: a tool-call protocol, iteration control, a **tool-execution bridge** (brokering declared
   CLIs and plugin actions as model tools), safety limits (max iterations / timeouts), and transcript
   capture. Also the optional multi-model voter. Resolves the §11 tool-abstraction open question.
 - **SP3 — Event bus & plugin breadth.** Event envelope, `events` table, bus + dispatcher,
   `event-subscription` trigger (`continuous` was deferred during SP3 design — see §8/§15), more
   integration plugins (Slack, Discord, GitHub, Email).
 - **SP4 — Web UI & operators.** API + SPA (all surfaces: dashboard, Agents employee-directory,
-  Duty library, per-agent pages, integrations/settings), auth + Admin/Viewer roles, encrypted
+  Skill library, per-agent pages, integrations/settings), auth + Admin/Viewer roles, encrypted
   secrets, live dashboard via SSE; **agent personas** (name, hire date, avatar generation via
   configured image backend — §6.1); **agent stats panel** (runs, success rate, outputs delivered,
   token/cost contribution — §6).
-- **SP5 — Sample Duties / huginn parity.** Port code-review, code-audit, and MR-feedback as Duties
+- **SP5 — Sample Skills / huginn parity.** Port code-review, code-audit, and MR-feedback as Skills
   assigned to a "developer" Agent to dogfood the model; resolve the inline-comment seam (§11).
 
 **Sequencing:** SP2, SP3, and SP4 each depend only on SP1 and are mutually independent, so they can
 be ordered by priority. SP2 is called out as first-class (not an afterthought) and is the biggest of
 the five — schedule it whenever open-source / custom-model agentic work becomes a priority. SP5
-depends on whichever capabilities its ported duties need. Each sub-project gets its own spec → plan →
+depends on whichever capabilities its ported skills need. Each sub-project gets its own spec → plan →
 implementation cycle.
 
 ---
@@ -542,12 +542,12 @@ implementation cycle.
 
 ### 14.1 Objective
 Prove the full pipeline end-to-end with the smallest real surface: a "developer" **Agent**
-(system prompt + default `claude`) has one assigned **Duty** (`mr-reviewer`). An operator (or cron)
+(system prompt + default `claude`) has one assigned **Skill** (`mr-reviewer`). An operator (or cron)
 fires the **Assignment** → OfficeFleet composes the prompt in three layers (Agent system prompt →
-Duty task prompt, optionally overridden → assignment extra instructions) → runs a tool-using LLM in
+Skill task prompt, optionally overridden → assignment extra instructions) → runs a tool-using LLM in
 a workspace with `glab` available → the LLM
 produces a structured review → **OfficeFleet posts the result as a GitLab MR comment via the GitLab
-plugin** → the Run (agent/duty/assignment, prompts, result, output, status, cost) is recorded.
+plugin** → the Run (agent/skill/assignment, prompts, result, output, status, cost) is recorded.
 No event bus, no web UI, no catalog UX. The schema includes all four entities; the slice exercises
 exactly one of each.
 
@@ -558,7 +558,7 @@ fleet/
   internal/
     config/              YAML config load/validate (HUGINN-style env for secrets)
     db/                  pgx pool, migrations runner, migrations/*.sql
-    domain/              Agent, Duty, Assignment, Run, Trigger, types (pure, no I/O)
+    domain/              Agent, Skill, Assignment, Run, Trigger, types (pure, no I/O)
     plugin/              Plugin interface, registry, capability types
     plugins/gitlab/      GitLab integration plugin (event sources stubbed; actions: post_mr_comment)
     trigger/             Trigger interface; manual + cron implementations; scheduler
@@ -567,7 +567,7 @@ fleet/
     state/               per-assignment state store (KV + structured) over Postgres
     run/                 the run pipeline: resolve backend → render → execute → deliver → record
     outputs/             output-action delivery (renders params, calls plugin actions)
-  configs/               example fleet.yaml (one agent + one duty + one assignment)
+  configs/               example fleet.yaml (one agent + one skill + one assignment)
 ```
 
 ### 14.3 Core interfaces (Go sketch)
@@ -597,7 +597,7 @@ type Executor interface {
 }
 type LLMRequest struct {
     SystemPrompt string                    // from Agent.system_prompt (rendered)
-    Prompt       string                    // from Duty.prompt (+ assignment add-ons), rendered
+    Prompt       string                    // from Skill.prompt (+ assignment add-ons), rendered
     Workspace    string
     Tools        []string                  // CLI names on PATH — sufficient for CLI backends;
                                            // endpoint backends need a richer tool abstraction (SP2)
@@ -624,18 +624,18 @@ type Store interface {
 
 ### 14.4 Data model (Postgres, SP1 subset)
 - `agents` — id, name, role, system_prompt, default_backend (json), enabled, timestamps.
-- `duties` — id, name, role, description, trigger_kinds, prompt, required_tools, output_actions (json),
+- `skills` — id, name, role, description, trigger_kinds, prompt, required_tools, output_actions (json),
   config_schema (json), backend (json, nullable), timestamps.
-- `assignments` — id, agent_id (fk), duty_id (fk), enabled, trigger (json), outputs (json),
+- `assignments` — id, agent_id (fk), skill_id (fk), enabled, trigger (json), outputs (json),
   config (json), backend (json, nullable), task_prompt_override (text, nullable),
-  extra_instructions (text, nullable), timestamps. Unique-ish per (agent, duty, purpose).
-- `runs` — id, assignment_id (fk), agent_id, duty_id, trigger_kind, rendered_system_prompt,
+  extra_instructions (text, nullable), timestamps. Unique-ish per (agent, skill, purpose).
+- `runs` — id, assignment_id (fk), agent_id, skill_id, trigger_kind, rendered_system_prompt,
   rendered_prompt, llm_result (json), status, tokens, cost, timestamps, error.
 - `assignment_state` — (assignment_id, key) → value bytes; plus a notes table for structured/append memory.
 - `secrets` — name → encrypted blob (GitLab token in SP1; later, backend API keys).
 
 *Named **backends** are **config**, not a table in SP1: they live in `fleet.yaml` and are referenced
-by name from `agents`/`duties`/`assignments`. (A managed-backends table can come with the SP4 UI.)*
+by name from `agents`/`skills`/`assignments`. (A managed-backends table can come with the SP4 UI.)*
 Migrations follow huginn's `db/migrations` pattern.
 
 ### 14.5 GitLab plugin (SP1 scope)
@@ -645,13 +645,13 @@ Migrations follow huginn's `db/migrations` pattern.
 - **Event sources**: declared but **not wired** in SP1 (no bus yet); shape proven for SP3.
 - Uses `glab` CLI and/or the GitLab REST API (reuse huginn's GitLab knowledge).
 
-### 14.6 Sample agent + duty + assignment (SP1)
+### 14.6 Sample agent + skill + assignment (SP1)
 - **Backend** `claude-default` (in `fleet.yaml`) — kind `claude` (CLI agentic), `default_effort: high`,
   `auth: { mode: subscription }` (SP1 also supports `auth: { mode: api_key, api_key: ${secret:…} }`
   for the claude backend, since the CLI handles both).
 - **Agent** `dev-1` — role `developer`, a system prompt establishing the reviewer persona,
   `default_backend: claude-default` (effort resolved from the backend unless the ref overrides it).
-- **Duty** `mr-reviewer` — role category `developer`; supports triggers `manual` + `cron`;
+- **Skill** `mr-reviewer` — role category `developer`; supports triggers `manual` + `cron`;
   `required_tools: [glab]`; task prompt template renders from `event.params.mr_iid`, `agent`, and
   `state`; `output_actions: [{ plugin: gitlab, action: post_mr_comment }]`.
 - **Assignment** `dev-1 × mr-reviewer` — trigger `manual` (param `mr_iid`) and a `cron` variant
@@ -663,16 +663,16 @@ Migrations follow huginn's `db/migrations` pattern.
 ### 14.7 CLI (SP1)
 ```
 fleet migrate                              # run DB migrations
-fleet config validate                      # validate fleet.yaml (backends, agents, duties, assignments)
+fleet config validate                      # validate fleet.yaml (backends, agents, skills, assignments)
 fleet backends list
 fleet backends login <name>                # subscription backends: run the vendor OAuth/device-auth flow
 fleet agents list
-fleet duties list
+fleet skills list
 fleet assignments list
 fleet run <assignment-id> [--param k=v]    # manual trigger, end-to-end
 fleet schedule                             # run the cron scheduler loop (daemon)
 ```
-*(`fleet run` also accepts `--agent <name> --duty <name>` to resolve the assignment by names.)*
+*(`fleet run` also accepts `--agent <name> --skill <name>` to resolve the assignment by names.)*
 
 ### 14.8 Testing strategy
 - **Unit**: domain types, backend resolution precedence, three-layer prompt composition (golden
@@ -681,22 +681,22 @@ fleet schedule                             # run the cron scheduler loop (daemon
 - **Plugin**: GitLab plugin actions against a mocked GitLab API / fake `glab`.
 - **Integration**: full `fleet run <assignment>` against an ephemeral Postgres (testcontainers or a
   CI service) with a stubbed executor returning a canned `LLMResult`, asserting a Run is recorded
-  (with agent/duty/assignment ids + both prompts) and the GitLab `post_mr_comment` action is invoked
+  (with agent/skill/assignment ids + both prompts) and the GitLab `post_mr_comment` action is invoked
   with rendered params.
 - **Executor**: a fake/mockable backend so the pipeline is testable without real LLM calls; one
   optional live smoke test behind a flag.
 
 ### 14.9 SP1 acceptance criteria
-1. `fleet migrate` creates the schema (agents, duties, assignments, runs, assignment_state, secrets).
-2. A `fleet.yaml` defining the `dev-1` Agent, the `mr-reviewer` Duty, and their Assignment validates
-   and lists via `fleet agents/duties/assignments list`.
+1. `fleet migrate` creates the schema (agents, skills, assignments, runs, assignment_state, secrets).
+2. A `fleet.yaml` defining the `dev-1` Agent, the `mr-reviewer` Skill, and their Assignment validates
+   and lists via `fleet agents/skills/assignments list`.
 3. `fleet run <assignment> --param mr_iid=<n>` resolves the backend, renders the system prompt
-   (Agent) + task prompt (Duty), runs the (stubbed-in-tests / real in manual smoke) LLM with `glab`
+   (Agent) + task prompt (Skill), runs the (stubbed-in-tests / real in manual smoke) LLM with `glab`
    available, posts an MR comment via the GitLab plugin, and records a complete Run (ids, both
    prompts, result, output delivery, tokens/cost, status).
 4. Re-running on an unchanged MR is **skipped** via per-assignment state dedup.
 5. The `cron` trigger fires the same pipeline on schedule.
-6. Backend resolution precedence (`Assignment ?? Duty ?? Agent`) selects the named backend, and
+6. Backend resolution precedence (`Assignment ?? Skill ?? Agent`) selects the named backend, and
    effective effort resolves as `ref.effort ?? backend.default_effort`. Backend auth is honored: a
    `subscription` backend uses the logged-in CLI session, an `api_key` backend injects its key, and
    config-validate / run-start flag a missing credential.
@@ -718,7 +718,7 @@ fleet schedule                             # run the cron scheduler loop (daemon
   + iteration/safety limits. Key open design question for SP2.
 - **LLM providers as a full plugin SDK** — v1 uses configured backends (a fixed set + a generic
   endpoint backend), not a plugin kind; revisit only if third-party providers need to ship code.
-- **Agent-scoped shared memory** — per-assignment state is in v1; a cross-duty memory at the Agent
+- **Agent-scoped shared memory** — per-assignment state is in v1; a cross-skill memory at the Agent
   level may be added later.
 - **Concurrency & rate limiting** across assignments and backends — refined in SP3.
 - **Subscription availability / quota handling** — subscription backends hit plan rate limits and

@@ -17,7 +17,7 @@ import (
 type Context struct {
 	Event      map[string]any
 	Agent      map[string]any
-	Duty       map[string]any
+	Skill       map[string]any
 	Assignment map[string]any
 	State      map[string]any
 	Now        time.Time
@@ -43,7 +43,7 @@ func Render(tmpl string, ctx Context, secrets map[string]string) (string, error)
 // ComposePrompts renders the three-layer prompt composition:
 //
 //	system = Agent.system_prompt (rendered)
-//	task   = task_prompt_override ?? Duty.prompt (rendered)
+//	task   = task_prompt_override ?? Skill.prompt (rendered)
 //	add-on = extra_instructions appended after task (if set)
 func ComposePrompts(
 	systemTemplate string,

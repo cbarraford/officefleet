@@ -72,7 +72,7 @@ agents:
         no "Great work!" padding.
       - When unsure, say so briefly rather than inventing certainty.
 
-duties:
+skills:
   # ── 1. MR review: inline comments + a verdict summary ──────────────────
   - name: mr-review
     role: developer
@@ -211,9 +211,9 @@ duties:
 assignments:
   # MR review on every newly-opened MR. (Add a second assignment with
   # event_type: mr_updated to also re-review on new pushes — give it a distinct
-  # `name:` so it does not collide with this one on (agent, duty, name).)
+  # `name:` so it does not collide with this one on (agent, skill, name).)
   - agent: dev-1
-    duty: mr-review
+    skill: mr-review
     name: on-open
     enabled: true
     trigger:
@@ -244,7 +244,7 @@ assignments:
   # Weekly security audit (Mondays 06:00). Duplicate this assignment with
   # category: correctness / performance for broader coverage.
   - agent: dev-1
-    duty: code-audit
+    skill: code-audit
     enabled: true
     trigger:
       kind: cron
@@ -265,7 +265,7 @@ assignments:
   # Reply to MR comments (the bot's own notes are dropped at ingestion via
   # plugins.gitlab.bot_username — set it to the fleet's GitLab username).
   - agent: dev-1
-    duty: mr-feedback
+    skill: mr-feedback
     enabled: true
     trigger:
       kind: event-subscription
@@ -287,7 +287,7 @@ assignments:
 
 # Example (SP3b): review GitHub PRs on open, notify Slack when done.
 #  - agent: dev-1
-#    duty: mr-review
+#    skill: mr-review
 #    enabled: true
 #    trigger:
 #      kind: event-subscription

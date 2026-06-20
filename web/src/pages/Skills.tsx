@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useSession } from '../App'
 import { ApiError, api } from '../api/client'
-import type { Duty, OutputActionType } from '../api/types'
+import type { Skill, OutputActionType } from '../api/types'
 import Card from '../components/Card'
 import ConfirmButton from '../components/ConfirmButton'
 import Modal from '../components/Modal'
@@ -11,7 +11,7 @@ import { toast } from '../lib/toast'
 
 const TRIGGER_KINDS = ['manual', 'cron', 'event-subscription', 'continuous']
 
-interface DutyForm {
+interface SkillForm {
   name: string
   role: string
   description: string
@@ -22,7 +22,7 @@ interface DutyForm {
   config_schema: string // JSON text in the form
 }
 
-function emptyForm(): DutyForm {
+function emptyForm(): SkillForm {
   return {
     name: '',
     role: '',
@@ -35,7 +35,7 @@ function emptyForm(): DutyForm {
   }
 }
 
-function formFromDuty(d: Duty): DutyForm {
+function formFromSkill(d: Skill): SkillForm {
   return {
     name: d.name,
     role: d.role,
@@ -48,12 +48,12 @@ function formFromDuty(d: Duty): DutyForm {
   }
 }
 
-function DutyModal({ duty, onClose, onSaved }: { duty: Duty | null; onClose: () => void; onSaved: () => void }) {
-  const [form, setForm] = useState<DutyForm>(duty ? formFromDuty(duty) : emptyForm())
+function SkillModal({ skill, onClose, onSaved }: { skill: Skill | null; onClose: () => void; onSaved: () => void }) {
+  const [form, setForm] = useState<SkillForm>(skill ? formFromSkill(skill) : emptyForm())
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
-  const set = <K extends keyof DutyForm>(key: K, value: DutyForm[K]) => setForm((f) => ({ ...f, [key]: value }))
+  const set = <K extends keyof SkillForm>(key: K, value: SkillForm[K]) => setForm((f) => ({ ...f, [key]: value }))
 
   const toggleKind = (kind: string) =>
     set(
@@ -97,10 +97,10 @@ function DutyModal({ duty, onClose, onSaved }: { duty: Duty | null; onClose: () 
 
     setBusy(true)
     try {
-      if (duty) {
-        await api.patch(`/api/v1/duties/${duty.id}`, body)
+      if (skill) {
+        await api.patch(`/api/v1/skills/${skill.id}`, body)
       } else {
-        await api.post('/api/v1/duties', body)
+        await api.post('/api/v1/skills', body)
       }
       onSaved()
     } catch (err) {
@@ -110,7 +110,7 @@ function DutyModal({ duty, onClose, onSaved }: { duty: Duty | null; onClose: () 
   }
 
   return (
-    <Modal title={duty ? `Edit duty: ${duty.name}` : 'New duty'} onClose={onClose}>
+    <Modal title={skill ? `Edit skill: ${skill.name}` : 'New skill'} onClose={onClose}>
       <form onSubmit={submit}>
         <label className="field">
           <span>Name</span>
@@ -178,7 +178,7 @@ function DutyModal({ duty, onClose, onSaved }: { duty: Duty | null; onClose: () 
         {error && <div className="form-error">{error}</div>}
         <div className="row">
           <button className="primary" type="submit" disabled={busy || !form.name}>
-            {busy ? 'Saving…' : 'Save duty'}
+            {busy ? 'Saving…' : 'Save skill'}
           </button>
           <button type="button" onClick={onClose}>
             Cancel
@@ -189,23 +189,23 @@ function DutyModal({ duty, onClose, onSaved }: { duty: Duty | null; onClose: () 
   )
 }
 
-export default function Duties() {
+export default function Skills() {
   const { isAdmin } = useSession()
-  const [duties, setDuties] = useState<Duty[]>([])
-  const [editing, setEditing] = useState<Duty | null>(null)
+  const [skills, setSkills] = useState<Skill[]>([])
+  const [editing, setEditing] = useState<Skill | null>(null)
   const [creating, setCreating] = useState(false)
 
   const load = () => {
-    api.get<Duty[]>('/api/v1/duties').then(
-      (d) => setDuties(d ?? []),
-      () => toast('error', 'failed to load duties'),
+    api.get<Skill[]>('/api/v1/skills').then(
+      (d) => setSkills(d ?? []),
+      () => toast('error', 'failed to load skills'),
     )
   }
   useEffect(load, [])
 
-  const remove = async (d: Duty) => {
+  const remove = async (d: Skill) => {
     try {
-      await api.del(`/api/v1/duties/${d.id}`)
+      await api.del(`/api/v1/skills/${d.id}`)
       load()
     } catch (err) {
       toast('error', err instanceof ApiError ? err.message : 'delete failed')
@@ -215,10 +215,10 @@ export default function Duties() {
   return (
     <>
       <div className="row between mb">
-        <h1>Duties</h1>
+        <h1>Skills</h1>
         {isAdmin && (
           <button className="primary" onClick={() => setCreating(true)}>
-            New duty
+            New skill
           </button>
         )}
       </div>
@@ -228,7 +228,7 @@ export default function Duties() {
           columns={[
             {
               header: 'Name',
-              render: (d: Duty) =>
+              render: (d: Skill) =>
                 isAdmin ? (
                   <a
                     href="#edit"
@@ -243,26 +243,26 @@ export default function Duties() {
                   <strong>{d.name}</strong>
                 ),
             },
-            { header: 'Role', render: (d: Duty) => d.role || '—' },
-            { header: 'Description', render: (d: Duty) => d.description || '—' },
-            { header: 'Triggers', render: (d: Duty) => (d.trigger_kinds ?? []).join(', ') || '—' },
-            { header: 'Tools', render: (d: Duty) => (d.required_tools ?? []).join(', ') || '—' },
-            { header: 'Updated', render: (d: Duty) => fmtDate(d.updated_at) },
+            { header: 'Role', render: (d: Skill) => d.role || '—' },
+            { header: 'Description', render: (d: Skill) => d.description || '—' },
+            { header: 'Triggers', render: (d: Skill) => (d.trigger_kinds ?? []).join(', ') || '—' },
+            { header: 'Tools', render: (d: Skill) => (d.required_tools ?? []).join(', ') || '—' },
+            { header: 'Updated', render: (d: Skill) => fmtDate(d.updated_at) },
             {
               header: '',
-              render: (d: Duty) =>
+              render: (d: Skill) =>
                 isAdmin ? <ConfirmButton label="Delete" onConfirm={() => remove(d)} /> : null,
             },
           ]}
-          rows={duties}
+          rows={skills}
           rowKey={(d) => d.id}
-          empty="No duties defined."
+          empty="No skills defined."
         />
       </Card>
 
       {(creating || editing) && (
-        <DutyModal
-          duty={editing}
+        <SkillModal
+          skill={editing}
           onClose={() => {
             setCreating(false)
             setEditing(null)

@@ -160,7 +160,7 @@ func TestPipelineExecute(t *testing.T) {
 
 	// Domain objects.
 	agentID := uuid.New()
-	dutyID := uuid.New()
+	skillID := uuid.New()
 	assignmentID := uuid.New()
 
 	agent := &domain.Agent{
@@ -171,18 +171,18 @@ func TestPipelineExecute(t *testing.T) {
 		Enabled:      true,
 	}
 
-	duty := &domain.Duty{
-		ID:          dutyID,
-		Name:        "test-duty",
+	skill := &domain.Skill{
+		ID:          skillID,
+		Name:        "test-skill",
 		Role:        "testing",
-		Description: "A duty for testing.",
+		Description: "A skill for testing.",
 		Prompt:      "Perform the test task.",
 	}
 
 	assignment := &domain.Assignment{
 		ID:      assignmentID,
 		AgentID: agentID,
-		DutyID:  dutyID,
+		SkillID:  skillID,
 		Enabled: true,
 		Backend: backendRef,
 		Config:  map[string]any{},
@@ -192,7 +192,7 @@ func TestPipelineExecute(t *testing.T) {
 	req := ExecuteRequest{
 		Assignment:  assignment,
 		Agent:       agent,
-		Duty:        duty,
+		Skill:        skill,
 		TriggerKind: "manual",
 		EventParams: map[string]any{"reason": "test"},
 		Executor:    fakeExec,
@@ -229,8 +229,8 @@ func TestPipelineExecute(t *testing.T) {
 	if run.AgentID != agentID {
 		t.Errorf("expected AgentID %v, got %v", agentID, run.AgentID)
 	}
-	if run.DutyID != dutyID {
-		t.Errorf("expected DutyID %v, got %v", dutyID, run.DutyID)
+	if run.SkillID != skillID {
+		t.Errorf("expected SkillID %v, got %v", skillID, run.SkillID)
 	}
 	if run.FinishedAt == nil {
 		t.Error("expected FinishedAt to be set")
@@ -246,8 +246,8 @@ func TestPipelineExecute(t *testing.T) {
 	if run.AgentID == (uuid.UUID{}) {
 		t.Error("expected AgentID to be non-zero UUID")
 	}
-	if run.DutyID == (uuid.UUID{}) {
-		t.Error("expected DutyID to be non-zero UUID")
+	if run.SkillID == (uuid.UUID{}) {
+		t.Error("expected SkillID to be non-zero UUID")
 	}
 }
 
@@ -290,7 +290,7 @@ func TestPipelineExecute_WithOutputDelivery(t *testing.T) {
 	}
 
 	agentID := uuid.New()
-	dutyID := uuid.New()
+	skillID := uuid.New()
 	assignmentID := uuid.New()
 
 	agent := &domain.Agent{
@@ -300,17 +300,17 @@ func TestPipelineExecute_WithOutputDelivery(t *testing.T) {
 		SystemPrompt: "You are a delivery test agent.",
 		Enabled:      true,
 	}
-	duty := &domain.Duty{
-		ID:          dutyID,
-		Name:        "delivery-duty",
+	skill := &domain.Skill{
+		ID:          skillID,
+		Name:        "delivery-skill",
 		Role:        "testing",
-		Description: "A duty for delivery testing.",
+		Description: "A skill for delivery testing.",
 		Prompt:      "Perform the delivery test task.",
 	}
 	assignment := &domain.Assignment{
 		ID:      assignmentID,
 		AgentID: agentID,
-		DutyID:  dutyID,
+		SkillID:  skillID,
 		Enabled: true,
 		Backend: backendRef,
 		Config:  map[string]any{},
@@ -326,7 +326,7 @@ func TestPipelineExecute_WithOutputDelivery(t *testing.T) {
 	req := ExecuteRequest{
 		Assignment:  assignment,
 		Agent:       agent,
-		Duty:        duty,
+		Skill:        skill,
 		TriggerKind: "manual",
 		EventParams: map[string]any{},
 		Executor:    fakeExec,
@@ -352,12 +352,12 @@ func TestPipelineExecute_WithOutputDelivery(t *testing.T) {
 	}
 }
 
-func TestPipelineExecute_DutyBackendFallback(t *testing.T) {
+func TestPipelineExecute_SkillBackendFallback(t *testing.T) {
 	ctx := context.Background()
 
 	cannedResult := domain.LLMResult{
 		Status:  0,
-		Summary: "duty-backend summary",
+		Summary: "skill-backend summary",
 		Output:  map[string]any{},
 		Tokens:  7,
 		Cost:    0.0,
@@ -365,13 +365,13 @@ func TestPipelineExecute_DutyBackendFallback(t *testing.T) {
 	fakeExec := executor.NewFakeExecutor(cannedResult)
 	store := state.NewMemStore()
 
-	backendName := "duty-backend"
+	backendName := "skill-backend"
 	backendRef := domain.BackendRef{Name: backendName}
 
-	agentName := "duty-fallback-agent"
-	dutyName := "duty-fallback-duty"
+	agentName := "skill-fallback-agent"
+	skillName := "skill-fallback-skill"
 
-	// Config has the backend defined and the Duty references it; Assignment has no backend.
+	// Config has the backend defined and the Skill references it; Assignment has no backend.
 	cfg := &config.Config{
 		Backends: []config.Backend{
 			{
@@ -385,8 +385,8 @@ func TestPipelineExecute_DutyBackendFallback(t *testing.T) {
 		Agents: []config.AgentConfig{
 			{Name: agentName},
 		},
-		Duties: []config.DutyConfig{
-			{Name: dutyName, Backend: &backendRef},
+		Skills: []config.SkillConfig{
+			{Name: skillName, Backend: &backendRef},
 		},
 	}
 
@@ -398,37 +398,37 @@ func TestPipelineExecute_DutyBackendFallback(t *testing.T) {
 	}
 
 	agentID := uuid.New()
-	dutyID := uuid.New()
+	skillID := uuid.New()
 	assignmentID := uuid.New()
 
 	agent := &domain.Agent{
 		ID:           agentID,
 		Name:         agentName,
 		Role:         "tester",
-		SystemPrompt: "You are a duty-fallback test agent.",
+		SystemPrompt: "You are a skill-fallback test agent.",
 		Enabled:      true,
 	}
-	duty := &domain.Duty{
-		ID:          dutyID,
-		Name:        dutyName,
+	skill := &domain.Skill{
+		ID:          skillID,
+		Name:        skillName,
 		Role:        "testing",
-		Description: "A duty for duty-backend fallback testing.",
-		Prompt:      "Perform the duty-backend fallback test task.",
+		Description: "A skill for skill-backend fallback testing.",
+		Prompt:      "Perform the skill-backend fallback test task.",
 		Backend:     &backendRef,
 	}
 	assignment := &domain.Assignment{
 		ID:      assignmentID,
 		AgentID: agentID,
-		DutyID:  dutyID,
+		SkillID:  skillID,
 		Enabled: true,
-		Backend: nil, // deliberately nil: must fall through to Duty backend
+		Backend: nil, // deliberately nil: must fall through to Skill backend
 		Config:  map[string]any{},
 	}
 
 	req := ExecuteRequest{
 		Assignment:  assignment,
 		Agent:       agent,
-		Duty:        duty,
+		Skill:        skill,
 		TriggerKind: "manual",
 		EventParams: map[string]any{},
 		Executor:    fakeExec,
@@ -469,10 +469,10 @@ func TestPipelineExecute_AgentBackendFallback(t *testing.T) {
 	backendRef := domain.BackendRef{Name: backendName}
 
 	agentName := "agent-fallback-agent"
-	dutyName := "agent-fallback-duty"
+	skillName := "agent-fallback-skill"
 
 	// Config has the backend defined and the Agent references it as default_backend;
-	// neither Assignment nor Duty has a backend set.
+	// neither Assignment nor Skill has a backend set.
 	cfg := &config.Config{
 		Backends: []config.Backend{
 			{
@@ -486,8 +486,8 @@ func TestPipelineExecute_AgentBackendFallback(t *testing.T) {
 		Agents: []config.AgentConfig{
 			{Name: agentName, DefaultBackend: backendRef},
 		},
-		Duties: []config.DutyConfig{
-			{Name: dutyName}, // no Backend
+		Skills: []config.SkillConfig{
+			{Name: skillName}, // no Backend
 		},
 	}
 
@@ -499,7 +499,7 @@ func TestPipelineExecute_AgentBackendFallback(t *testing.T) {
 	}
 
 	agentID := uuid.New()
-	dutyID := uuid.New()
+	skillID := uuid.New()
 	assignmentID := uuid.New()
 
 	agent := &domain.Agent{
@@ -510,18 +510,18 @@ func TestPipelineExecute_AgentBackendFallback(t *testing.T) {
 		DefaultBackend: backendRef,
 		Enabled:        true,
 	}
-	duty := &domain.Duty{
-		ID:          dutyID,
-		Name:        dutyName,
+	skill := &domain.Skill{
+		ID:          skillID,
+		Name:        skillName,
 		Role:        "testing",
-		Description: "A duty for agent-backend fallback testing.",
+		Description: "A skill for agent-backend fallback testing.",
 		Prompt:      "Perform the agent-backend fallback test task.",
 		Backend:     nil, // deliberately nil: must fall through to Agent default backend
 	}
 	assignment := &domain.Assignment{
 		ID:      assignmentID,
 		AgentID: agentID,
-		DutyID:  dutyID,
+		SkillID:  skillID,
 		Enabled: true,
 		Backend: nil, // deliberately nil
 		Config:  map[string]any{},
@@ -530,7 +530,7 @@ func TestPipelineExecute_AgentBackendFallback(t *testing.T) {
 	req := ExecuteRequest{
 		Assignment:  assignment,
 		Agent:       agent,
-		Duty:        duty,
+		Skill:        skill,
 		TriggerKind: "manual",
 		EventParams: map[string]any{},
 		Executor:    fakeExec,
@@ -589,7 +589,7 @@ func TestPipelineExecute_TaskPromptOverride(t *testing.T) {
 	}
 
 	agentID := uuid.New()
-	dutyID := uuid.New()
+	skillID := uuid.New()
 	assignmentID := uuid.New()
 
 	agent := &domain.Agent{
@@ -599,19 +599,19 @@ func TestPipelineExecute_TaskPromptOverride(t *testing.T) {
 		SystemPrompt: "You are an override test agent.",
 		Enabled:      true,
 	}
-	dutyPromptText := "Original duty prompt text."
-	duty := &domain.Duty{
-		ID:          dutyID,
-		Name:        "override-duty",
+	skillPromptText := "Original skill prompt text."
+	skill := &domain.Skill{
+		ID:          skillID,
+		Name:        "override-skill",
 		Role:        "testing",
-		Description: "A duty for override testing.",
-		Prompt:      dutyPromptText,
+		Description: "A skill for override testing.",
+		Prompt:      skillPromptText,
 	}
 	overrideText := "This is the task prompt override text."
 	assignment := &domain.Assignment{
 		ID:                 assignmentID,
 		AgentID:            agentID,
-		DutyID:             dutyID,
+		SkillID:             skillID,
 		Enabled:            true,
 		Backend:            backendRef,
 		Config:             map[string]any{},
@@ -621,7 +621,7 @@ func TestPipelineExecute_TaskPromptOverride(t *testing.T) {
 	req := ExecuteRequest{
 		Assignment:  assignment,
 		Agent:       agent,
-		Duty:        duty,
+		Skill:        skill,
 		TriggerKind: "manual",
 		EventParams: map[string]any{},
 		Executor:    fakeExec,
@@ -638,15 +638,15 @@ func TestPipelineExecute_TaskPromptOverride(t *testing.T) {
 		t.Errorf("expected status %q, got %q", domain.RunStatusSucceeded, run.Status)
 	}
 
-	// AC#7: RenderedPrompt must contain the override text, not the duty original prompt.
+	// AC#7: RenderedPrompt must contain the override text, not the skill original prompt.
 	if run.RenderedPrompt == "" {
 		t.Fatal("expected RenderedPrompt to be non-empty")
 	}
 	if !strings.Contains(run.RenderedPrompt, overrideText) {
 		t.Errorf("expected RenderedPrompt to contain override text %q, got %q", overrideText, run.RenderedPrompt)
 	}
-	if strings.Contains(run.RenderedPrompt, dutyPromptText) {
-		t.Errorf("expected RenderedPrompt NOT to contain duty prompt %q, but it did; got %q", dutyPromptText, run.RenderedPrompt)
+	if strings.Contains(run.RenderedPrompt, skillPromptText) {
+		t.Errorf("expected RenderedPrompt NOT to contain skill prompt %q, but it did; got %q", skillPromptText, run.RenderedPrompt)
 	}
 }
 
@@ -685,7 +685,7 @@ func TestPipelineExecute_ExtraInstructions(t *testing.T) {
 	}
 
 	agentID := uuid.New()
-	dutyID := uuid.New()
+	skillID := uuid.New()
 	assignmentID := uuid.New()
 
 	agent := &domain.Agent{
@@ -695,18 +695,18 @@ func TestPipelineExecute_ExtraInstructions(t *testing.T) {
 		SystemPrompt: "You are an extra instructions test agent.",
 		Enabled:      true,
 	}
-	duty := &domain.Duty{
-		ID:          dutyID,
-		Name:        "extra-duty",
+	skill := &domain.Skill{
+		ID:          skillID,
+		Name:        "extra-skill",
 		Role:        "testing",
-		Description: "A duty for extra instructions testing.",
+		Description: "A skill for extra instructions testing.",
 		Prompt:      "Perform the base task.",
 	}
 	extraText := "EXTRA_INSTRUCTIONS_SENTINEL"
 	assignment := &domain.Assignment{
 		ID:                assignmentID,
 		AgentID:           agentID,
-		DutyID:            dutyID,
+		SkillID:            skillID,
 		Enabled:           true,
 		Backend:           backendRef,
 		Config:            map[string]any{},
@@ -716,7 +716,7 @@ func TestPipelineExecute_ExtraInstructions(t *testing.T) {
 	req := ExecuteRequest{
 		Assignment:  assignment,
 		Agent:       agent,
-		Duty:        duty,
+		Skill:        skill,
 		TriggerKind: "manual",
 		EventParams: map[string]any{},
 		Executor:    fakeExec,
@@ -730,18 +730,18 @@ func TestPipelineExecute_ExtraInstructions(t *testing.T) {
 		t.Fatal("Execute returned nil run")
 	}
 
-	// AC#7: RenderedPrompt must contain both the base duty prompt and the extra instructions.
-	if !strings.Contains(run.RenderedPrompt, duty.Prompt) {
-		t.Errorf("expected RenderedPrompt to contain base duty prompt %q, got %q", duty.Prompt, run.RenderedPrompt)
+	// AC#7: RenderedPrompt must contain both the base skill prompt and the extra instructions.
+	if !strings.Contains(run.RenderedPrompt, skill.Prompt) {
+		t.Errorf("expected RenderedPrompt to contain base skill prompt %q, got %q", skill.Prompt, run.RenderedPrompt)
 	}
 	if !strings.Contains(run.RenderedPrompt, extraText) {
 		t.Errorf("expected RenderedPrompt to contain extra instructions %q, got %q", extraText, run.RenderedPrompt)
 	}
 	// Extra instructions must appear after the base prompt.
-	baseIdx := strings.Index(run.RenderedPrompt, duty.Prompt)
+	baseIdx := strings.Index(run.RenderedPrompt, skill.Prompt)
 	extraIdx := strings.Index(run.RenderedPrompt, extraText)
 	if extraIdx <= baseIdx {
-		t.Errorf("expected extra instructions to appear after base duty prompt in RenderedPrompt")
+		t.Errorf("expected extra instructions to appear after base skill prompt in RenderedPrompt")
 	}
 }
 
@@ -780,7 +780,7 @@ func TestPipelineExecute_StatePopulatedInPrompt(t *testing.T) {
 	}
 
 	agentID := uuid.New()
-	dutyID := uuid.New()
+	skillID := uuid.New()
 	assignmentID := uuid.New()
 
 	agent := &domain.Agent{
@@ -791,19 +791,19 @@ func TestPipelineExecute_StatePopulatedInPrompt(t *testing.T) {
 		Enabled:      true,
 	}
 
-	// Duty prompt references a State key (raw string value).
-	duty := &domain.Duty{
-		ID:          dutyID,
-		Name:        "state-duty",
+	// Skill prompt references a State key (raw string value).
+	skill := &domain.Skill{
+		ID:          skillID,
+		Name:        "state-skill",
 		Role:        "testing",
-		Description: "A duty for state testing.",
+		Description: "A skill for state testing.",
 		Prompt:      "Last reviewed: {{.State.last_reviewed_sha}}",
 	}
 
 	assignment := &domain.Assignment{
 		ID:      assignmentID,
 		AgentID: agentID,
-		DutyID:  dutyID,
+		SkillID:  skillID,
 		Enabled: true,
 		Backend: backendRef,
 		Config:  map[string]any{},
@@ -817,7 +817,7 @@ func TestPipelineExecute_StatePopulatedInPrompt(t *testing.T) {
 	req := ExecuteRequest{
 		Assignment:  assignment,
 		Agent:       agent,
-		Duty:        duty,
+		Skill:        skill,
 		TriggerKind: "manual",
 		EventParams: map[string]any{},
 		Executor:    fakeExec,
@@ -872,7 +872,7 @@ func TestPipelineExecute_DedupSkip(t *testing.T) {
 	}
 
 	agentID := uuid.New()
-	dutyID := uuid.New()
+	skillID := uuid.New()
 	assignmentID := uuid.New()
 
 	agent := &domain.Agent{
@@ -882,17 +882,17 @@ func TestPipelineExecute_DedupSkip(t *testing.T) {
 		SystemPrompt: "You are a dedup test agent.",
 		Enabled:      true,
 	}
-	duty := &domain.Duty{
-		ID:          dutyID,
-		Name:        "dedup-duty",
+	skill := &domain.Skill{
+		ID:          skillID,
+		Name:        "dedup-skill",
 		Role:        "testing",
-		Description: "A duty for dedup testing.",
+		Description: "A skill for dedup testing.",
 		Prompt:      "Perform the dedup test task.",
 	}
 	assignment := &domain.Assignment{
 		ID:      assignmentID,
 		AgentID: agentID,
-		DutyID:  dutyID,
+		SkillID:  skillID,
 		Enabled: true,
 		Backend: backendRef,
 		Config:  map[string]any{},
@@ -906,7 +906,7 @@ func TestPipelineExecute_DedupSkip(t *testing.T) {
 	req := ExecuteRequest{
 		Assignment:  assignment,
 		Agent:       agent,
-		Duty:        duty,
+		Skill:        skill,
 		TriggerKind: "event",
 		EventParams: map[string]any{"mr_iid": "42"},
 		Executor:    fakeExec,
@@ -975,7 +975,7 @@ func TestPipelineExecute_SecretInTemplate(t *testing.T) {
 	}
 
 	agentID := uuid.New()
-	dutyID := uuid.New()
+	skillID := uuid.New()
 	assignmentID := uuid.New()
 
 	agent := &domain.Agent{
@@ -985,17 +985,17 @@ func TestPipelineExecute_SecretInTemplate(t *testing.T) {
 		SystemPrompt: "You are a secret test agent.",
 		Enabled:      true,
 	}
-	duty := &domain.Duty{
-		ID:          dutyID,
-		Name:        "secret-duty",
+	skill := &domain.Skill{
+		ID:          skillID,
+		Name:        "secret-skill",
 		Role:        "testing",
-		Description: "A duty for secret testing.",
+		Description: "A skill for secret testing.",
 		Prompt:      `Use token: {{secret "api_token"}}`,
 	}
 	assignment := &domain.Assignment{
 		ID:      assignmentID,
 		AgentID: agentID,
-		DutyID:  dutyID,
+		SkillID:  skillID,
 		Enabled: true,
 		Backend: backendRef,
 		Config:  map[string]any{},
@@ -1004,7 +1004,7 @@ func TestPipelineExecute_SecretInTemplate(t *testing.T) {
 	req := ExecuteRequest{
 		Assignment:  assignment,
 		Agent:       agent,
-		Duty:        duty,
+		Skill:        skill,
 		TriggerKind: "manual",
 		EventParams: map[string]any{},
 		Executor:    fakeExec,
@@ -1057,7 +1057,7 @@ func pausedTestFixture(agentEnabled, assignmentEnabled bool) (*Pipeline, Execute
 	}
 
 	agentID := uuid.New()
-	dutyID := uuid.New()
+	skillID := uuid.New()
 
 	agent := &domain.Agent{
 		ID:           agentID,
@@ -1066,17 +1066,17 @@ func pausedTestFixture(agentEnabled, assignmentEnabled bool) (*Pipeline, Execute
 		SystemPrompt: "You are a pause test agent.",
 		Enabled:      agentEnabled,
 	}
-	duty := &domain.Duty{
-		ID:          dutyID,
-		Name:        "pause-duty",
+	skill := &domain.Skill{
+		ID:          skillID,
+		Name:        "pause-skill",
 		Role:        "testing",
-		Description: "A duty for pause testing.",
+		Description: "A skill for pause testing.",
 		Prompt:      "Perform the pause test task.",
 	}
 	assignment := &domain.Assignment{
 		ID:      uuid.New(),
 		AgentID: agentID,
-		DutyID:  dutyID,
+		SkillID:  skillID,
 		Enabled: assignmentEnabled,
 		Backend: &domain.BackendRef{Name: backendName},
 		Config:  map[string]any{},
@@ -1085,7 +1085,7 @@ func pausedTestFixture(agentEnabled, assignmentEnabled bool) (*Pipeline, Execute
 	req := ExecuteRequest{
 		Assignment:  assignment,
 		Agent:       agent,
-		Duty:        duty,
+		Skill:        skill,
 		TriggerKind: "manual",
 		EventParams: map[string]any{"mr_iid": "7"},
 		Executor:    fakeExec,
@@ -1172,18 +1172,18 @@ func TestPipelineExecute_DeliveryFailureReleasesDedupClaim(t *testing.T) {
 	rr := newFakeRunRepo()
 	pipeline := &Pipeline{cfg: cfg, runRepo: rr, store: store}
 
-	agentID, dutyID, assignmentID := uuid.New(), uuid.New(), uuid.New()
+	agentID, skillID, assignmentID := uuid.New(), uuid.New(), uuid.New()
 	agent := &domain.Agent{ID: agentID, Name: "a", Role: "r", SystemPrompt: "s", Enabled: true}
-	duty := &domain.Duty{ID: dutyID, Name: "d", Role: "r", Description: "x", Prompt: "Do it."}
+	skill := &domain.Skill{ID: skillID, Name: "d", Role: "r", Description: "x", Prompt: "Do it."}
 	assignment := &domain.Assignment{
-		ID: assignmentID, AgentID: agentID, DutyID: dutyID, Enabled: true,
+		ID: assignmentID, AgentID: agentID, SkillID: skillID, Enabled: true,
 		Backend: &domain.BackendRef{Name: backendName}, Config: map[string]any{},
 		Outputs: []domain.OutputBinding{
 			{Plugin: "unregistered-delivery-plugin", Action: "x", Params: map[string]any{"m": "y"}},
 		},
 	}
 	req := ExecuteRequest{
-		Assignment: assignment, Agent: agent, Duty: duty,
+		Assignment: assignment, Agent: agent, Skill: skill,
 		TriggerKind: "event", EventParams: map[string]any{"dedup_key": "evt-fail"},
 		Executor: exec,
 	}
@@ -1221,15 +1221,15 @@ func TestPipelineExecute_SuccessKeepsDedupClaim(t *testing.T) {
 	rr := newFakeRunRepo()
 	pipeline := &Pipeline{cfg: cfg, runRepo: rr, store: store}
 
-	agentID, dutyID, assignmentID := uuid.New(), uuid.New(), uuid.New()
+	agentID, skillID, assignmentID := uuid.New(), uuid.New(), uuid.New()
 	agent := &domain.Agent{ID: agentID, Name: "a", Role: "r", SystemPrompt: "s", Enabled: true}
-	duty := &domain.Duty{ID: dutyID, Name: "d", Role: "r", Description: "x", Prompt: "Do it."}
+	skill := &domain.Skill{ID: skillID, Name: "d", Role: "r", Description: "x", Prompt: "Do it."}
 	assignment := &domain.Assignment{
-		ID: assignmentID, AgentID: agentID, DutyID: dutyID, Enabled: true,
+		ID: assignmentID, AgentID: agentID, SkillID: skillID, Enabled: true,
 		Backend: &domain.BackendRef{Name: backendName}, Config: map[string]any{},
 	}
 	req := ExecuteRequest{
-		Assignment: assignment, Agent: agent, Duty: duty,
+		Assignment: assignment, Agent: agent, Skill: skill,
 		TriggerKind: "event", EventParams: map[string]any{"dedup_key": "evt-ok"},
 		Executor: exec,
 	}
@@ -1272,18 +1272,18 @@ func TestPipelineExecute_FailsFastOnUninitializedPlugin(t *testing.T) {
 	rr := newFakeRunRepo()
 	pipeline := &Pipeline{cfg: cfg, runRepo: rr, store: store}
 
-	agentID, dutyID, assignmentID := uuid.New(), uuid.New(), uuid.New()
+	agentID, skillID, assignmentID := uuid.New(), uuid.New(), uuid.New()
 	agent := &domain.Agent{ID: agentID, Name: "a", Role: "r", SystemPrompt: "s", Enabled: true}
-	duty := &domain.Duty{ID: dutyID, Name: "d", Role: "r", Description: "x", Prompt: "Do it."}
+	skill := &domain.Skill{ID: skillID, Name: "d", Role: "r", Description: "x", Prompt: "Do it."}
 	assignment := &domain.Assignment{
-		ID: assignmentID, AgentID: agentID, DutyID: dutyID, Enabled: true,
+		ID: assignmentID, AgentID: agentID, SkillID: skillID, Enabled: true,
 		Backend: &domain.BackendRef{Name: backendName}, Config: map[string]any{},
 		Outputs: []domain.OutputBinding{
 			{Plugin: "uninit-plugin", Action: "notify", Params: map[string]any{"m": "x"}},
 		},
 	}
 	req := ExecuteRequest{
-		Assignment: assignment, Agent: agent, Duty: duty,
+		Assignment: assignment, Agent: agent, Skill: skill,
 		TriggerKind: "manual", Executor: exec,
 	}
 
@@ -1342,19 +1342,19 @@ func TestPipelineExecute_ModelReportedFailure(t *testing.T) {
 	}
 
 	agentID := uuid.New()
-	dutyID := uuid.New()
+	skillID := uuid.New()
 	assignmentID := uuid.New()
 
 	agent := &domain.Agent{
 		ID: agentID, Name: "modelfail-agent", Role: "tester",
 		SystemPrompt: "You are a test agent.", Enabled: true,
 	}
-	duty := &domain.Duty{
-		ID: dutyID, Name: "modelfail-duty", Role: "testing",
-		Description: "A duty for model-failure testing.", Prompt: "Do the task.",
+	skill := &domain.Skill{
+		ID: skillID, Name: "modelfail-skill", Role: "testing",
+		Description: "A skill for model-failure testing.", Prompt: "Do the task.",
 	}
 	assignment := &domain.Assignment{
-		ID: assignmentID, AgentID: agentID, DutyID: dutyID,
+		ID: assignmentID, AgentID: agentID, SkillID: skillID,
 		Enabled: true, Backend: backendRef, Config: map[string]any{},
 		Outputs: []domain.OutputBinding{
 			{Plugin: "must-not-deliver-plugin", Action: "notify", Params: map[string]any{"m": "x"}},
@@ -1362,7 +1362,7 @@ func TestPipelineExecute_ModelReportedFailure(t *testing.T) {
 	}
 
 	req := ExecuteRequest{
-		Assignment: assignment, Agent: agent, Duty: duty,
+		Assignment: assignment, Agent: agent, Skill: skill,
 		TriggerKind: "event", EventParams: map[string]any{"mr_iid": "99"},
 		Executor: fakeExec,
 	}
@@ -1419,14 +1419,14 @@ func TestPipelineExecute_ZeroStatusStillSucceeds(t *testing.T) {
 	rr := newFakeRunRepo()
 	pipeline := &Pipeline{cfg: cfg, runRepo: rr, store: store}
 
-	agentID, dutyID := uuid.New(), uuid.New()
+	agentID, skillID := uuid.New(), uuid.New()
 	run, err := pipeline.Execute(ctx, ExecuteRequest{
 		Assignment: &domain.Assignment{
-			ID: uuid.New(), AgentID: agentID, DutyID: dutyID, Enabled: true,
+			ID: uuid.New(), AgentID: agentID, SkillID: skillID, Enabled: true,
 			Backend: &domain.BackendRef{Name: backendName}, Config: map[string]any{},
 		},
 		Agent:       &domain.Agent{ID: agentID, Name: "z-agent", Role: "t", SystemPrompt: "s", Enabled: true},
-		Duty:        &domain.Duty{ID: dutyID, Name: "z-duty", Role: "t", Description: "d", Prompt: "p"},
+		Skill:        &domain.Skill{ID: skillID, Name: "z-skill", Role: "t", Description: "d", Prompt: "p"},
 		TriggerKind: "manual", EventParams: map[string]any{}, Executor: fakeExec,
 	})
 	if err != nil {
@@ -1452,14 +1452,14 @@ func TestPipelineExecute_ExecutorErrorPreservesPartialResult(t *testing.T) {
 	rr := newFakeRunRepo()
 	pipeline := &Pipeline{cfg: cfg, runRepo: rr, store: store}
 
-	agentID, dutyID := uuid.New(), uuid.New()
+	agentID, skillID := uuid.New(), uuid.New()
 	run, err := pipeline.Execute(ctx, ExecuteRequest{
 		Assignment: &domain.Assignment{
-			ID: uuid.New(), AgentID: agentID, DutyID: dutyID, Enabled: true,
+			ID: uuid.New(), AgentID: agentID, SkillID: skillID, Enabled: true,
 			Backend: &domain.BackendRef{Name: backendName}, Config: map[string]any{},
 		},
 		Agent:       &domain.Agent{ID: agentID, Name: "p-agent", Role: "t", SystemPrompt: "s", Enabled: true},
-		Duty:        &domain.Duty{ID: dutyID, Name: "p-duty", Role: "t", Description: "d", Prompt: "p"},
+		Skill:        &domain.Skill{ID: skillID, Name: "p-skill", Role: "t", Description: "d", Prompt: "p"},
 		TriggerKind: "manual", EventParams: map[string]any{}, Executor: fakeExec,
 	})
 	if err == nil {
@@ -1492,15 +1492,15 @@ func TestPipelineExecute_EventIDStamped(t *testing.T) {
 	rr := newFakeRunRepo()
 	pipeline := &Pipeline{cfg: cfg, runRepo: rr, store: store}
 
-	agentID, dutyID := uuid.New(), uuid.New()
+	agentID, skillID := uuid.New(), uuid.New()
 	eventID := "11111111-2222-3333-4444-555555555555"
 	run, err := pipeline.Execute(ctx, ExecuteRequest{
 		Assignment: &domain.Assignment{
-			ID: uuid.New(), AgentID: agentID, DutyID: dutyID, Enabled: true,
+			ID: uuid.New(), AgentID: agentID, SkillID: skillID, Enabled: true,
 			Backend: &domain.BackendRef{Name: backendName}, Config: map[string]any{},
 		},
 		Agent:       &domain.Agent{ID: agentID, Name: "ev-agent", Role: "t", SystemPrompt: "s", Enabled: true},
-		Duty:        &domain.Duty{ID: dutyID, Name: "ev-duty", Role: "t", Description: "d", Prompt: "p"},
+		Skill:        &domain.Skill{ID: skillID, Name: "ev-skill", Role: "t", Description: "d", Prompt: "p"},
 		TriggerKind: "event-subscription",
 		EventID:     &eventID,
 		EventParams: map[string]any{},
@@ -1550,12 +1550,12 @@ func TestPipelineExecute_RunUpdateHook(t *testing.T) {
 		mu.Unlock()
 	})
 
-	agentID, dutyID := uuid.New(), uuid.New()
+	agentID, skillID := uuid.New(), uuid.New()
 	_, err := pipeline.Execute(ctx, ExecuteRequest{
-		Assignment: &domain.Assignment{ID: uuid.New(), AgentID: agentID, DutyID: dutyID,
+		Assignment: &domain.Assignment{ID: uuid.New(), AgentID: agentID, SkillID: skillID,
 			Enabled: true, Backend: &domain.BackendRef{Name: backendName}, Config: map[string]any{}},
 		Agent:       &domain.Agent{ID: agentID, Name: "hook-agent", Role: "t", SystemPrompt: "s", Enabled: true},
-		Duty:        &domain.Duty{ID: dutyID, Name: "hook-duty", Role: "t", Description: "d", Prompt: "p"},
+		Skill:        &domain.Skill{ID: skillID, Name: "hook-skill", Role: "t", Description: "d", Prompt: "p"},
 		TriggerKind: "manual", EventParams: map[string]any{}, Executor: fakeExec,
 	})
 	if err != nil {

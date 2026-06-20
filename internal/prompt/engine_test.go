@@ -12,7 +12,7 @@ func testCtx() prompt.Context {
 	return prompt.Context{
 		Event:      map[string]any{"mr_iid": "42", "title": "Fix the bug"},
 		Agent:      map[string]any{"name": "dev-1", "role": "developer"},
-		Duty:       map[string]any{"name": "mr-reviewer"},
+		Skill:       map[string]any{"name": "mr-reviewer"},
 		Assignment: map[string]any{"project": "myorg/myrepo"},
 		State:      map[string]any{},
 		Now:        time.Date(2026, 6, 7, 0, 0, 0, 0, time.UTC),

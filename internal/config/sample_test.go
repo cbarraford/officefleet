@@ -10,7 +10,7 @@ import (
 )
 
 // TestSampleConfig pins the shipped sample: it must parse, validate, and its
-// duty prompts must render against a realistic context (catches {{.Event.x}}
+// skill prompts must render against a realistic context (catches {{.Event.x}}
 // typos and template syntax errors at test time, not at first live run).
 func TestSampleConfig(t *testing.T) {
 	t.Setenv("FLEET_DATABASE_DSN", "postgres://test")
@@ -22,7 +22,7 @@ func TestSampleConfig(t *testing.T) {
 		t.Fatalf("sample config must validate: %v", errs)
 	}
 
-	wantDuties := map[string]bool{"mr-review": false, "code-audit": false, "mr-feedback": false}
+	wantSkills := map[string]bool{"mr-review": false, "code-audit": false, "mr-feedback": false}
 	syntheticCtx := prompt.Context{
 		Event: map[string]any{
 			"mr_iid": 42, "title": "Add limiter", "mr_title": "Add limiter",
@@ -30,28 +30,28 @@ func TestSampleConfig(t *testing.T) {
 			"note_body": "why this approach?", "author": "alice", "discussion_id": "abc",
 		},
 		Agent:      map[string]any{"name": "dev-1", "role": "developer"},
-		Duty:       map[string]any{},
+		Skill:       map[string]any{},
 		Assignment: map[string]any{"project": "org/repo", "category": "security"},
 		State:      map[string]any{},
 		Now:        time.Now(),
 	}
 	syntheticSecrets := map[string]string{"gitlab_token": "tok"}
-	for _, d := range cfg.Duties {
-		if _, tracked := wantDuties[d.Name]; tracked {
-			wantDuties[d.Name] = true
+	for _, d := range cfg.Skills {
+		if _, tracked := wantSkills[d.Name]; tracked {
+			wantSkills[d.Name] = true
 		}
 		rendered, err := prompt.Render(d.Prompt, syntheticCtx, syntheticSecrets)
 		if err != nil {
-			t.Errorf("duty %q prompt does not render: %v", d.Name, err)
+			t.Errorf("skill %q prompt does not render: %v", d.Name, err)
 			continue
 		}
 		if strings.Contains(rendered, "<no value>") {
-			t.Errorf("duty %q prompt rendered a missing field (<no value>):\n%s", d.Name, rendered)
+			t.Errorf("skill %q prompt rendered a missing field (<no value>):\n%s", d.Name, rendered)
 		}
 	}
-	for name, seen := range wantDuties {
+	for name, seen := range wantSkills {
 		if !seen {
-			t.Errorf("sample config missing duty %q", name)
+			t.Errorf("sample config missing skill %q", name)
 		}
 	}
 
@@ -69,7 +69,7 @@ func TestSampleConfig(t *testing.T) {
 					"title": "t", "description": "d", "labels": "l",
 				}
 				if _, err := prompt.Render(s, itemCtx, nil); err != nil {
-					t.Errorf("assignment (%s,%s) output param %q does not render: %v", a.Agent, a.Duty, key, err)
+					t.Errorf("assignment (%s,%s) output param %q does not render: %v", a.Agent, a.Skill, key, err)
 				}
 			}
 		}

@@ -27,7 +27,7 @@ agents:
     default_backend:
       name: claude-default
     enabled: true
-duties:
+skills:
   - name: mr-reviewer
     role: developer
     description: "Reviews merge requests"
@@ -39,7 +39,7 @@ duties:
         action: post_mr_comment
 assignments:
   - agent: dev-1
-    duty: mr-reviewer
+    skill: mr-reviewer
     enabled: true
     trigger:
       kind: manual
@@ -75,8 +75,8 @@ func TestValidate_Clean(t *testing.T) {
 	cfg := &config.Config{
 		Backends:    []config.Backend{{Name: "b1", Kind: "claude", Auth: config.BackendAuth{Mode: "subscription"}}},
 		Agents:      []config.AgentConfig{{Name: "a1", DefaultBackend: domain.BackendRef{Name: "b1"}}},
-		Duties:      []config.DutyConfig{{Name: "d1"}},
-		Assignments: []config.AssignmentConfig{{Agent: "a1", Duty: "d1"}},
+		Skills:      []config.SkillConfig{{Name: "d1"}},
+		Assignments: []config.AssignmentConfig{{Agent: "a1", Skill: "d1"}},
 	}
 	errs := config.Validate(cfg)
 	if len(errs) != 0 {
@@ -88,13 +88,13 @@ func TestResolveBackend_Precedence(t *testing.T) {
 	cfg := &config.Config{
 		Backends: []config.Backend{
 			{Name: "agent-backend", Kind: "claude", DefaultEffort: "low"},
-			{Name: "duty-backend", Kind: "claude", DefaultEffort: "medium"},
+			{Name: "skill-backend", Kind: "claude", DefaultEffort: "medium"},
 			{Name: "assign-backend", Kind: "claude", DefaultEffort: "high"},
 		},
 		Agents: []config.AgentConfig{{Name: "a1", DefaultBackend: domain.BackendRef{Name: "agent-backend"}}},
-		Duties: []config.DutyConfig{{Name: "d1", Backend: &domain.BackendRef{Name: "duty-backend"}}},
+		Skills: []config.SkillConfig{{Name: "d1", Backend: &domain.BackendRef{Name: "skill-backend"}}},
 		Assignments: []config.AssignmentConfig{
-			{Agent: "a1", Duty: "d1", Backend: &domain.BackendRef{Name: "assign-backend"}},
+			{Agent: "a1", Skill: "d1", Backend: &domain.BackendRef{Name: "assign-backend"}},
 		},
 	}
 	b, _, err := config.ResolveBackend(cfg, cfg.Assignments[0])
@@ -110,8 +110,8 @@ func TestResolveBackend_FallsBackToAgent(t *testing.T) {
 	cfg := &config.Config{
 		Backends:    []config.Backend{{Name: "agent-backend", Kind: "claude", DefaultEffort: "high"}},
 		Agents:      []config.AgentConfig{{Name: "a1", DefaultBackend: domain.BackendRef{Name: "agent-backend"}}},
-		Duties:      []config.DutyConfig{{Name: "d1"}},
-		Assignments: []config.AssignmentConfig{{Agent: "a1", Duty: "d1"}},
+		Skills:      []config.SkillConfig{{Name: "d1"}},
+		Assignments: []config.AssignmentConfig{{Agent: "a1", Skill: "d1"}},
 	}
 	b, _, err := config.ResolveBackend(cfg, cfg.Assignments[0])
 	if err != nil {
@@ -122,24 +122,24 @@ func TestResolveBackend_FallsBackToAgent(t *testing.T) {
 	}
 }
 
-// TestResolveBackend_DutyWinsOverAgent (gap M12): duty backend takes precedence over agent default when no
+// TestResolveBackend_SkillWinsOverAgent (gap M12): skill backend takes precedence over agent default when no
 // assignment-level backend is set.
-func TestResolveBackend_DutyWinsOverAgent(t *testing.T) {
+func TestResolveBackend_SkillWinsOverAgent(t *testing.T) {
 	cfg := &config.Config{
 		Backends: []config.Backend{
 			{Name: "agent-backend", Kind: "claude", DefaultEffort: "low"},
-			{Name: "duty-backend", Kind: "claude", DefaultEffort: "medium"},
+			{Name: "skill-backend", Kind: "claude", DefaultEffort: "medium"},
 		},
 		Agents:      []config.AgentConfig{{Name: "a1", DefaultBackend: domain.BackendRef{Name: "agent-backend"}}},
-		Duties:      []config.DutyConfig{{Name: "d1", Backend: &domain.BackendRef{Name: "duty-backend"}}},
-		Assignments: []config.AssignmentConfig{{Agent: "a1", Duty: "d1"}},
+		Skills:      []config.SkillConfig{{Name: "d1", Backend: &domain.BackendRef{Name: "skill-backend"}}},
+		Assignments: []config.AssignmentConfig{{Agent: "a1", Skill: "d1"}},
 	}
 	b, _, err := config.ResolveBackend(cfg, cfg.Assignments[0])
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b.Name != "duty-backend" {
-		t.Fatalf("expected duty-backend to win over agent-backend, got %q", b.Name)
+	if b.Name != "skill-backend" {
+		t.Fatalf("expected skill-backend to win over agent-backend, got %q", b.Name)
 	}
 }
 
@@ -158,8 +158,8 @@ func TestResolveBackend_BackendRefOverrides(t *testing.T) {
 				Effort: "high",
 			},
 		}},
-		Duties:      []config.DutyConfig{{Name: "d1"}},
-		Assignments: []config.AssignmentConfig{{Agent: "a1", Duty: "d1"}},
+		Skills:      []config.SkillConfig{{Name: "d1"}},
+		Assignments: []config.AssignmentConfig{{Agent: "a1", Skill: "d1"}},
 	}
 	b, _, err := config.ResolveBackend(cfg, cfg.Assignments[0])
 	if err != nil {
@@ -229,8 +229,8 @@ func TestValidate_AssignmentNoBackendAtAnyTier(t *testing.T) {
 	cfg := &config.Config{
 		Backends:    []config.Backend{{Name: "b1", Kind: "claude", Auth: config.BackendAuth{Mode: "subscription"}}},
 		Agents:      []config.AgentConfig{{Name: "a1"}},                   // no DefaultBackend
-		Duties:      []config.DutyConfig{{Name: "d1"}},                    // no Backend
-		Assignments: []config.AssignmentConfig{{Agent: "a1", Duty: "d1"}}, // no Backend
+		Skills:      []config.SkillConfig{{Name: "d1"}},                    // no Backend
+		Assignments: []config.AssignmentConfig{{Agent: "a1", Skill: "d1"}}, // no Backend
 	}
 	errs := config.Validate(cfg)
 	if len(errs) == 0 {
@@ -248,19 +248,19 @@ func TestValidate_AssignmentNoBackendAtAnyTier(t *testing.T) {
 	}
 }
 
-// TestValidate_AssignmentNoBackendAtAnyTier_DutyCoversIt (gap config-3 negative): when the duty provides a
+// TestValidate_AssignmentNoBackendAtAnyTier_SkillCoversIt (gap config-3 negative): when the skill provides a
 // backend, the assignment is valid even if the agent has no default.
-func TestValidate_AssignmentNoBackendAtAnyTier_DutyCoversIt(t *testing.T) {
+func TestValidate_AssignmentNoBackendAtAnyTier_SkillCoversIt(t *testing.T) {
 	cfg := &config.Config{
 		Backends:    []config.Backend{{Name: "b1", Kind: "claude", Auth: config.BackendAuth{Mode: "subscription"}}},
 		Agents:      []config.AgentConfig{{Name: "a1"}}, // no DefaultBackend
-		Duties:      []config.DutyConfig{{Name: "d1", Backend: &domain.BackendRef{Name: "b1"}}},
-		Assignments: []config.AssignmentConfig{{Agent: "a1", Duty: "d1"}},
+		Skills:      []config.SkillConfig{{Name: "d1", Backend: &domain.BackendRef{Name: "b1"}}},
+		Assignments: []config.AssignmentConfig{{Agent: "a1", Skill: "d1"}},
 	}
 	errs := config.Validate(cfg)
 	for _, e := range errs {
 		if strings.Contains(e.Error(), "no backend resolved") {
-			t.Fatalf("unexpected 'no backend resolved' error when duty provides backend: %v", e)
+			t.Fatalf("unexpected 'no backend resolved' error when skill provides backend: %v", e)
 		}
 	}
 }
@@ -291,19 +291,19 @@ func TestValidate_UnknownKind(t *testing.T) {
 	}
 }
 
-// TestValidate_DutyMissingBackend (gap config-9): a duty whose backend field references a non-existent backend
+// TestValidate_SkillMissingBackend (gap config-9): a skill whose backend field references a non-existent backend
 // name must produce a validation error.
-func TestValidate_DutyMissingBackend(t *testing.T) {
+func TestValidate_SkillMissingBackend(t *testing.T) {
 	cfg := &config.Config{
 		Backends: []config.Backend{{Name: "real-backend", Kind: "claude", Auth: config.BackendAuth{Mode: "subscription"}}},
-		Duties: []config.DutyConfig{{
+		Skills: []config.SkillConfig{{
 			Name:    "d1",
 			Backend: &domain.BackendRef{Name: "non-existent-backend"},
 		}},
 	}
 	errs := config.Validate(cfg)
 	if len(errs) == 0 {
-		t.Fatal("expected validation error for duty referencing non-existent backend, got none")
+		t.Fatal("expected validation error for skill referencing non-existent backend, got none")
 	}
 	found := false
 	for _, e := range errs {
@@ -349,8 +349,8 @@ func TestResolveBackend_NoneConfigured(t *testing.T) {
 	cfg := &config.Config{
 		Backends:    []config.Backend{{Name: "some-backend", Kind: "claude"}},
 		Agents:      []config.AgentConfig{{Name: "a1"}},                   // no DefaultBackend
-		Duties:      []config.DutyConfig{{Name: "d1"}},                    // no Backend
-		Assignments: []config.AssignmentConfig{{Agent: "a1", Duty: "d1"}}, // no Backend
+		Skills:      []config.SkillConfig{{Name: "d1"}},                    // no Backend
+		Assignments: []config.AssignmentConfig{{Agent: "a1", Skill: "d1"}}, // no Backend
 	}
 	_, _, err := config.ResolveBackend(cfg, cfg.Assignments[0])
 	if err == nil {
@@ -367,8 +367,8 @@ func TestResolveBackend_BackendNotFound(t *testing.T) {
 			Name:           "a1",
 			DefaultBackend: domain.BackendRef{Name: "ghost-backend"}, // not in Backends
 		}},
-		Duties:      []config.DutyConfig{{Name: "d1"}},
-		Assignments: []config.AssignmentConfig{{Agent: "a1", Duty: "d1"}},
+		Skills:      []config.SkillConfig{{Name: "d1"}},
+		Assignments: []config.AssignmentConfig{{Agent: "a1", Skill: "d1"}},
 	}
 	_, _, err := config.ResolveBackend(cfg, cfg.Assignments[0])
 	if err == nil {
@@ -382,10 +382,10 @@ func TestValidate_AssignmentBadAgent(t *testing.T) {
 	cfg := &config.Config{
 		Backends: []config.Backend{{Name: "b1", Kind: "claude", Auth: config.BackendAuth{Mode: "subscription"}}},
 		Agents:   []config.AgentConfig{{Name: "real-agent", DefaultBackend: domain.BackendRef{Name: "b1"}}},
-		Duties:   []config.DutyConfig{{Name: "d1"}},
+		Skills:   []config.SkillConfig{{Name: "d1"}},
 		Assignments: []config.AssignmentConfig{{
 			Agent: "no-such-agent",
-			Duty:  "d1",
+			Skill:  "d1",
 		}},
 	}
 	errs := config.Validate(cfg)
@@ -404,31 +404,31 @@ func TestValidate_AssignmentBadAgent(t *testing.T) {
 	}
 }
 
-// TestValidate_AssignmentBadDuty (gap config-10): an assignment referencing an undefined duty must produce a
-// validation error mentioning the unknown duty name.
-func TestValidate_AssignmentBadDuty(t *testing.T) {
+// TestValidate_AssignmentBadSkill (gap config-10): an assignment referencing an undefined skill must produce a
+// validation error mentioning the unknown skill name.
+func TestValidate_AssignmentBadSkill(t *testing.T) {
 	cfg := &config.Config{
 		Backends: []config.Backend{{Name: "b1", Kind: "claude", Auth: config.BackendAuth{Mode: "subscription"}}},
 		Agents:   []config.AgentConfig{{Name: "a1", DefaultBackend: domain.BackendRef{Name: "b1"}}},
-		Duties:   []config.DutyConfig{{Name: "real-duty"}},
+		Skills:   []config.SkillConfig{{Name: "real-skill"}},
 		Assignments: []config.AssignmentConfig{{
 			Agent: "a1",
-			Duty:  "no-such-duty",
+			Skill:  "no-such-skill",
 		}},
 	}
 	errs := config.Validate(cfg)
 	if len(errs) == 0 {
-		t.Fatal("expected validation error for assignment referencing unknown duty, got none")
+		t.Fatal("expected validation error for assignment referencing unknown skill, got none")
 	}
 	found := false
 	for _, e := range errs {
-		if strings.Contains(e.Error(), "no-such-duty") {
+		if strings.Contains(e.Error(), "no-such-skill") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatalf("expected error mentioning \"no-such-duty\", got: %v", errs)
+		t.Fatalf("expected error mentioning \"no-such-skill\", got: %v", errs)
 	}
 }
 
@@ -438,10 +438,10 @@ func TestValidate_AssignmentBadBackend(t *testing.T) {
 	cfg := &config.Config{
 		Backends: []config.Backend{{Name: "b1", Kind: "claude", Auth: config.BackendAuth{Mode: "subscription"}}},
 		Agents:   []config.AgentConfig{{Name: "a1", DefaultBackend: domain.BackendRef{Name: "b1"}}},
-		Duties:   []config.DutyConfig{{Name: "d1"}},
+		Skills:   []config.SkillConfig{{Name: "d1"}},
 		Assignments: []config.AssignmentConfig{{
 			Agent:   "a1",
-			Duty:    "d1",
+			Skill:    "d1",
 			Backend: &domain.BackendRef{Name: "no-such-backend"},
 		}},
 	}
@@ -641,7 +641,7 @@ func TestValidate_VoterRefModelOverrideRejected(t *testing.T) {
 
 func TestValidate_VoterRefEffortOverrideRejected(t *testing.T) {
 	cfg := validVoterConfig()
-	cfg.Duties = []config.DutyConfig{
+	cfg.Skills = []config.SkillConfig{
 		{Name: "d1", Backend: &domain.BackendRef{Name: "panel-1", Effort: "high"}},
 	}
 	errs := config.Validate(cfg)
@@ -651,9 +651,9 @@ func TestValidate_VoterRefEffortOverrideRejected(t *testing.T) {
 func TestValidate_VoterRefOverrideOnAssignment(t *testing.T) {
 	cfg := validVoterConfig()
 	cfg.Agents = []config.AgentConfig{{Name: "a1", DefaultBackend: domain.BackendRef{Name: "claude-sub"}}}
-	cfg.Duties = []config.DutyConfig{{Name: "d1"}}
+	cfg.Skills = []config.SkillConfig{{Name: "d1"}}
 	cfg.Assignments = []config.AssignmentConfig{{
-		Agent: "a1", Duty: "d1",
+		Agent: "a1", Skill: "d1",
 		Backend: &domain.BackendRef{Name: "panel-1", Model: "llama3.1"},
 	}}
 	errs := config.Validate(cfg)
@@ -666,11 +666,11 @@ func eventSubConfig() *config.Config {
 	return &config.Config{
 		Backends: []config.Backend{{Name: "b", Kind: "claude", Auth: config.BackendAuth{Mode: "subscription"}}},
 		Agents:   []config.AgentConfig{{Name: "a1", DefaultBackend: domain.BackendRef{Name: "b"}}},
-		Duties: []config.DutyConfig{{
+		Skills: []config.SkillConfig{{
 			Name: "d1", TriggerKinds: []string{"manual", "event-subscription"},
 		}},
 		Assignments: []config.AssignmentConfig{{
-			Agent: "a1", Duty: "d1",
+			Agent: "a1", Skill: "d1",
 			Trigger: domain.TriggerConfig{
 				Kind:   "event-subscription",
 				Filter: map[string]any{"source": "gitlab", "event_type": "mr_opened"},
@@ -697,9 +697,9 @@ func TestValidate_EventSubscriptionMissingEventType(t *testing.T) {
 	errorsContain(t, config.Validate(cfg), "event_type")
 }
 
-func TestValidate_EventSubscriptionDutyKindMismatch(t *testing.T) {
+func TestValidate_EventSubscriptionSkillKindMismatch(t *testing.T) {
 	cfg := eventSubConfig()
-	cfg.Duties[0].TriggerKinds = []string{"manual", "cron"}
+	cfg.Skills[0].TriggerKinds = []string{"manual", "cron"}
 	errorsContain(t, config.Validate(cfg), "trigger_kinds")
 }
 
@@ -783,9 +783,9 @@ func TestValidateForEach(t *testing.T) {
 		return &config.Config{
 			Backends: []config.Backend{{Name: "b", Kind: "claude", Auth: config.BackendAuth{Mode: "subscription"}}},
 			Agents:   []config.AgentConfig{{Name: "a", Enabled: true, DefaultBackend: domain.BackendRef{Name: "b"}}},
-			Duties:   []config.DutyConfig{{Name: "d", TriggerKinds: []string{"manual"}}},
+			Skills:   []config.SkillConfig{{Name: "d", TriggerKinds: []string{"manual"}}},
 			Assignments: []config.AssignmentConfig{{
-				Agent: "a", Duty: "d",
+				Agent: "a", Skill: "d",
 				Trigger: domain.TriggerConfig{Kind: "manual"},
 				Outputs: []domain.OutputBinding{{Plugin: "gitlab", Action: "create_issue", ForEach: forEach}},
 			}},
@@ -813,14 +813,14 @@ func TestValidate_DuplicateAssignmentTuple(t *testing.T) {
 		return &config.Config{
 			Backends: []config.Backend{{Name: "b", Kind: "claude", Auth: config.BackendAuth{Mode: "subscription"}}},
 			Agents:   []config.AgentConfig{{Name: "a", Enabled: true, DefaultBackend: domain.BackendRef{Name: "b"}}},
-			Duties:   []config.DutyConfig{{Name: "d", TriggerKinds: []string{"manual"}}},
+			Skills:   []config.SkillConfig{{Name: "d", TriggerKinds: []string{"manual"}}},
 			Assignments: []config.AssignmentConfig{
-				{Agent: "a", Duty: "d", Name: name1, Trigger: domain.TriggerConfig{Kind: "manual"}},
-				{Agent: "a", Duty: "d", Name: name2, Trigger: domain.TriggerConfig{Kind: "manual"}},
+				{Agent: "a", Skill: "d", Name: name1, Trigger: domain.TriggerConfig{Kind: "manual"}},
+				{Agent: "a", Skill: "d", Name: name2, Trigger: domain.TriggerConfig{Kind: "manual"}},
 			},
 		}
 	}
-	// Same (agent, duty, name) collapses at seed time — must be rejected.
+	// Same (agent, skill, name) collapses at seed time — must be rejected.
 	errorsContain(t, config.Validate(withTwo("", "")), "duplicate")
 	// Distinct names make the pair legal (e.g. a manual and a cron variant).
 	if errs := config.Validate(withTwo("adhoc", "nightly")); len(errs) != 0 {

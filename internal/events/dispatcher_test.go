@@ -60,7 +60,7 @@ func (f *fakeAssignments) List(_ context.Context) ([]*domain.Assignment, error) 
 
 func subAssignment(filter map[string]any) *domain.Assignment {
 	return &domain.Assignment{
-		ID: uuid.New(), AgentID: uuid.New(), DutyID: uuid.New(), Enabled: true,
+		ID: uuid.New(), AgentID: uuid.New(), SkillID: uuid.New(), Enabled: true,
 		Trigger: domain.TriggerConfig{Kind: "event-subscription", Filter: filter},
 	}
 }

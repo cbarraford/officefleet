@@ -64,7 +64,7 @@ func NewPipeline(cfg *config.Config, rr *repo.RunRepo, store state.Store, sp Sec
 type ExecuteRequest struct {
 	Assignment  *domain.Assignment
 	Agent       *domain.Agent
-	Duty        *domain.Duty
+	Skill        *domain.Skill
 	TriggerKind string
 	EventID     *string        // id of the triggering event, if any (event-subscription)
 	EventParams map[string]any // operator params for manual; event payload for event-subscription
@@ -97,7 +97,7 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 			ID:           uuid.New(),
 			AssignmentID: req.Assignment.ID,
 			AgentID:      req.Agent.ID,
-			DutyID:       req.Duty.ID,
+			SkillID:       req.Skill.ID,
 			TriggerKind:  req.TriggerKind,
 			EventID:      req.EventID,
 			Status:       domain.RunStatusSkipped,
@@ -128,7 +128,7 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 	promptCtx := prompt.Context{
 		Event:      req.EventParams,
 		Agent:      map[string]any{"name": req.Agent.Name, "role": req.Agent.Role, "system_prompt": req.Agent.SystemPrompt},
-		Duty:       map[string]any{"name": req.Duty.Name, "role": req.Duty.Role, "description": req.Duty.Description},
+		Skill:       map[string]any{"name": req.Skill.Name, "role": req.Skill.Role, "description": req.Skill.Description},
 		Assignment: req.Assignment.Config,
 		State:      map[string]any{},
 		Now:        time.Now(),
@@ -152,8 +152,8 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 		promptCtx.State[k] = val
 	}
 
-	// Select task prompt: override or duty default.
-	taskTemplate := req.Duty.Prompt
+	// Select task prompt: override or skill default.
+	taskTemplate := req.Skill.Prompt
 	if req.Assignment.TaskPromptOverride != nil && *req.Assignment.TaskPromptOverride != "" {
 		taskTemplate = *req.Assignment.TaskPromptOverride
 	}
@@ -176,7 +176,7 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 	// fall back to resolving from config.
 	backend := req.Backend
 	if backend == nil {
-		backend, _, err = config.ResolveBackend(p.cfg, findAssignmentConfig(p.cfg, req.Assignment, req.Agent.Name, req.Duty.Name))
+		backend, _, err = config.ResolveBackend(p.cfg, findAssignmentConfig(p.cfg, req.Assignment, req.Agent.Name, req.Skill.Name))
 		if err != nil {
 			return nil, fmt.Errorf("resolve backend: %w", err)
 		}
@@ -194,7 +194,7 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 		ID:                   uuid.New(),
 		AssignmentID:         req.Assignment.ID,
 		AgentID:              req.Agent.ID,
-		DutyID:               req.Duty.ID,
+		SkillID:               req.Skill.ID,
 		TriggerKind:          req.TriggerKind,
 		EventID:              req.EventID,
 		RenderedSystemPrompt: redactSecrets(systemPrompt, secretsMap),
@@ -263,7 +263,7 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 		SystemPrompt: systemPrompt,
 		Prompt:       taskPrompt,
 		Workspace:    workspace,
-		Tools:        req.Duty.RequiredTools,
+		Tools:        req.Skill.RequiredTools,
 		Model:        backend.Model,
 		Effort:       backend.DefaultEffort,
 	}
@@ -353,16 +353,16 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) (*domain.Run
 }
 
 // findAssignmentConfig maps a domain.Assignment back to its config.AssignmentConfig for backend resolution.
-func findAssignmentConfig(cfg *config.Config, a *domain.Assignment, agentName, dutyName string) config.AssignmentConfig {
+func findAssignmentConfig(cfg *config.Config, a *domain.Assignment, agentName, skillName string) config.AssignmentConfig {
 	for _, ac := range cfg.Assignments {
-		if ac.Agent == agentName && ac.Duty == dutyName {
+		if ac.Agent == agentName && ac.Skill == skillName {
 			return ac
 		}
 	}
-	// Return a minimal AssignmentConfig so ResolveBackend can still work via Agent/Duty fallback.
+	// Return a minimal AssignmentConfig so ResolveBackend can still work via Agent/Skill fallback.
 	var ac config.AssignmentConfig
 	ac.Agent = agentName
-	ac.Duty = dutyName
+	ac.Skill = skillName
 	if a.Backend != nil {
 		ac.Backend = a.Backend
 	}

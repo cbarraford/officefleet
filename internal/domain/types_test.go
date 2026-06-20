@@ -261,9 +261,9 @@ func TestOutputDelivery_ErrorField_JSONRoundtrip(t *testing.T) {
 	}
 }
 
-func TestDuty_StructConstruction(t *testing.T) {
+func TestSkill_StructConstruction(t *testing.T) {
 	backend := &domain.BackendRef{Name: "openai", Model: "gpt-4o"}
-	duty := domain.Duty{
+	skill := domain.Skill{
 		ID:            uuid.New(),
 		Name:          "daily-report",
 		TriggerKinds:  []string{"cron", "webhook"},
@@ -271,20 +271,20 @@ func TestDuty_StructConstruction(t *testing.T) {
 		Backend:       backend,
 	}
 
-	if len(duty.TriggerKinds) != 2 {
-		t.Errorf("TriggerKinds length: got %d, want 2", len(duty.TriggerKinds))
+	if len(skill.TriggerKinds) != 2 {
+		t.Errorf("TriggerKinds length: got %d, want 2", len(skill.TriggerKinds))
 	}
-	if duty.TriggerKinds[0] != "cron" {
-		t.Errorf("TriggerKinds[0]: got %q, want %q", duty.TriggerKinds[0], "cron")
+	if skill.TriggerKinds[0] != "cron" {
+		t.Errorf("TriggerKinds[0]: got %q, want %q", skill.TriggerKinds[0], "cron")
 	}
-	if len(duty.RequiredTools) != 2 {
-		t.Errorf("RequiredTools length: got %d, want 2", len(duty.RequiredTools))
+	if len(skill.RequiredTools) != 2 {
+		t.Errorf("RequiredTools length: got %d, want 2", len(skill.RequiredTools))
 	}
-	if duty.Backend == nil {
+	if skill.Backend == nil {
 		t.Fatal("Backend must not be nil")
 	}
-	if duty.Backend.Name != "openai" {
-		t.Errorf("Backend.Name: got %q, want %q", duty.Backend.Name, "openai")
+	if skill.Backend.Name != "openai" {
+		t.Errorf("Backend.Name: got %q, want %q", skill.Backend.Name, "openai")
 	}
 }
 
@@ -301,7 +301,7 @@ func TestAssignment_StructConstruction(t *testing.T) {
 	assignment := domain.Assignment{
 		ID:      uuid.New(),
 		AgentID: uuid.New(),
-		DutyID:  uuid.New(),
+		SkillID:  uuid.New(),
 		Enabled: true,
 		Trigger: trigger,
 		Outputs: outputs,
