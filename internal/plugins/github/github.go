@@ -121,9 +121,81 @@ func (g *GitHubPlugin) postPRComment(ctx context.Context, params map[string]any)
 	return result, err
 }
 
-// postInlineComment is a stub for Task 5; currently falls back to a plain PR comment.
 func (g *GitHubPlugin) postInlineComment(ctx context.Context, params map[string]any) (map[string]any, error) {
-	return nil, fmt.Errorf("github: post_inline_comment not yet implemented")
+	repo := firstParam(params, "project", "repo")
+	prNumber := firstParam(params, "mr_iid", "pr_number")
+	path := paramToString(params["path"])
+	line := paramToString(params["line"])
+	body := paramToString(params["body"])
+	if repo == "" || prNumber == "" || path == "" || line == "" || body == "" {
+		return nil, fmt.Errorf("github post_inline_comment: project, mr_iid, path, line, and body are required")
+	}
+	// The review-comment API positions against the PR's head commit SHA.
+	sha, err := g.prHeadSHA(ctx, repo, prNumber)
+	if err != nil {
+		return nil, err
+	}
+	var newLine any = line
+	if n, err := strconv.Atoi(line); err == nil {
+		newLine = n
+	}
+	url := fmt.Sprintf("%s/repos/%s/pulls/%s/comments", g.baseURL, repo, prNumber)
+	payload := map[string]any{
+		"body": body, "commit_id": sha, "path": path, "line": newLine, "side": "RIGHT",
+	}
+	result, status, err := g.apiJSON(ctx, http.MethodPost, url, payload)
+	if err == nil {
+		return result, nil
+	}
+	// Stale line numbers are routine (the diff moved): fall back to a plain PR
+	// comment carrying the location so the finding is never lost (mirrors GitLab).
+	if status == http.StatusUnprocessableEntity || status == http.StatusBadRequest {
+		note, nErr := g.postPRComment(ctx, map[string]any{
+			"project": repo, "mr_iid": prNumber,
+			"body": fmt.Sprintf("**%s:%s** — %s", path, line, body),
+		})
+		if nErr != nil {
+			return nil, fmt.Errorf("github: inline position rejected (%v) and note fallback failed: %w", err, nErr)
+		}
+		if note == nil {
+			note = map[string]any{}
+		}
+		note["fallback"] = "note"
+		return note, nil
+	}
+	return nil, err
+}
+
+// prHeadSHA fetches the PR's current head commit SHA, required to position a
+// review comment.
+func (g *GitHubPlugin) prHeadSHA(ctx context.Context, repo, prNumber string) (string, error) {
+	url := fmt.Sprintf("%s/repos/%s/pulls/%s", g.baseURL, repo, prNumber)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", fmt.Errorf("github: create request: %w", err)
+	}
+	if g.token != "" {
+		req.Header.Set("Authorization", "Bearer "+g.token)
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("github: fetch PR: %w", err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode >= 300 {
+		return "", fmt.Errorf("github: fetch PR returned %d: %s", resp.StatusCode, truncateForErr(b))
+	}
+	var pr struct {
+		Head struct {
+			SHA string `json:"sha"`
+		} `json:"head"`
+	}
+	if err := json.Unmarshal(b, &pr); err != nil || pr.Head.SHA == "" {
+		return "", fmt.Errorf("github: PR %s has no head sha", prNumber)
+	}
+	return pr.Head.SHA, nil
 }
 
 // firstParam returns the first non-empty stringified value among keys. It lets

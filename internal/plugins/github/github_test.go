@@ -120,6 +120,71 @@ func TestPostChangeComment_LinguaFrancaParams(t *testing.T) {
 	}
 }
 
+func TestPostInlineComment_Github(t *testing.T) {
+	var postPayload map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("/repos/org/repo/pulls/9", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"head":{"sha":"abc123"}}`))
+	})
+	mux.HandleFunc("/repos/org/repo/pulls/9/comments", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&postPayload)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":5}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	g := &GitHubPlugin{baseURL: srv.URL, token: "t"}
+	_, err := g.Do(context.Background(), "post_inline_comment", map[string]any{
+		"project": "org/repo", "mr_iid": "9", "path": "main.go", "line": "12", "body": "bug",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if postPayload["commit_id"] != "abc123" || postPayload["path"] != "main.go" {
+		t.Errorf("payload = %v", postPayload)
+	}
+	if postPayload["line"] != float64(12) { // JSON numbers decode to float64
+		t.Errorf("line = %v (%T), want 12", postPayload["line"], postPayload["line"])
+	}
+	if postPayload["side"] != "RIGHT" {
+		t.Errorf("side = %v, want RIGHT", postPayload["side"])
+	}
+}
+
+func TestPostInlineComment_Github_FallbackOnStalePosition(t *testing.T) {
+	var fellBack bool
+	mux := http.NewServeMux()
+	mux.HandleFunc("/repos/org/repo/pulls/9", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"head":{"sha":"abc123"}}`))
+	})
+	mux.HandleFunc("/repos/org/repo/pulls/9/comments", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity) // stale line position
+		_, _ = w.Write([]byte(`{"message":"position invalid"}`))
+	})
+	mux.HandleFunc("/repos/org/repo/issues/9/comments", func(w http.ResponseWriter, r *http.Request) {
+		fellBack = true
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":7}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	g := &GitHubPlugin{baseURL: srv.URL, token: "t"}
+	res, err := g.Do(context.Background(), "post_inline_comment", map[string]any{
+		"project": "org/repo", "mr_iid": "9", "path": "main.go", "line": "12", "body": "bug",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fellBack {
+		t.Error("expected fallback to the issue-comment endpoint")
+	}
+	if res["fallback"] != "note" {
+		t.Errorf("res = %v, want fallback=note", res)
+	}
+}
+
 func TestPostPRComment_Errors(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(404)
