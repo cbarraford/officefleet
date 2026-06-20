@@ -7,11 +7,11 @@
 #
 # Gaps vs the real huginn (recorded, not silently lost):
 #   - GitLab plugin emits only MR + MR-note events (no issue/pipeline/push
-#     webhooks) -> issue-implement, issue-batch-implement, ci-fix, mr-rebase,
+#     webhooks) -> issue-implement, issue-batch-implement, ci-fix, code-rebase,
 #     code-audit run on cron/manual instead of event-driven.
 #   - No cross-run state -> CI fix attempt caps and feedback-learning are
 #     approximated in-prompt (count prior bot comments) or dropped.
-#   - verify_findings + challenge_findings are folded into the mr-review prompt
+#   - verify_findings + challenge_findings are folded into the code-review prompt
 #     as a mandatory self-verification + devil's-advocate pass (huginn already
 #     has this inline; the separate Python passes were extra rigor we collapse).
 
@@ -254,8 +254,8 @@ skills:
       - plugin: gitlab
         action: post_mr_comment
 
-  # ── 4. mr-rebase: rebase a bot MR onto base, resolve conflicts ─────────
-  - name: mr-rebase
+  # ── 4. code-rebase: rebase a bot MR onto base, resolve conflicts ─────────
+  - name: code-rebase
     role: developer
     description: Rebase a bot-authored MR branch onto the base branch, resolving conflicts, and force-with-lease push.
     trigger_kinds:
@@ -303,8 +303,8 @@ skills:
       - plugin: gitlab
         action: post_mr_comment
 
-  # ── 5. mr-feedback: reviewer feedback on a bot MR → fix & reply ────────
-  - name: mr-feedback
+  # ── 5. code-feedback: reviewer feedback on a bot MR → fix & reply ────────
+  - name: code-feedback
     role: developer
     description: Address reviewer feedback on a bot-authored MR — make targeted code changes if needed, push, and reply.
     trigger_kinds:
@@ -363,8 +363,8 @@ skills:
       - plugin: gitlab
         action: reply_to_discussion
 
-  # ── 6. mr-review: external MR review with self-verification + challenge ─
-  - name: mr-review
+  # ── 6. code-review: external MR review with self-verification + challenge ─
+  - name: code-review
     role: developer
     description: Review an external (non-bot) merge request; post verified inline findings, a gap analysis, and a verdict.
     trigger_kinds:
@@ -614,7 +614,7 @@ assignments:
     # Posts its own "ci-fix attempt" comment + pushes via glab in-prompt.
 
   - agent: huginn
-    skill: mr-rebase
+    skill: code-rebase
     enabled: true
     trigger:
       kind: cron
@@ -644,7 +644,7 @@ assignments:
 
   # ── Event-driven (real-time) ────────────────────────────────────────────
   - agent: huginn
-    skill: mr-review
+    skill: code-review
     name: on-open
     enabled: true
     trigger:
@@ -676,7 +676,7 @@ assignments:
           body: "{{.Event.llm_summary}}"
 
   - agent: huginn
-    skill: mr-feedback
+    skill: code-feedback
     enabled: true
     trigger:
       kind: event-subscription
@@ -699,7 +699,7 @@ assignments:
 
   - agent: huginn
     skill: review-finding-reply
-    enabled: false               # shares mr_note with mr-feedback; enable + scope (label/project) to avoid double-firing
+    enabled: false               # shares mr_note with code-feedback; enable + scope (label/project) to avoid double-firing
     trigger:
       kind: event-subscription
       filter:

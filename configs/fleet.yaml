@@ -74,7 +74,7 @@ agents:
 
 skills:
   # ── 1. MR review: inline comments + a verdict summary ──────────────────
-  - name: mr-review
+  - name: code-review
     role: developer
     description: Review a merge request; post inline comments and a verdict summary.
     trigger_kinds:
@@ -172,7 +172,7 @@ skills:
         action: create_issue
 
   # ── 3. MR feedback: reply to review comments ───────────────────────────
-  - name: mr-feedback
+  - name: code-feedback
     role: developer
     description: Reply to a comment on a merge request (zero or one reply).
     trigger_kinds:
@@ -213,7 +213,7 @@ assignments:
   # event_type: mr_updated to also re-review on new pushes — give it a distinct
   # `name:` so it does not collide with this one on (agent, skill, name).)
   - agent: dev-1
-    skill: mr-review
+    skill: code-review
     name: on-open
     enabled: true
     trigger:
@@ -265,7 +265,7 @@ assignments:
   # Reply to MR comments (the bot's own notes are dropped at ingestion via
   # plugins.gitlab.bot_username — set it to the fleet's GitLab username).
   - agent: dev-1
-    skill: mr-feedback
+    skill: code-feedback
     enabled: true
     trigger:
       kind: event-subscription
@@ -287,7 +287,7 @@ assignments:
 
 # Example (SP3b): review GitHub PRs on open, notify Slack when done.
 #  - agent: dev-1
-#    skill: mr-review
+#    skill: code-review
 #    enabled: true
 #    trigger:
 #      kind: event-subscription

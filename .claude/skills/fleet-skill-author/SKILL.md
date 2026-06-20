@@ -11,7 +11,7 @@ description: >-
   skill, agent task, or scheduled/automated job for an OfficeFleet agent — for example
   "add a skill to fleet.yaml that triages issues", "make a skill so dev-1 summarizes
   merge requests", "edit the code-audit skill's prompt", "add an output_action to
-  mr-review", "add a config_schema to my skill", or "a skill that runs on a cron to
+  code-review", "add a config_schema to my skill", or "a skill that runs on a cron to
   file issues" — even when the user does not say the word "skill". This is about
   OfficeFleet's fleet.yaml skills, not about building a Claude Code/Anthropic SKILL.md
   (use skill-creator for that).
@@ -26,7 +26,7 @@ at runtime. A skill does nothing until an Assignment binds it to an Agent.
 
 Source of truth for the schema: `internal/config/config.go` (`SkillConfig`,
 `Validate`) and `internal/domain/types.go` (`Skill`). Working examples:
-`configs/fleet.yaml` (`mr-review`, `code-audit`, `mr-feedback`). Read those before
+`configs/fleet.yaml` (`code-review`, `code-audit`, `code-feedback`). Read those before
 writing — copy the closest one rather than starting blank.
 
 ## Schema (the `skills:` list entry)
@@ -76,7 +76,7 @@ fields the trigger won't provide.
 ## The result contract (how output gets used)
 
 End the prompt by telling the model to emit one JSON object, and mirror its keys
-in the assignment's `outputs`. Standard phrasing (copy from `mr-review`):
+in the assignment's `outputs`. Standard phrasing (copy from `code-review`):
 
 > Report your result as a single JSON object: `{...}`. If you have a
 > `submit_result` tool, call it with this object as the `output` parameter (and a

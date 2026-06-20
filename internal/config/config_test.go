@@ -28,7 +28,7 @@ agents:
       name: claude-default
     enabled: true
 skills:
-  - name: mr-reviewer
+  - name: code-reviewer
     role: developer
     description: "Reviews merge requests"
     trigger_kinds: [manual, cron]
@@ -39,7 +39,7 @@ skills:
         action: post_mr_comment
 assignments:
   - agent: dev-1
-    skill: mr-reviewer
+    skill: code-reviewer
     enabled: true
     trigger:
       kind: manual

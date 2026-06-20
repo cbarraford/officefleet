@@ -22,7 +22,7 @@ func TestSampleConfig(t *testing.T) {
 		t.Fatalf("sample config must validate: %v", errs)
 	}
 
-	wantSkills := map[string]bool{"mr-review": false, "code-audit": false, "mr-feedback": false}
+	wantSkills := map[string]bool{"code-review": false, "code-audit": false, "code-feedback": false}
 	syntheticCtx := prompt.Context{
 		Event: map[string]any{
 			"mr_iid": 42, "title": "Add limiter", "mr_title": "Add limiter",
