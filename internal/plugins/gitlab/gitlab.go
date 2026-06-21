@@ -46,6 +46,7 @@ func (g *GitLabPlugin) EventSources() []plugin.EventSource {
 func (g *GitLabPlugin) Actions() []plugin.Action {
 	return []plugin.Action{
 		{Name: "post_mr_comment", Description: "Post a comment on a merge request"},
+		{Name: "post_change_comment", Description: "Post a comment on a merge request (shared alias of post_mr_comment)"},
 		{Name: "post_inline_comment", Description: "Post a positioned diff comment (falls back to a plain note on stale positions)"},
 		{Name: "create_issue", Description: "Create a GitLab issue"},
 		{Name: "reply_to_discussion", Description: "Reply to a merge request discussion thread"},
@@ -113,7 +114,7 @@ func (g *GitLabPlugin) Init(_ context.Context, cfg map[string]any, secrets plugi
 
 func (g *GitLabPlugin) Do(ctx context.Context, action string, params map[string]any) (map[string]any, error) {
 	switch action {
-	case "post_mr_comment":
+	case "post_mr_comment", "post_change_comment":
 		return g.postMRComment(ctx, params)
 	case "post_inline_comment":
 		return g.postInlineComment(ctx, params)

@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/cbarraford/office-fleet/internal/domain"
@@ -44,11 +45,12 @@ func actionToEventType(action string, merged bool) (string, bool) {
 type webhookPRPayload struct {
 	Action      string `json:"action"`
 	PullRequest struct {
-		Number  int    `json:"number"`
-		Title   string `json:"title"`
-		Merged  bool   `json:"merged"`
-		HTMLURL string `json:"html_url"`
-		Head    struct {
+		Number         int    `json:"number"`
+		Title          string `json:"title"`
+		Merged         bool   `json:"merged"`
+		MergeableState string `json:"mergeable_state"`
+		HTMLURL        string `json:"html_url"`
+		Head           struct {
 			Ref string `json:"ref"`
 			SHA string `json:"sha"`
 		} `json:"head"`
@@ -82,27 +84,89 @@ func (g *GitHubPlugin) HandleWebhook(_ context.Context, r *http.Request) ([]doma
 		return nil, &plugin.AuthError{Msg: "github: invalid webhook signature"}
 	}
 
-	if r.Header.Get("X-GitHub-Event") != "pull_request" {
-		return nil, nil // not a PR event; acknowledged and ignored
+	switch r.Header.Get("X-GitHub-Event") {
+	case "pull_request":
+		var payload webhookPRPayload
+		if err := json.Unmarshal(body, &payload); err != nil {
+			return nil, fmt.Errorf("github: parse webhook: %w", err)
+		}
+		eventType, ok := actionToEventType(payload.Action, payload.PullRequest.Merged)
+		if !ok {
+			return nil, nil // unhandled action; acknowledged and ignored
+		}
+		pr := payload.PullRequest
+		ev := normalizePR(eventType, payload.Repository.FullName, pr.Number, pr.Title, payload.Action,
+			pr.Head.Ref, pr.Base.Ref, pr.Head.SHA, pr.User.Login, pr.HTMLURL, pr.MergeableState, body)
+		return []domain.Event{ev}, nil
+	case "workflow_run":
+		return g.handleWorkflowRun(body)
+	case "issue_comment":
+		return g.handleIssueComment(body)
+	case "pull_request_review_comment":
+		return g.handleReviewComment(body)
+	default:
+		return nil, nil // not an event we ingest; acknowledged and ignored
 	}
-	var payload webhookPRPayload
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return nil, fmt.Errorf("github: parse webhook: %w", err)
-	}
-	eventType, ok := actionToEventType(payload.Action, payload.PullRequest.Merged)
-	if !ok {
-		return nil, nil // unhandled action; acknowledged and ignored
-	}
+}
 
-	pr := payload.PullRequest
-	ev := normalizePR(eventType, payload.Repository.FullName, pr.Number, pr.Title, payload.Action,
-		pr.Head.Ref, pr.Base.Ref, pr.Head.SHA, pr.User.Login, pr.HTMLURL, body)
-	return []domain.Event{ev}, nil
+type webhookWorkflowRunPayload struct {
+	Action      string `json:"action"`
+	WorkflowRun struct {
+		ID           int64  `json:"id"`
+		HeadBranch   string `json:"head_branch"`
+		HeadSHA      string `json:"head_sha"`
+		Conclusion   string `json:"conclusion"`
+		Status       string `json:"status"`
+		PullRequests []struct {
+			Number int `json:"number"`
+		} `json:"pull_requests"`
+	} `json:"workflow_run"`
+	Repository struct {
+		FullName string `json:"full_name"`
+	} `json:"repository"`
+}
+
+// handleWorkflowRun emits a checks_failed event ONLY for a completed workflow
+// run whose conclusion is "failure" (every other state is acknowledged and
+// dropped, so ci-fix is not woken on success/in-progress). Webhook-only,
+// mirroring the GitLab pipeline handler.
+func (g *GitHubPlugin) handleWorkflowRun(body []byte) ([]domain.Event, error) {
+	var payload webhookWorkflowRunPayload
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, fmt.Errorf("github: parse workflow_run webhook: %w", err)
+	}
+	wr := payload.WorkflowRun
+	if payload.Action != "completed" || wr.Conclusion != "failure" {
+		return nil, nil
+	}
+	var mrIID any
+	if len(wr.PullRequests) > 0 {
+		mrIID = wr.PullRequests[0].Number
+	}
+	return []domain.Event{{
+		SourcePlugin: "github",
+		EventType:    "checks_failed",
+		PayloadRaw:   json.RawMessage(body),
+		PayloadNorm: map[string]any{
+			"project":       payload.Repository.FullName,
+			"run_id":        wr.ID,
+			"source_branch": wr.HeadBranch,
+			"head_sha":      wr.HeadSHA,
+			"status":        wr.Conclusion,
+			"mr_iid":        mrIID,
+		},
+		// Dedup on run id: a re-run is a new id, so a genuine re-failure re-triggers.
+		DedupKey: fmt.Sprintf("workflow_run:%s:%d", payload.Repository.FullName, wr.ID),
+	}}, nil
 }
 
 // normalizePR builds the shared envelope both ingestion surfaces emit.
 // The dedup key changes only when the PR head SHA changes.
-func normalizePR(eventType, repo string, number int, title, action, sourceBranch, targetBranch, sha, author, htmlURL string, raw []byte) domain.Event {
+func normalizePR(eventType, repo string, number int, title, action, sourceBranch, targetBranch, sha, author, htmlURL, mergeableState string, raw []byte) domain.Event {
+	mergeStatus := mergeableState
+	if mergeableState == "dirty" {
+		mergeStatus = "cannot_be_merged"
+	}
 	return domain.Event{
 		SourcePlugin: "github",
 		EventType:    eventType,
@@ -117,6 +181,14 @@ func normalizePR(eventType, repo string, number int, title, action, sourceBranch
 			"head_sha":      sha,
 			"author":        author,
 			"url":           htmlURL,
+			// ponytail: GitLab's PayloadNorm keys are the shared "lingua franca"
+			// so one prompt drives both forges. A PR number under "mr_iid" is a
+			// deliberate naming smell; upgrade path is neutral keys (change_id,
+			// etc.) across both plugins. Native github keys are kept alongside.
+			"project":         repo,
+			"mr_iid":          number,
+			"last_commit_sha": sha,
+			"merge_status":    mergeStatus,
 		},
 		Identity: author,
 		DedupKey: fmt.Sprintf("pr:%s:%d:%s", repo, number, sha),
@@ -173,7 +245,7 @@ func (g *GitHubPlugin) Poll(ctx context.Context, cursor string) ([]domain.Event,
 			}
 			raw, _ := json.Marshal(pr)
 			events = append(events, normalizePR("pr_updated", repo, pr.Number, pr.Title, "synchronize",
-				pr.Head.Ref, pr.Base.Ref, pr.Head.SHA, pr.User.Login, pr.HTMLURL, raw))
+				pr.Head.Ref, pr.Base.Ref, pr.Head.SHA, pr.User.Login, pr.HTMLURL, "", raw))
 			if pr.UpdatedAt.After(maxUpdated) {
 				maxUpdated = pr.UpdatedAt
 			}
@@ -225,4 +297,106 @@ func (g *GitHubPlugin) fetchOpenPRs(ctx context.Context, repo string) ([]pollPR,
 		return nil, fmt.Errorf("github: parse poll response: %w", err)
 	}
 	return prs, nil
+}
+
+type webhookIssueCommentPayload struct {
+	Action string `json:"action"`
+	Issue  struct {
+		Number      int    `json:"number"`
+		Title       string `json:"title"`
+		PullRequest *struct {
+			URL string `json:"url"`
+		} `json:"pull_request"`
+	} `json:"issue"`
+	Comment struct {
+		ID      int64  `json:"id"`
+		Body    string `json:"body"`
+		HTMLURL string `json:"html_url"`
+		User    struct {
+			Login string `json:"login"`
+		} `json:"user"`
+	} `json:"comment"`
+	Repository struct {
+		FullName string `json:"full_name"`
+	} `json:"repository"`
+}
+
+type webhookReviewCommentPayload struct {
+	Action  string `json:"action"`
+	Comment struct {
+		ID      int64  `json:"id"`
+		Body    string `json:"body"`
+		HTMLURL string `json:"html_url"`
+		User    struct {
+			Login string `json:"login"`
+		} `json:"user"`
+	} `json:"comment"`
+	PullRequest struct {
+		Number int    `json:"number"`
+		Title  string `json:"title"`
+		Head   struct {
+			Ref string `json:"ref"`
+		} `json:"head"`
+	} `json:"pull_request"`
+	Repository struct {
+		FullName string `json:"full_name"`
+	} `json:"repository"`
+}
+
+// prCommentEvent builds the shared pr_comment envelope (GitLab mr_note field
+// names). For conversation comments sourceBranch and discussionID are empty.
+func prCommentEvent(repo string, number int, title, sourceBranch string, commentID int64, discussionID, noteBody, author, url string, raw []byte) domain.Event {
+	return domain.Event{
+		SourcePlugin: "github",
+		EventType:    "pr_comment",
+		PayloadRaw:   json.RawMessage(raw),
+		PayloadNorm: map[string]any{
+			"project":          repo,
+			"mr_iid":           number,
+			"mr_title":         title,
+			"mr_source_branch": sourceBranch,
+			"note_id":          commentID,
+			"discussion_id":    discussionID,
+			"note_body":        noteBody,
+			"author":           author,
+			"url":              url,
+		},
+		Identity: author,
+		DedupKey: fmt.Sprintf("note:%s:%d", repo, commentID),
+	}
+}
+
+// handleIssueComment ingests PR-conversation comments. Non-PR issues, the bot's
+// own comments, and non-created actions are dropped.
+func (g *GitHubPlugin) handleIssueComment(body []byte) ([]domain.Event, error) {
+	var p webhookIssueCommentPayload
+	if err := json.Unmarshal(body, &p); err != nil {
+		return nil, fmt.Errorf("github: parse issue_comment webhook: %w", err)
+	}
+	if p.Action != "created" || p.Issue.PullRequest == nil {
+		return nil, nil
+	}
+	if g.botUsername != "" && p.Comment.User.Login == g.botUsername {
+		return nil, nil
+	}
+	return []domain.Event{prCommentEvent(p.Repository.FullName, p.Issue.Number, p.Issue.Title,
+		"", p.Comment.ID, "", p.Comment.Body, p.Comment.User.Login, p.Comment.HTMLURL, body)}, nil
+}
+
+// handleReviewComment ingests inline review-thread comments. discussion_id is
+// the comment id (the reply target); mr_source_branch is the PR head ref.
+func (g *GitHubPlugin) handleReviewComment(body []byte) ([]domain.Event, error) {
+	var p webhookReviewCommentPayload
+	if err := json.Unmarshal(body, &p); err != nil {
+		return nil, fmt.Errorf("github: parse pull_request_review_comment webhook: %w", err)
+	}
+	if p.Action != "created" {
+		return nil, nil
+	}
+	if g.botUsername != "" && p.Comment.User.Login == g.botUsername {
+		return nil, nil
+	}
+	discussionID := strconv.FormatInt(p.Comment.ID, 10)
+	return []domain.Event{prCommentEvent(p.Repository.FullName, p.PullRequest.Number, p.PullRequest.Title,
+		p.PullRequest.Head.Ref, p.Comment.ID, discussionID, p.Comment.Body, p.Comment.User.Login, p.Comment.HTMLURL, body)}, nil
 }

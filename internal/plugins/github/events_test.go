@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -293,6 +294,43 @@ func TestPoll_EmptyCursorWindowAndNoRepos(t *testing.T) {
 	}
 }
 
+func TestNormalizePR_LinguaFrancaKeys(t *testing.T) {
+	ev := normalizePR("pr_opened", "org/repo", 9, "T", "opened",
+		"feat", "main", "deadbeef", "carol", "http://x", "", []byte(`{}`))
+	n := ev.PayloadNorm
+	if n["mr_iid"] != 9 {
+		t.Errorf("mr_iid = %v, want 9", n["mr_iid"])
+	}
+	if n["project"] != "org/repo" {
+		t.Errorf("project = %v, want org/repo", n["project"])
+	}
+	if n["last_commit_sha"] != "deadbeef" {
+		t.Errorf("last_commit_sha = %v, want deadbeef", n["last_commit_sha"])
+	}
+	// Existing GitHub-native keys must remain (no removal).
+	if n["pr_number"] != 9 || n["repo"] != "org/repo" || n["head_sha"] != "deadbeef" {
+		t.Errorf("legacy keys missing/changed: %v", n)
+	}
+}
+
+func TestNormalizePR_MergeStatus(t *testing.T) {
+	dirty := normalizePR("pr_updated", "o/r", 1, "t", "synchronize",
+		"f", "main", "sha", "u", "url", "dirty", []byte(`{}`))
+	if dirty.PayloadNorm["merge_status"] != "cannot_be_merged" {
+		t.Errorf("dirty -> %v, want cannot_be_merged", dirty.PayloadNorm["merge_status"])
+	}
+	clean := normalizePR("pr_updated", "o/r", 1, "t", "synchronize",
+		"f", "main", "sha", "u", "url", "clean", []byte(`{}`))
+	if clean.PayloadNorm["merge_status"] != "clean" {
+		t.Errorf("clean -> %v, want clean (passthrough)", clean.PayloadNorm["merge_status"])
+	}
+	absent := normalizePR("pr_updated", "o/r", 1, "t", "synchronize",
+		"f", "main", "sha", "u", "url", "", []byte(`{}`))
+	if absent.PayloadNorm["merge_status"] != "" {
+		t.Errorf("absent -> %v, want empty", absent.PayloadNorm["merge_status"])
+	}
+}
+
 // asAuthError mirrors errors.As for the concrete *plugin.AuthError.
 func asAuthError(err error, target **plugin.AuthError) bool {
 	ae, ok := err.(*plugin.AuthError)
@@ -300,4 +338,132 @@ func asAuthError(err error, target **plugin.AuthError) bool {
 		*target = ae
 	}
 	return ok
+}
+
+func TestHandleWorkflowRun_Failure(t *testing.T) {
+	g := &GitHubPlugin{}
+	body := []byte(`{"action":"completed","workflow_run":{"id":99,"head_branch":"feat/x","head_sha":"abc","conclusion":"failure","status":"completed","pull_requests":[{"number":7}]},"repository":{"full_name":"org/repo"}}`)
+	evs, err := g.handleWorkflowRun(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 1 {
+		t.Fatalf("want 1 event, got %d", len(evs))
+	}
+	if evs[0].EventType != "checks_failed" {
+		t.Errorf("type = %s", evs[0].EventType)
+	}
+	n := evs[0].PayloadNorm
+	if n["project"] != "org/repo" || n["source_branch"] != "feat/x" || n["head_sha"] != "abc" {
+		t.Errorf("norm = %v", n)
+	}
+	if fmt.Sprint(n["run_id"]) != "99" {
+		t.Errorf("run_id = %v", n["run_id"])
+	}
+	if fmt.Sprint(n["mr_iid"]) != "7" {
+		t.Errorf("mr_iid = %v", n["mr_iid"])
+	}
+	if evs[0].DedupKey != "workflow_run:org/repo:99" {
+		t.Errorf("dedup = %q", evs[0].DedupKey)
+	}
+}
+
+func TestHandleWorkflowRun_IgnoresNonFailure(t *testing.T) {
+	g := &GitHubPlugin{}
+	for _, body := range [][]byte{
+		[]byte(`{"action":"completed","workflow_run":{"id":1,"conclusion":"success"},"repository":{"full_name":"o/r"}}`),
+		[]byte(`{"action":"requested","workflow_run":{"id":1,"conclusion":""},"repository":{"full_name":"o/r"}}`),
+	} {
+		evs, err := g.handleWorkflowRun(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(evs) != 0 {
+			t.Errorf("want 0 events, got %d for %s", len(evs), body)
+		}
+	}
+}
+
+func TestHandleWorkflowRun_NoPR(t *testing.T) {
+	g := &GitHubPlugin{}
+	body := []byte(`{"action":"completed","workflow_run":{"id":5,"head_branch":"b","head_sha":"s","conclusion":"failure","status":"completed","pull_requests":[]},"repository":{"full_name":"o/r"}}`)
+	evs, err := g.handleWorkflowRun(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 1 || evs[0].PayloadNorm["mr_iid"] != nil {
+		t.Errorf("expected one event with nil mr_iid, got %v", evs)
+	}
+}
+
+func TestHandleIssueComment_PR(t *testing.T) {
+	g := &GitHubPlugin{}
+	body := []byte(`{"action":"created","issue":{"number":12,"title":"Add X","pull_request":{"url":"u"}},"comment":{"id":555,"body":"please fix","html_url":"hu","user":{"login":"reviewer"}},"repository":{"full_name":"org/repo"}}`)
+	evs, err := g.handleIssueComment(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 1 || evs[0].EventType != "pr_comment" {
+		t.Fatalf("want 1 pr_comment, got %v", evs)
+	}
+	n := evs[0].PayloadNorm
+	if n["project"] != "org/repo" || n["mr_iid"] != 12 || n["note_body"] != "please fix" || n["author"] != "reviewer" {
+		t.Errorf("norm = %v", n)
+	}
+	if n["discussion_id"] != "" || n["mr_source_branch"] != "" {
+		t.Errorf("conversation comment should have empty discussion_id/branch: %v", n)
+	}
+	if evs[0].DedupKey != "note:org/repo:555" {
+		t.Errorf("dedup = %q", evs[0].DedupKey)
+	}
+}
+
+func TestHandleIssueComment_DropsNonPRAndBotAndNonCreated(t *testing.T) {
+	g := &GitHubPlugin{botUsername: "huginn"}
+	// plain issue (no pull_request)
+	plain := []byte(`{"action":"created","issue":{"number":1,"title":"t"},"comment":{"id":1,"body":"b","user":{"login":"x"}},"repository":{"full_name":"o/r"}}`)
+	// bot's own comment
+	bot := []byte(`{"action":"created","issue":{"number":1,"title":"t","pull_request":{"url":"u"}},"comment":{"id":2,"body":"b","user":{"login":"huginn"}},"repository":{"full_name":"o/r"}}`)
+	// edited, not created
+	edited := []byte(`{"action":"edited","issue":{"number":1,"title":"t","pull_request":{"url":"u"}},"comment":{"id":3,"body":"b","user":{"login":"x"}},"repository":{"full_name":"o/r"}}`)
+	for _, b := range [][]byte{plain, bot, edited} {
+		evs, err := g.handleIssueComment(b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(evs) != 0 {
+			t.Errorf("want 0 events, got %d for %s", len(evs), b)
+		}
+	}
+}
+
+func TestHandleReviewComment_PR(t *testing.T) {
+	g := &GitHubPlugin{}
+	body := []byte(`{"action":"created","comment":{"id":777,"body":"nit","html_url":"hu","user":{"login":"reviewer"}},"pull_request":{"number":12,"title":"Add X","head":{"ref":"feat/x"}},"repository":{"full_name":"org/repo"}}`)
+	evs, err := g.handleReviewComment(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 1 || evs[0].EventType != "pr_comment" {
+		t.Fatalf("want 1 pr_comment, got %v", evs)
+	}
+	n := evs[0].PayloadNorm
+	if n["mr_source_branch"] != "feat/x" {
+		t.Errorf("source_branch = %v", n["mr_source_branch"])
+	}
+	if n["discussion_id"] != "777" {
+		t.Errorf("discussion_id should be the comment id, got %v", n["discussion_id"])
+	}
+}
+
+func TestHandleReviewComment_DropsBot(t *testing.T) {
+	g := &GitHubPlugin{botUsername: "huginn"}
+	body := []byte(`{"action":"created","comment":{"id":1,"body":"b","user":{"login":"huginn"}},"pull_request":{"number":1,"title":"t","head":{"ref":"b"}},"repository":{"full_name":"o/r"}}`)
+	evs, err := g.handleReviewComment(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 0 {
+		t.Errorf("bot's own review comment should be dropped, got %d", len(evs))
+	}
 }

@@ -94,6 +94,97 @@ func TestPostPRComment(t *testing.T) {
 	}
 }
 
+func TestPostChangeComment_LinguaFrancaParams(t *testing.T) {
+	var gotPath string
+	var gotBody map[string]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":1}`))
+	}))
+	defer srv.Close()
+
+	g := &GitHubPlugin{baseURL: srv.URL, token: "t"}
+	_, err := g.Do(context.Background(), "post_change_comment", map[string]any{
+		"project": "org/repo", "mr_iid": "9", "body": "hi",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/repos/org/repo/issues/9/comments" {
+		t.Errorf("path = %q", gotPath)
+	}
+	if gotBody["body"] != "hi" {
+		t.Errorf("body = %v", gotBody)
+	}
+}
+
+func TestPostInlineComment_Github(t *testing.T) {
+	var postPayload map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("/repos/org/repo/pulls/9", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"head":{"sha":"abc123"}}`))
+	})
+	mux.HandleFunc("/repos/org/repo/pulls/9/comments", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&postPayload)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":5}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	g := &GitHubPlugin{baseURL: srv.URL, token: "t"}
+	_, err := g.Do(context.Background(), "post_inline_comment", map[string]any{
+		"project": "org/repo", "mr_iid": "9", "path": "main.go", "line": "12", "body": "bug",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if postPayload["commit_id"] != "abc123" || postPayload["path"] != "main.go" {
+		t.Errorf("payload = %v", postPayload)
+	}
+	if postPayload["line"] != float64(12) { // JSON numbers decode to float64
+		t.Errorf("line = %v (%T), want 12", postPayload["line"], postPayload["line"])
+	}
+	if postPayload["side"] != "RIGHT" {
+		t.Errorf("side = %v, want RIGHT", postPayload["side"])
+	}
+}
+
+func TestPostInlineComment_Github_FallbackOnStalePosition(t *testing.T) {
+	var fellBack bool
+	mux := http.NewServeMux()
+	mux.HandleFunc("/repos/org/repo/pulls/9", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"head":{"sha":"abc123"}}`))
+	})
+	mux.HandleFunc("/repos/org/repo/pulls/9/comments", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity) // stale line position
+		_, _ = w.Write([]byte(`{"message":"position invalid"}`))
+	})
+	mux.HandleFunc("/repos/org/repo/issues/9/comments", func(w http.ResponseWriter, r *http.Request) {
+		fellBack = true
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":7}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	g := &GitHubPlugin{baseURL: srv.URL, token: "t"}
+	res, err := g.Do(context.Background(), "post_inline_comment", map[string]any{
+		"project": "org/repo", "mr_iid": "9", "path": "main.go", "line": "12", "body": "bug",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fellBack {
+		t.Error("expected fallback to the issue-comment endpoint")
+	}
+	if res["fallback"] != "note" {
+		t.Errorf("res = %v, want fallback=note", res)
+	}
+}
+
 func TestPostPRComment_Errors(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(404)
@@ -114,5 +205,100 @@ func TestPostPRComment_Errors(t *testing.T) {
 	}
 	if _, err := p.Do(context.Background(), "nope", map[string]any{}); err == nil {
 		t.Error("unknown action: expected error")
+	}
+}
+
+func TestCreateIssue_Github(t *testing.T) {
+	var gotPath string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"number":42}`))
+	}))
+	defer srv.Close()
+
+	g := &GitHubPlugin{baseURL: srv.URL, token: "t"}
+	_, err := g.Do(context.Background(), "create_issue", map[string]any{
+		"project": "org/repo", "title": "[Security] bug", "description": "found at x.go:10",
+		"labels": "security, huginn-code-audit, general-security",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/repos/org/repo/issues" {
+		t.Errorf("path = %q", gotPath)
+	}
+	if gotBody["title"] != "[Security] bug" || gotBody["body"] != "found at x.go:10" {
+		t.Errorf("title/body = %v", gotBody)
+	}
+	labels, ok := gotBody["labels"].([]any)
+	if !ok || len(labels) != 3 || labels[0] != "security" || labels[1] != "huginn-code-audit" {
+		t.Errorf("labels not split into trimmed array: %v", gotBody["labels"])
+	}
+}
+
+func TestReplyToDiscussion_Github_ReviewThread(t *testing.T) {
+	var gotPath string
+	var gotBody map[string]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":1}`))
+	}))
+	defer srv.Close()
+	g := &GitHubPlugin{baseURL: srv.URL, token: "t"}
+	_, err := g.Do(context.Background(), "reply_to_discussion", map[string]any{
+		"project": "org/repo", "mr_iid": "12", "discussion_id": "777", "body": "thanks",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/repos/org/repo/pulls/12/comments/777/replies" {
+		t.Errorf("path = %q", gotPath)
+	}
+	if gotBody["body"] != "thanks" {
+		t.Errorf("body = %v", gotBody)
+	}
+}
+
+func TestReplyToDiscussion_Github_NoThreadFallsBackToIssueComment(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":1}`))
+	}))
+	defer srv.Close()
+	g := &GitHubPlugin{baseURL: srv.URL, token: "t"}
+	_, err := g.Do(context.Background(), "reply_to_discussion", map[string]any{
+		"project": "org/repo", "mr_iid": "12", "discussion_id": "", "body": "ok",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/repos/org/repo/issues/12/comments" {
+		t.Errorf("path = %q (expected issue-comment fallback)", gotPath)
+	}
+}
+
+func TestCreateIssue_Github_NoLabels(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"number":1}`))
+	}))
+	defer srv.Close()
+	g := &GitHubPlugin{baseURL: srv.URL, token: "t"}
+	if _, err := g.Do(context.Background(), "create_issue", map[string]any{
+		"project": "org/repo", "title": "t",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, present := gotBody["labels"]; present {
+		t.Errorf("labels should be omitted when empty, got %v", gotBody["labels"])
 	}
 }

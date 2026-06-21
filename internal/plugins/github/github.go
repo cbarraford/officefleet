@@ -1,6 +1,7 @@
 // Package github provides the GitHub integration plugin: the pr_events source
-// (webhook + poll, see events.go) and the post_pr_comment action. GitHub
-// Enterprise is supported via the base_url config.
+// (webhook + poll, see events.go) and the post_change_comment and
+// post_inline_comment actions (post_pr_comment is kept as a back-compat alias).
+// GitHub Enterprise is supported via the base_url config.
 package github
 
 import (
@@ -32,6 +33,7 @@ type GitHubPlugin struct {
 	webhookSecret string
 	pollRepos     []string
 	pollInterval  time.Duration
+	botUsername   string
 }
 
 func (g *GitHubPlugin) Name() string { return "github" }
@@ -44,7 +46,10 @@ func (g *GitHubPlugin) EventSources() []plugin.EventSource {
 
 func (g *GitHubPlugin) Actions() []plugin.Action {
 	return []plugin.Action{
-		{Name: "post_pr_comment", Description: "Post a comment on a pull request"},
+		{Name: "post_change_comment", Description: "Post a comment on a pull request"},
+		{Name: "post_inline_comment", Description: "Post a positioned PR review comment (falls back to a plain comment on stale positions)"},
+		{Name: "create_issue", Description: "Create a GitHub issue"},
+		{Name: "reply_to_discussion", Description: "Reply to a PR review thread (falls back to a plain PR comment when there is no thread)"},
 	}
 }
 
@@ -55,6 +60,7 @@ func (g *GitHubPlugin) ConfigSchema() plugin.Schema {
 			"base_url":      map[string]any{"type": "string", "default": "https://api.github.com"},
 			"poll_interval": map[string]any{"type": "string", "default": "60s"},
 			"poll_repos":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"bot_username":  map[string]any{"type": "string", "description": "The fleet's own GitHub username; its comments are dropped at ingestion to prevent reply loops"},
 		},
 	}
 }
@@ -93,49 +99,203 @@ func (g *GitHubPlugin) Init(_ context.Context, cfg map[string]any, secrets plugi
 			}
 		}
 	}
+	if v, ok := cfg["bot_username"].(string); ok {
+		g.botUsername = v
+	}
 	return nil
 }
 
 func (g *GitHubPlugin) Do(ctx context.Context, action string, params map[string]any) (map[string]any, error) {
 	switch action {
-	case "post_pr_comment":
+	case "post_pr_comment", "post_change_comment": // post_pr_comment kept as a back-compat alias
 		return g.postPRComment(ctx, params)
+	case "post_inline_comment":
+		return g.postInlineComment(ctx, params)
+	case "create_issue":
+		return g.createIssue(ctx, params)
+	case "reply_to_discussion":
+		return g.replyToDiscussion(ctx, params)
 	default:
 		return nil, fmt.Errorf("github: unknown action %q", action)
 	}
 }
 
 func (g *GitHubPlugin) postPRComment(ctx context.Context, params map[string]any) (map[string]any, error) {
-	repo := paramToString(params["repo"])
-	prNumber := paramToString(params["pr_number"])
+	repo := firstParam(params, "project", "repo")
+	prNumber := firstParam(params, "mr_iid", "pr_number")
 	body := paramToString(params["body"])
 	if repo == "" || prNumber == "" || body == "" {
-		return nil, fmt.Errorf("github post_pr_comment: repo, pr_number, and body are required")
+		return nil, fmt.Errorf("github post_change_comment: project/repo, mr_iid/pr_number, and body are required")
 	}
-	// GitHub repo paths keep the literal slash: /repos/owner/repo/... (NOT %2F).
-	// The issues comments endpoint is the canonical way to comment on a PR.
+	// The issues/comments endpoint is the canonical way to comment on a PR.
 	url := fmt.Sprintf("%s/repos/%s/issues/%s/comments", g.baseURL, repo, prNumber)
-	payload, _ := json.Marshal(map[string]string{"body": body})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
-	if err != nil {
-		return nil, fmt.Errorf("github: create request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+g.token)
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("Content-Type", "application/json")
+	result, _, err := g.apiJSON(ctx, http.MethodPost, url, map[string]string{"body": body})
+	return result, err
+}
 
+func (g *GitHubPlugin) postInlineComment(ctx context.Context, params map[string]any) (map[string]any, error) {
+	repo := firstParam(params, "project", "repo")
+	prNumber := firstParam(params, "mr_iid", "pr_number")
+	path := paramToString(params["path"])
+	line := paramToString(params["line"])
+	body := paramToString(params["body"])
+	if repo == "" || prNumber == "" || path == "" || line == "" || body == "" {
+		return nil, fmt.Errorf("github post_inline_comment: project, mr_iid, path, line, and body are required")
+	}
+	// The review-comment API positions against the PR's head commit SHA.
+	sha, err := g.prHeadSHA(ctx, repo, prNumber)
+	if err != nil {
+		return nil, err
+	}
+	var newLine any = line
+	if n, err := strconv.Atoi(line); err == nil {
+		newLine = n
+	}
+	url := fmt.Sprintf("%s/repos/%s/pulls/%s/comments", g.baseURL, repo, prNumber)
+	payload := map[string]any{
+		"body": body, "commit_id": sha, "path": path, "line": newLine, "side": "RIGHT",
+	}
+	result, status, err := g.apiJSON(ctx, http.MethodPost, url, payload)
+	if err == nil {
+		return result, nil
+	}
+	// Stale line numbers are routine (the diff moved): fall back to a plain PR
+	// comment carrying the location so the finding is never lost (mirrors GitLab).
+	if status == http.StatusUnprocessableEntity || status == http.StatusBadRequest {
+		note, nErr := g.postPRComment(ctx, map[string]any{
+			"project": repo, "mr_iid": prNumber,
+			"body": fmt.Sprintf("**%s:%s** — %s", path, line, body),
+		})
+		if nErr != nil {
+			return nil, fmt.Errorf("github: inline position rejected (%v) and note fallback failed: %w", err, nErr)
+		}
+		if note == nil {
+			note = map[string]any{}
+		}
+		note["fallback"] = "note"
+		return note, nil
+	}
+	return nil, err
+}
+
+func (g *GitHubPlugin) createIssue(ctx context.Context, params map[string]any) (map[string]any, error) {
+	repo := firstParam(params, "project", "repo")
+	title := paramToString(params["title"])
+	description := paramToString(params["description"])
+	labels := paramToString(params["labels"]) // comma-separated, optional
+	if repo == "" || title == "" {
+		return nil, fmt.Errorf("github create_issue: project and title are required")
+	}
+	payload := map[string]any{"title": title, "body": description}
+	var labelList []string
+	for _, l := range strings.Split(labels, ",") {
+		if t := strings.TrimSpace(l); t != "" {
+			labelList = append(labelList, t)
+		}
+	}
+	if len(labelList) > 0 {
+		payload["labels"] = labelList
+	}
+	url := fmt.Sprintf("%s/repos/%s/issues", g.baseURL, repo)
+	result, _, err := g.apiJSON(ctx, http.MethodPost, url, payload)
+	return result, err
+}
+
+func (g *GitHubPlugin) replyToDiscussion(ctx context.Context, params map[string]any) (map[string]any, error) {
+	repo := firstParam(params, "project", "repo")
+	prNumber := firstParam(params, "mr_iid", "pr_number")
+	discussionID := paramToString(params["discussion_id"])
+	body := paramToString(params["body"])
+	if repo == "" || prNumber == "" || body == "" {
+		return nil, fmt.Errorf("github reply_to_discussion: project, mr_iid, and body are required")
+	}
+	if discussionID == "" {
+		// Conversation comment (no review thread): post a plain PR comment.
+		return g.postPRComment(ctx, params)
+	}
+	url := fmt.Sprintf("%s/repos/%s/pulls/%s/comments/%s/replies", g.baseURL, repo, prNumber, discussionID)
+	result, _, err := g.apiJSON(ctx, http.MethodPost, url, map[string]string{"body": body})
+	return result, err
+}
+
+// prHeadSHA fetches the PR's current head commit SHA, required to position a
+// review comment.
+func (g *GitHubPlugin) prHeadSHA(ctx context.Context, repo, prNumber string) (string, error) {
+	url := fmt.Sprintf("%s/repos/%s/pulls/%s", g.baseURL, repo, prNumber)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", fmt.Errorf("github: create request: %w", err)
+	}
+	if g.token != "" {
+		req.Header.Set("Authorization", "Bearer "+g.token)
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("github: post comment: %w", err)
+		return "", fmt.Errorf("github: fetch PR: %w", err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode >= 300 {
+		return "", fmt.Errorf("github: fetch PR returned %d: %s", resp.StatusCode, truncateForErr(b))
+	}
+	var pr struct {
+		Head struct {
+			SHA string `json:"sha"`
+		} `json:"head"`
+	}
+	if err := json.Unmarshal(b, &pr); err != nil || pr.Head.SHA == "" {
+		return "", fmt.Errorf("github: PR %s has no head sha", prNumber)
+	}
+	return pr.Head.SHA, nil
+}
+
+// firstParam returns the first non-empty stringified value among keys. It lets
+// GitHub actions accept lingua-franca keys (project/mr_iid) or the native ones
+// (repo/pr_number), so one outputs block works on both forges.
+func firstParam(params map[string]any, keys ...string) string {
+	for _, k := range keys {
+		if s := paramToString(params[k]); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+// apiJSON sends a JSON request to the GitHub API and returns the decoded body
+// plus the HTTP status (callers branch on 422/400 for the inline fallback).
+func (g *GitHubPlugin) apiJSON(ctx context.Context, method, url string, payload any) (map[string]any, int, error) {
+	var bodyReader io.Reader
+	if payload != nil {
+		b, err := json.Marshal(payload)
+		if err != nil {
+			return nil, 0, fmt.Errorf("github: marshal payload: %w", err)
+		}
+		bodyReader = bytes.NewReader(b)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
+	if err != nil {
+		return nil, 0, fmt.Errorf("github: create request: %w", err)
+	}
+	if g.token != "" {
+		req.Header.Set("Authorization", "Bearer "+g.token)
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, 0, fmt.Errorf("github: %s %s: %w", method, url, err)
 	}
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("github: post comment returned %d: %s", resp.StatusCode, truncateForErr(respBody))
+		return nil, resp.StatusCode, fmt.Errorf("github: %s returned %d: %s", method, resp.StatusCode, truncateForErr(respBody))
 	}
 	var result map[string]any
 	_ = json.Unmarshal(respBody, &result)
-	return result, nil
+	return result, resp.StatusCode, nil
 }
 
 // paramToString converts a parameter value to a string (string/int/float64).

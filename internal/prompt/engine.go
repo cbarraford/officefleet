@@ -20,7 +20,10 @@ type Context struct {
 	Skill       map[string]any
 	Assignment map[string]any
 	State      map[string]any
-	Now        time.Time
+	// Forge is the static per-provider profile (internal/forge) selected by the
+	// assignment's `forge` config key; prompts read it as {{.Forge.cli}} etc.
+	Forge map[string]any
+	Now   time.Time
 	// Item is the current fan-out element during for_each output delivery
 	// (nil outside fan-out rendering).
 	Item map[string]any
