@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -337,4 +338,60 @@ func asAuthError(err error, target **plugin.AuthError) bool {
 		*target = ae
 	}
 	return ok
+}
+
+func TestHandleWorkflowRun_Failure(t *testing.T) {
+	g := &GitHubPlugin{}
+	body := []byte(`{"action":"completed","workflow_run":{"id":99,"head_branch":"feat/x","head_sha":"abc","conclusion":"failure","status":"completed","pull_requests":[{"number":7}]},"repository":{"full_name":"org/repo"}}`)
+	evs, err := g.handleWorkflowRun(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 1 {
+		t.Fatalf("want 1 event, got %d", len(evs))
+	}
+	if evs[0].EventType != "checks_failed" {
+		t.Errorf("type = %s", evs[0].EventType)
+	}
+	n := evs[0].PayloadNorm
+	if n["project"] != "org/repo" || n["source_branch"] != "feat/x" || n["head_sha"] != "abc" {
+		t.Errorf("norm = %v", n)
+	}
+	if fmt.Sprint(n["run_id"]) != "99" {
+		t.Errorf("run_id = %v", n["run_id"])
+	}
+	if fmt.Sprint(n["mr_iid"]) != "7" {
+		t.Errorf("mr_iid = %v", n["mr_iid"])
+	}
+	if evs[0].DedupKey != "workflow_run:org/repo:99" {
+		t.Errorf("dedup = %q", evs[0].DedupKey)
+	}
+}
+
+func TestHandleWorkflowRun_IgnoresNonFailure(t *testing.T) {
+	g := &GitHubPlugin{}
+	for _, body := range [][]byte{
+		[]byte(`{"action":"completed","workflow_run":{"id":1,"conclusion":"success"},"repository":{"full_name":"o/r"}}`),
+		[]byte(`{"action":"requested","workflow_run":{"id":1,"conclusion":""},"repository":{"full_name":"o/r"}}`),
+	} {
+		evs, err := g.handleWorkflowRun(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(evs) != 0 {
+			t.Errorf("want 0 events, got %d for %s", len(evs), body)
+		}
+	}
+}
+
+func TestHandleWorkflowRun_NoPR(t *testing.T) {
+	g := &GitHubPlugin{}
+	body := []byte(`{"action":"completed","workflow_run":{"id":5,"head_branch":"b","head_sha":"s","conclusion":"failure","status":"completed","pull_requests":[]},"repository":{"full_name":"o/r"}}`)
+	evs, err := g.handleWorkflowRun(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 1 || evs[0].PayloadNorm["mr_iid"] != nil {
+		t.Errorf("expected one event with nil mr_iid, got %v", evs)
+	}
 }

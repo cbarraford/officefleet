@@ -83,22 +83,76 @@ func (g *GitHubPlugin) HandleWebhook(_ context.Context, r *http.Request) ([]doma
 		return nil, &plugin.AuthError{Msg: "github: invalid webhook signature"}
 	}
 
-	if r.Header.Get("X-GitHub-Event") != "pull_request" {
-		return nil, nil // not a PR event; acknowledged and ignored
+	switch r.Header.Get("X-GitHub-Event") {
+	case "pull_request":
+		var payload webhookPRPayload
+		if err := json.Unmarshal(body, &payload); err != nil {
+			return nil, fmt.Errorf("github: parse webhook: %w", err)
+		}
+		eventType, ok := actionToEventType(payload.Action, payload.PullRequest.Merged)
+		if !ok {
+			return nil, nil // unhandled action; acknowledged and ignored
+		}
+		pr := payload.PullRequest
+		ev := normalizePR(eventType, payload.Repository.FullName, pr.Number, pr.Title, payload.Action,
+			pr.Head.Ref, pr.Base.Ref, pr.Head.SHA, pr.User.Login, pr.HTMLURL, pr.MergeableState, body)
+		return []domain.Event{ev}, nil
+	case "workflow_run":
+		return g.handleWorkflowRun(body)
+	default:
+		return nil, nil // not an event we ingest; acknowledged and ignored
 	}
-	var payload webhookPRPayload
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return nil, fmt.Errorf("github: parse webhook: %w", err)
-	}
-	eventType, ok := actionToEventType(payload.Action, payload.PullRequest.Merged)
-	if !ok {
-		return nil, nil // unhandled action; acknowledged and ignored
-	}
+}
 
-	pr := payload.PullRequest
-	ev := normalizePR(eventType, payload.Repository.FullName, pr.Number, pr.Title, payload.Action,
-		pr.Head.Ref, pr.Base.Ref, pr.Head.SHA, pr.User.Login, pr.HTMLURL, pr.MergeableState, body)
-	return []domain.Event{ev}, nil
+type webhookWorkflowRunPayload struct {
+	Action      string `json:"action"`
+	WorkflowRun struct {
+		ID           int64  `json:"id"`
+		HeadBranch   string `json:"head_branch"`
+		HeadSHA      string `json:"head_sha"`
+		Conclusion   string `json:"conclusion"`
+		Status       string `json:"status"`
+		PullRequests []struct {
+			Number int `json:"number"`
+		} `json:"pull_requests"`
+	} `json:"workflow_run"`
+	Repository struct {
+		FullName string `json:"full_name"`
+	} `json:"repository"`
+}
+
+// handleWorkflowRun emits a checks_failed event ONLY for a completed workflow
+// run whose conclusion is "failure" (every other state is acknowledged and
+// dropped, so ci-fix is not woken on success/in-progress). Webhook-only,
+// mirroring the GitLab pipeline handler.
+func (g *GitHubPlugin) handleWorkflowRun(body []byte) ([]domain.Event, error) {
+	var payload webhookWorkflowRunPayload
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, fmt.Errorf("github: parse workflow_run webhook: %w", err)
+	}
+	wr := payload.WorkflowRun
+	if payload.Action != "completed" || wr.Conclusion != "failure" {
+		return nil, nil
+	}
+	var mrIID any
+	if len(wr.PullRequests) > 0 {
+		mrIID = wr.PullRequests[0].Number
+	}
+	return []domain.Event{{
+		SourcePlugin: "github",
+		EventType:    "checks_failed",
+		PayloadRaw:   json.RawMessage(body),
+		PayloadNorm: map[string]any{
+			"project":       payload.Repository.FullName,
+			"run_id":        wr.ID,
+			"source_branch": wr.HeadBranch,
+			"head_sha":      wr.HeadSHA,
+			"status":        wr.Conclusion,
+			"mr_iid":        mrIID,
+		},
+		// Dedup on run id: a re-run is a new id, so a genuine re-failure re-triggers.
+		DedupKey: fmt.Sprintf("workflow_run:%s:%d", payload.Repository.FullName, wr.ID),
+	}}, nil
 }
 
 // normalizePR builds the shared envelope both ingestion surfaces emit.
