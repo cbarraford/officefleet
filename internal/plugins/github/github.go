@@ -33,6 +33,7 @@ type GitHubPlugin struct {
 	webhookSecret string
 	pollRepos     []string
 	pollInterval  time.Duration
+	botUsername   string
 }
 
 func (g *GitHubPlugin) Name() string { return "github" }
@@ -58,6 +59,7 @@ func (g *GitHubPlugin) ConfigSchema() plugin.Schema {
 			"base_url":      map[string]any{"type": "string", "default": "https://api.github.com"},
 			"poll_interval": map[string]any{"type": "string", "default": "60s"},
 			"poll_repos":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"bot_username":  map[string]any{"type": "string", "description": "The fleet's own GitHub username; its comments are dropped at ingestion to prevent reply loops"},
 		},
 	}
 }
@@ -95,6 +97,9 @@ func (g *GitHubPlugin) Init(_ context.Context, cfg map[string]any, secrets plugi
 				g.pollRepos = append(g.pollRepos, s)
 			}
 		}
+	}
+	if v, ok := cfg["bot_username"].(string); ok {
+		g.botUsername = v
 	}
 	return nil
 }

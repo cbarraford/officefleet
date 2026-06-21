@@ -395,3 +395,75 @@ func TestHandleWorkflowRun_NoPR(t *testing.T) {
 		t.Errorf("expected one event with nil mr_iid, got %v", evs)
 	}
 }
+
+func TestHandleIssueComment_PR(t *testing.T) {
+	g := &GitHubPlugin{}
+	body := []byte(`{"action":"created","issue":{"number":12,"title":"Add X","pull_request":{"url":"u"}},"comment":{"id":555,"body":"please fix","html_url":"hu","user":{"login":"reviewer"}},"repository":{"full_name":"org/repo"}}`)
+	evs, err := g.handleIssueComment(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 1 || evs[0].EventType != "pr_comment" {
+		t.Fatalf("want 1 pr_comment, got %v", evs)
+	}
+	n := evs[0].PayloadNorm
+	if n["project"] != "org/repo" || n["mr_iid"] != 12 || n["note_body"] != "please fix" || n["author"] != "reviewer" {
+		t.Errorf("norm = %v", n)
+	}
+	if n["discussion_id"] != "" || n["mr_source_branch"] != "" {
+		t.Errorf("conversation comment should have empty discussion_id/branch: %v", n)
+	}
+	if evs[0].DedupKey != "note:org/repo:555" {
+		t.Errorf("dedup = %q", evs[0].DedupKey)
+	}
+}
+
+func TestHandleIssueComment_DropsNonPRAndBotAndNonCreated(t *testing.T) {
+	g := &GitHubPlugin{botUsername: "huginn"}
+	// plain issue (no pull_request)
+	plain := []byte(`{"action":"created","issue":{"number":1,"title":"t"},"comment":{"id":1,"body":"b","user":{"login":"x"}},"repository":{"full_name":"o/r"}}`)
+	// bot's own comment
+	bot := []byte(`{"action":"created","issue":{"number":1,"title":"t","pull_request":{"url":"u"}},"comment":{"id":2,"body":"b","user":{"login":"huginn"}},"repository":{"full_name":"o/r"}}`)
+	// edited, not created
+	edited := []byte(`{"action":"edited","issue":{"number":1,"title":"t","pull_request":{"url":"u"}},"comment":{"id":3,"body":"b","user":{"login":"x"}},"repository":{"full_name":"o/r"}}`)
+	for _, b := range [][]byte{plain, bot, edited} {
+		evs, err := g.handleIssueComment(b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(evs) != 0 {
+			t.Errorf("want 0 events, got %d for %s", len(evs), b)
+		}
+	}
+}
+
+func TestHandleReviewComment_PR(t *testing.T) {
+	g := &GitHubPlugin{}
+	body := []byte(`{"action":"created","comment":{"id":777,"body":"nit","html_url":"hu","user":{"login":"reviewer"}},"pull_request":{"number":12,"title":"Add X","head":{"ref":"feat/x"}},"repository":{"full_name":"org/repo"}}`)
+	evs, err := g.handleReviewComment(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 1 || evs[0].EventType != "pr_comment" {
+		t.Fatalf("want 1 pr_comment, got %v", evs)
+	}
+	n := evs[0].PayloadNorm
+	if n["mr_source_branch"] != "feat/x" {
+		t.Errorf("source_branch = %v", n["mr_source_branch"])
+	}
+	if n["discussion_id"] != "777" {
+		t.Errorf("discussion_id should be the comment id, got %v", n["discussion_id"])
+	}
+}
+
+func TestHandleReviewComment_DropsBot(t *testing.T) {
+	g := &GitHubPlugin{botUsername: "huginn"}
+	body := []byte(`{"action":"created","comment":{"id":1,"body":"b","user":{"login":"huginn"}},"pull_request":{"number":1,"title":"t","head":{"ref":"b"}},"repository":{"full_name":"o/r"}}`)
+	evs, err := g.handleReviewComment(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 0 {
+		t.Errorf("bot's own review comment should be dropped, got %d", len(evs))
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/cbarraford/office-fleet/internal/domain"
@@ -99,6 +100,10 @@ func (g *GitHubPlugin) HandleWebhook(_ context.Context, r *http.Request) ([]doma
 		return []domain.Event{ev}, nil
 	case "workflow_run":
 		return g.handleWorkflowRun(body)
+	case "issue_comment":
+		return g.handleIssueComment(body)
+	case "pull_request_review_comment":
+		return g.handleReviewComment(body)
 	default:
 		return nil, nil // not an event we ingest; acknowledged and ignored
 	}
@@ -292,4 +297,106 @@ func (g *GitHubPlugin) fetchOpenPRs(ctx context.Context, repo string) ([]pollPR,
 		return nil, fmt.Errorf("github: parse poll response: %w", err)
 	}
 	return prs, nil
+}
+
+type webhookIssueCommentPayload struct {
+	Action string `json:"action"`
+	Issue  struct {
+		Number      int    `json:"number"`
+		Title       string `json:"title"`
+		PullRequest *struct {
+			URL string `json:"url"`
+		} `json:"pull_request"`
+	} `json:"issue"`
+	Comment struct {
+		ID      int64  `json:"id"`
+		Body    string `json:"body"`
+		HTMLURL string `json:"html_url"`
+		User    struct {
+			Login string `json:"login"`
+		} `json:"user"`
+	} `json:"comment"`
+	Repository struct {
+		FullName string `json:"full_name"`
+	} `json:"repository"`
+}
+
+type webhookReviewCommentPayload struct {
+	Action  string `json:"action"`
+	Comment struct {
+		ID      int64  `json:"id"`
+		Body    string `json:"body"`
+		HTMLURL string `json:"html_url"`
+		User    struct {
+			Login string `json:"login"`
+		} `json:"user"`
+	} `json:"comment"`
+	PullRequest struct {
+		Number int    `json:"number"`
+		Title  string `json:"title"`
+		Head   struct {
+			Ref string `json:"ref"`
+		} `json:"head"`
+	} `json:"pull_request"`
+	Repository struct {
+		FullName string `json:"full_name"`
+	} `json:"repository"`
+}
+
+// prCommentEvent builds the shared pr_comment envelope (GitLab mr_note field
+// names). For conversation comments sourceBranch and discussionID are empty.
+func prCommentEvent(repo string, number int, title, sourceBranch string, commentID int64, discussionID, noteBody, author, url string, raw []byte) domain.Event {
+	return domain.Event{
+		SourcePlugin: "github",
+		EventType:    "pr_comment",
+		PayloadRaw:   json.RawMessage(raw),
+		PayloadNorm: map[string]any{
+			"project":          repo,
+			"mr_iid":           number,
+			"mr_title":         title,
+			"mr_source_branch": sourceBranch,
+			"note_id":          commentID,
+			"discussion_id":    discussionID,
+			"note_body":        noteBody,
+			"author":           author,
+			"url":              url,
+		},
+		Identity: author,
+		DedupKey: fmt.Sprintf("note:%s:%d", repo, commentID),
+	}
+}
+
+// handleIssueComment ingests PR-conversation comments. Non-PR issues, the bot's
+// own comments, and non-created actions are dropped.
+func (g *GitHubPlugin) handleIssueComment(body []byte) ([]domain.Event, error) {
+	var p webhookIssueCommentPayload
+	if err := json.Unmarshal(body, &p); err != nil {
+		return nil, fmt.Errorf("github: parse issue_comment webhook: %w", err)
+	}
+	if p.Action != "created" || p.Issue.PullRequest == nil {
+		return nil, nil
+	}
+	if g.botUsername != "" && p.Comment.User.Login == g.botUsername {
+		return nil, nil
+	}
+	return []domain.Event{prCommentEvent(p.Repository.FullName, p.Issue.Number, p.Issue.Title,
+		"", p.Comment.ID, "", p.Comment.Body, p.Comment.User.Login, p.Comment.HTMLURL, body)}, nil
+}
+
+// handleReviewComment ingests inline review-thread comments. discussion_id is
+// the comment id (the reply target); mr_source_branch is the PR head ref.
+func (g *GitHubPlugin) handleReviewComment(body []byte) ([]domain.Event, error) {
+	var p webhookReviewCommentPayload
+	if err := json.Unmarshal(body, &p); err != nil {
+		return nil, fmt.Errorf("github: parse pull_request_review_comment webhook: %w", err)
+	}
+	if p.Action != "created" {
+		return nil, nil
+	}
+	if g.botUsername != "" && p.Comment.User.Login == g.botUsername {
+		return nil, nil
+	}
+	discussionID := strconv.FormatInt(p.Comment.ID, 10)
+	return []domain.Event{prCommentEvent(p.Repository.FullName, p.PullRequest.Number, p.PullRequest.Title,
+		p.PullRequest.Head.Ref, p.Comment.ID, discussionID, p.Comment.Body, p.Comment.User.Login, p.Comment.HTMLURL, body)}, nil
 }
