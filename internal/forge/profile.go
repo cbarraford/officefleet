@@ -29,6 +29,7 @@ var Profiles = map[string]map[string]any{
 		"closesIssuesHowto":  "glab api \"projects/<project, url-encoded with / as %2F>/merge_requests/<change_iid>/closes_issues\"",
 		"ciLogsHowto":        "glab ci view --repo <project> to find the failed job id, then glab ci trace <job_id> --repo <project>",
 		"ciRetryHowto":       "glab ci retry <job_id> --repo <project>",
+		"resolveThreadHowto": "glab api --method PUT \"projects/<project, url-encoded with / as %2F>/merge_requests/<mr_iid>/discussions/<discussion_id>?resolved=true\"",
 	},
 	"github": {
 		"name":             "github",
@@ -50,6 +51,7 @@ var Profiles = map[string]map[string]any{
 		"closesIssuesHowto":  "gh pr view <change_iid> --repo <project> --json closingIssuesReferences --jq '.closingIssuesReferences[].number'",
 		"ciLogsHowto":        "gh run view <run_id> --repo <project> --log-failed",
 		"ciRetryHowto":       "gh run rerun --failed <run_id> --repo <project>",
+		"resolveThreadHowto": "resolve the review thread with gh api graphql: query repository(owner,name).pullRequest(number: <mr_iid>).reviewThreads to find the thread whose comment id is <discussion_id>, take its node id, then run the resolveReviewThread(input:{threadId:\"<node id>\"}) mutation",
 	},
 }
 

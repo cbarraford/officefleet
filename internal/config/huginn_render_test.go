@@ -200,6 +200,33 @@ func TestCodeFeedbackPrompt_RendersBothForges(t *testing.T) {
 	}
 }
 
+func TestReviewFindingReplyPrompt_RendersBothForges(t *testing.T) {
+	tmpl := skillPrompt(t, "review-finding-reply")
+	secrets := map[string]string{"gitlab_token": "glt", "github_token": "ght"}
+	cases := []struct{ forge, wantHost, wantResolve string }{
+		{"gitlab", "gitlab.com", "resolved=true"},
+		{"github", "github.com", "gh api graphql"},
+	}
+	for _, tc := range cases {
+		fp, _ := forge.Profile(tc.forge)
+		ctx := prompt.Context{
+			Event: map[string]any{
+				"mr_iid": 12, "mr_title": "T", "author": "auth",
+				"note_body": "pushback", "mr_source_branch": "feat/x", "discussion_id": "777",
+			},
+			Assignment: map[string]any{"project": "o/r"},
+			Forge:      fp,
+		}
+		out, err := prompt.Render(tmpl, ctx, secrets)
+		if err != nil {
+			t.Fatalf("forge %s render: %v", tc.forge, err)
+		}
+		if !strings.Contains(out, tc.wantHost) || !strings.Contains(out, tc.wantResolve) {
+			t.Errorf("forge %s: missing %q/%q", tc.forge, tc.wantHost, tc.wantResolve)
+		}
+	}
+}
+
 func TestCodeReviewPrompt_RendersBothForges(t *testing.T) {
 	tmpl := codeReviewPrompt(t)
 	secrets := map[string]string{"gitlab_token": "glt", "github_token": "ght"}

@@ -60,3 +60,16 @@ func TestProfile_CIFields(t *testing.T) {
 		t.Errorf("github ciRetryHowto = %q", ghRetry)
 	}
 }
+
+func TestProfile_ResolveThreadHowto(t *testing.T) {
+	gl, _ := Profile("gitlab")
+	glHowto, _ := gl["resolveThreadHowto"].(string)
+	if !strings.Contains(glHowto, "resolved=true") {
+		t.Errorf("gitlab resolveThreadHowto = %q", glHowto)
+	}
+	gh, _ := Profile("github")
+	ghHowto, _ := gh["resolveThreadHowto"].(string)
+	if !strings.Contains(ghHowto, "gh api graphql") {
+		t.Errorf("github resolveThreadHowto = %q", ghHowto)
+	}
+}

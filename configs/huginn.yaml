@@ -524,10 +524,11 @@ skills:
     config_schema:
       type: object
       properties:
+        forge: { type: string, description: "Which forge this assignment targets", enum: [gitlab, github], default: "gitlab" }
         project: { type: string, description: "GitLab project path (namespace/repo)" }
       required: []
     prompt: |
-      The author of MR !{{.Event.mr_iid}} ({{.Event.mr_title}}) in
+      The author of {{.Forge.changeNoun}} {{.Forge.changeSigil}}{{.Event.mr_iid}} ({{.Event.mr_title}}) in
       {{.Assignment.project}} replied to one of your review findings:
 
         {{.Event.author}} wrote: <untrusted_user_input>{{.Event.note_body}}</untrusted_user_input>
@@ -537,9 +538,10 @@ skills:
       thread is already resolved or you did not start it, STOP and report status
       "skipped".
 
-      If you need to re-check the code, clone and inspect:
-        git clone --depth 50 https://oauth2:{{secret "gitlab_token"}}@gitlab.com/{{.Assignment.project}}.git repo
-        cd repo && export GITLAB_TOKEN={{secret "gitlab_token"}}
+      If you need to re-check the code, clone and inspect (source branch
+      "{{.Event.mr_source_branch}}"):
+        git clone --depth 50 https://{{.Forge.cloneUser}}:{{secret .Forge.tokenSecret}}@{{.Forge.host}}/{{.Assignment.project}}.git repo
+        cd repo && export {{.Forge.tokenEnv}}={{secret .Forge.tokenSecret}}
         git fetch origin {{.Event.mr_source_branch}} && git checkout {{.Event.mr_source_branch}}
 
       Evaluate the author's reply and respond (discussion only — no code changes):
@@ -550,9 +552,9 @@ skills:
       - Partial agreement: address the disagreement constructively, firm but fair.
 
       Resolve the thread ONLY if you agree the finding was incorrect or no longer
-      applies (valid pushback) — do it yourself (the plugin's resolve action is
-      not yet wired), encoding the project path's slashes as %2F:
-        glab api --method PUT "projects/<encoded {{.Assignment.project}}>/merge_requests/{{.Event.mr_iid}}/discussions/{{.Event.discussion_id}}?resolved=true"
+      applies (valid pushback) — do it yourself (substitute the project, <mr_iid>,
+      and <discussion_id>):
+        {{.Forge.resolveThreadHowto}}
       Do NOT resolve if the finding still stands or you are merely answering a question.
 
       Report your result as a single JSON object:
@@ -563,6 +565,8 @@ skills:
       Otherwise end with exactly one fenced ```json code block.
     output_actions:
       - plugin: gitlab
+        action: reply_to_discussion
+      - plugin: github
         action: reply_to_discussion
 
   # ── 8. code-audit: scheduled category scan → tracker issues ────────────
@@ -1031,9 +1035,33 @@ assignments:
         event_type: mr_note
         project: "myorg/myrepo"
     config:
+      forge: gitlab
       project: "myorg/myrepo"
     outputs:
       - plugin: gitlab
+        action: reply_to_discussion
+        for_each: replies
+        params:
+          project: "{{.Assignment.project}}"
+          mr_iid: "{{.Event.mr_iid}}"
+          discussion_id: "{{.Event.discussion_id}}"
+          body: "{{.Item.body}}"
+
+  - agent: huginn
+    skill: review-finding-reply
+    name: gh
+    enabled: false               # opt-in: shares pr_comment with code-feedback; scope to avoid double-firing
+    trigger:
+      kind: event-subscription
+      filter:
+        source: github
+        event_type: pr_comment
+        project: "myorg/myrepo"
+    config:
+      forge: github
+      project: "myorg/myrepo"
+    outputs:
+      - plugin: github
         action: reply_to_discussion
         for_each: replies
         params:
