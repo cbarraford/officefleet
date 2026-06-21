@@ -369,23 +369,27 @@ skills:
     config_schema:
       type: object
       properties:
+        forge: { type: string, description: "Which forge this assignment targets", enum: [gitlab, github], default: "gitlab" }
         project: { type: string, description: "GitLab project path (namespace/repo)" }
         base_branch: { type: string, description: "Base branch", default: "main" }
       required: [project, base_branch]
     prompt: |
-      A reviewer left feedback on MR !{{.Event.mr_iid}} ({{.Event.mr_title}}) in
+      A reviewer left feedback on {{.Forge.changeNoun}} {{.Forge.changeSigil}}{{.Event.mr_iid}} ({{.Event.mr_title}}) in
       {{.Assignment.project}}:
 
         {{.Event.author}} wrote: <untrusted_user_input>{{.Event.note_body}}</untrusted_user_input>
 
       Only act if this feedback is addressed to you and warrants a response. Skip
       (status "skipped", empty replies) thanks/acknowledgements, bot chatter, or
-      anything not directed at the MR author. Never reply to your own comments.
+      anything not directed at the {{.Forge.changeAbbr}} author. Never reply to your own comments.
 
-      Workspace (only if you need code context or will make changes):
-        git clone --depth 50 https://oauth2:{{secret "gitlab_token"}}@gitlab.com/{{.Assignment.project}}.git repo
-        cd repo && export GITLAB_TOKEN={{secret "gitlab_token"}}
-        git fetch origin {{.Event.mr_source_branch}} && git checkout {{.Event.mr_source_branch}}
+      Workspace (only if you need code context or will make changes). The change's
+      source branch is "{{.Event.mr_source_branch}}"; if that is empty (a
+      conversation comment), first resolve it with
+      `{{.Forge.cli}} {{.Forge.changeCmd}} view {{.Event.mr_iid}} --repo {{.Assignment.project}}`:
+        git clone --depth 50 https://{{.Forge.cloneUser}}:{{secret .Forge.tokenSecret}}@{{.Forge.host}}/{{.Assignment.project}}.git repo
+        cd repo && export {{.Forge.tokenEnv}}={{secret .Forge.tokenSecret}}
+        git fetch origin <source_branch> && git checkout <source_branch>
 
       Think it through, then take the MINIMAL appropriate action:
       1. What is the reviewer asking — a code change, a question, or information?
@@ -393,7 +397,7 @@ skills:
       2. If code changes are needed: review the current diff
          (git diff origin/{{.Assignment.base_branch}}...HEAD), make the targeted
          change (no scope creep, no refactoring unrelated code), commit, and push:
-         git push origin {{.Event.mr_source_branch}}. Then reply explaining it.
+         git push origin <source_branch>. Then reply explaining it.
       3. If already addressed in a prior commit: explain with the commit reference.
       4. If it's a question: answer it concretely. If purely informational:
          acknowledge briefly.
@@ -415,6 +419,8 @@ skills:
       Otherwise end with exactly one fenced ```json code block.
     output_actions:
       - plugin: gitlab
+        action: reply_to_discussion
+      - plugin: github
         action: reply_to_discussion
 
   # ── 6. code-review: external change-request review with self-verification + challenge ─
@@ -978,10 +984,35 @@ assignments:
         event_type: mr_note
         project: "myorg/myrepo"
     config:
+      forge: gitlab
       project: "myorg/myrepo"
       base_branch: "main"
     outputs:
       - plugin: gitlab
+        action: reply_to_discussion
+        for_each: replies
+        params:
+          project: "{{.Assignment.project}}"
+          mr_iid: "{{.Event.mr_iid}}"
+          discussion_id: "{{.Event.discussion_id}}"
+          body: "{{.Item.body}}"
+
+  - agent: huginn
+    skill: code-feedback
+    name: gh
+    enabled: false               # opt-in: enable + point at a GitHub repo
+    trigger:
+      kind: event-subscription
+      filter:
+        source: github
+        event_type: pr_comment
+        project: "myorg/myrepo"
+    config:
+      forge: github
+      project: "myorg/myrepo"
+      base_branch: "main"
+    outputs:
+      - plugin: github
         action: reply_to_discussion
         for_each: replies
         params:

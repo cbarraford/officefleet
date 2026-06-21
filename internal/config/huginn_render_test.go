@@ -173,6 +173,33 @@ func TestCIFixPrompt_RendersBothForges(t *testing.T) {
 	}
 }
 
+func TestCodeFeedbackPrompt_RendersBothForges(t *testing.T) {
+	tmpl := skillPrompt(t, "code-feedback")
+	secrets := map[string]string{"gitlab_token": "glt", "github_token": "ght"}
+	cases := []struct{ forge, wantHost, wantNoun string }{
+		{"gitlab", "gitlab.com", "merge request"},
+		{"github", "github.com", "pull request"},
+	}
+	for _, tc := range cases {
+		fp, _ := forge.Profile(tc.forge)
+		ctx := prompt.Context{
+			Event: map[string]any{
+				"mr_iid": 12, "mr_title": "T", "author": "rev",
+				"note_body": "fix", "mr_source_branch": "feat/x",
+			},
+			Assignment: map[string]any{"project": "o/r", "base_branch": "main"},
+			Forge:      fp,
+		}
+		out, err := prompt.Render(tmpl, ctx, secrets)
+		if err != nil {
+			t.Fatalf("forge %s render: %v", tc.forge, err)
+		}
+		if !strings.Contains(out, tc.wantHost) || !strings.Contains(out, tc.wantNoun) {
+			t.Errorf("forge %s: missing %q/%q", tc.forge, tc.wantHost, tc.wantNoun)
+		}
+	}
+}
+
 func TestCodeReviewPrompt_RendersBothForges(t *testing.T) {
 	tmpl := codeReviewPrompt(t)
 	secrets := map[string]string{"gitlab_token": "glt", "github_token": "ght"}
