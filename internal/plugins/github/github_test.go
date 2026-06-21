@@ -239,6 +239,51 @@ func TestCreateIssue_Github(t *testing.T) {
 	}
 }
 
+func TestReplyToDiscussion_Github_ReviewThread(t *testing.T) {
+	var gotPath string
+	var gotBody map[string]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":1}`))
+	}))
+	defer srv.Close()
+	g := &GitHubPlugin{baseURL: srv.URL, token: "t"}
+	_, err := g.Do(context.Background(), "reply_to_discussion", map[string]any{
+		"project": "org/repo", "mr_iid": "12", "discussion_id": "777", "body": "thanks",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/repos/org/repo/pulls/12/comments/777/replies" {
+		t.Errorf("path = %q", gotPath)
+	}
+	if gotBody["body"] != "thanks" {
+		t.Errorf("body = %v", gotBody)
+	}
+}
+
+func TestReplyToDiscussion_Github_NoThreadFallsBackToIssueComment(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":1}`))
+	}))
+	defer srv.Close()
+	g := &GitHubPlugin{baseURL: srv.URL, token: "t"}
+	_, err := g.Do(context.Background(), "reply_to_discussion", map[string]any{
+		"project": "org/repo", "mr_iid": "12", "discussion_id": "", "body": "ok",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/repos/org/repo/issues/12/comments" {
+		t.Errorf("path = %q (expected issue-comment fallback)", gotPath)
+	}
+}
+
 func TestCreateIssue_Github_NoLabels(t *testing.T) {
 	var gotBody map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -49,6 +49,7 @@ func (g *GitHubPlugin) Actions() []plugin.Action {
 		{Name: "post_change_comment", Description: "Post a comment on a pull request"},
 		{Name: "post_inline_comment", Description: "Post a positioned PR review comment (falls back to a plain comment on stale positions)"},
 		{Name: "create_issue", Description: "Create a GitHub issue"},
+		{Name: "reply_to_discussion", Description: "Reply to a PR review thread (falls back to a plain PR comment when there is no thread)"},
 	}
 }
 
@@ -112,6 +113,8 @@ func (g *GitHubPlugin) Do(ctx context.Context, action string, params map[string]
 		return g.postInlineComment(ctx, params)
 	case "create_issue":
 		return g.createIssue(ctx, params)
+	case "reply_to_discussion":
+		return g.replyToDiscussion(ctx, params)
 	default:
 		return nil, fmt.Errorf("github: unknown action %q", action)
 	}
@@ -195,6 +198,23 @@ func (g *GitHubPlugin) createIssue(ctx context.Context, params map[string]any) (
 	}
 	url := fmt.Sprintf("%s/repos/%s/issues", g.baseURL, repo)
 	result, _, err := g.apiJSON(ctx, http.MethodPost, url, payload)
+	return result, err
+}
+
+func (g *GitHubPlugin) replyToDiscussion(ctx context.Context, params map[string]any) (map[string]any, error) {
+	repo := firstParam(params, "project", "repo")
+	prNumber := firstParam(params, "mr_iid", "pr_number")
+	discussionID := paramToString(params["discussion_id"])
+	body := paramToString(params["body"])
+	if repo == "" || prNumber == "" || body == "" {
+		return nil, fmt.Errorf("github reply_to_discussion: project, mr_iid, and body are required")
+	}
+	if discussionID == "" {
+		// Conversation comment (no review thread): post a plain PR comment.
+		return g.postPRComment(ctx, params)
+	}
+	url := fmt.Sprintf("%s/repos/%s/pulls/%s/comments/%s/replies", g.baseURL, repo, prNumber, discussionID)
+	result, _, err := g.apiJSON(ctx, http.MethodPost, url, map[string]string{"body": body})
 	return result, err
 }
 
