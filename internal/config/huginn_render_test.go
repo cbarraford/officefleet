@@ -145,6 +145,34 @@ func TestCodeRebasePrompt_RendersBothForges(t *testing.T) {
 	}
 }
 
+func TestCIFixPrompt_RendersBothForges(t *testing.T) {
+	tmpl := skillPrompt(t, "ci-fix")
+	secrets := map[string]string{"gitlab_token": "glt", "github_token": "ght"}
+	cases := []struct{ forge, wantHost, wantList, wantCI string }{
+		{"gitlab", "gitlab.com", "glab mr list", "glab ci"},
+		{"github", "github.com", "gh pr list", "gh run"},
+	}
+	for _, tc := range cases {
+		fp, _ := forge.Profile(tc.forge)
+		ctx := prompt.Context{
+			Assignment: map[string]any{
+				"project": "o/r", "base_branch": "main", "max_ci_fix_attempts": 5,
+				"regression_command": "", "qg_test_command": "", "qg_lint_command": "",
+			},
+			Forge: fp,
+		}
+		out, err := prompt.Render(tmpl, ctx, secrets)
+		if err != nil {
+			t.Fatalf("forge %s render: %v", tc.forge, err)
+		}
+		for _, want := range []string{tc.wantHost, tc.wantList, tc.wantCI} {
+			if !strings.Contains(out, want) {
+				t.Errorf("forge %s: missing %q", tc.forge, want)
+			}
+		}
+	}
+}
+
 func TestCodeReviewPrompt_RendersBothForges(t *testing.T) {
 	tmpl := codeReviewPrompt(t)
 	secrets := map[string]string{"gitlab_token": "glt", "github_token": "ght"}
