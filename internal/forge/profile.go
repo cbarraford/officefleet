@@ -27,6 +27,8 @@ var Profiles = map[string]map[string]any{
 		"listLimitFlag":      "--per-page",
 		"issueCommentsHowto": "glab issue note list <iid> --repo <project>",
 		"closesIssuesHowto":  "glab api \"projects/<project, url-encoded with / as %2F>/merge_requests/<change_iid>/closes_issues\"",
+		"ciLogsHowto":        "glab ci view --repo <project> to find the failed job id, then glab ci trace <job_id> --repo <project>",
+		"ciRetryHowto":       "glab ci retry <job_id> --repo <project>",
 	},
 	"github": {
 		"name":             "github",
@@ -46,6 +48,8 @@ var Profiles = map[string]map[string]any{
 		"listLimitFlag":      "--limit",
 		"issueCommentsHowto": "gh issue view <iid> --repo <project> --comments",
 		"closesIssuesHowto":  "gh pr view <change_iid> --repo <project> --json closingIssuesReferences --jq '.closingIssuesReferences[].number'",
+		"ciLogsHowto":        "gh run view <run_id> --repo <project> --log-failed",
+		"ciRetryHowto":       "gh run rerun --failed <run_id> --repo <project>",
 	},
 }
 

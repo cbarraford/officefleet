@@ -1,6 +1,9 @@
 package forge
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestProfile_KnownForges(t *testing.T) {
 	gl, ok := Profile("gitlab")
@@ -39,5 +42,21 @@ func TestProfile_GroupAFields(t *testing.T) {
 	}
 	if gh["issueCommentsHowto"] == nil || gh["closesIssuesHowto"] == nil {
 		t.Errorf("github missing howto fields: %v", gh)
+	}
+}
+
+func TestProfile_CIFields(t *testing.T) {
+	gl, _ := Profile("gitlab")
+	if gl["ciLogsHowto"] == nil || gl["ciRetryHowto"] == nil {
+		t.Errorf("gitlab missing ci fields: %v", gl)
+	}
+	gh, _ := Profile("github")
+	ghLogs, _ := gh["ciLogsHowto"].(string)
+	ghRetry, _ := gh["ciRetryHowto"].(string)
+	if !strings.Contains(ghLogs, "gh run view") {
+		t.Errorf("github ciLogsHowto = %q", ghLogs)
+	}
+	if !strings.Contains(ghRetry, "gh run rerun") {
+		t.Errorf("github ciRetryHowto = %q", ghRetry)
 	}
 }
