@@ -73,11 +73,12 @@ skills:
     required_tools:
       - git
       - glab
+      - gh
     config_schema:
       type: object
       properties:
         forge: { type: string, description: "Which forge this assignment targets", enum: [gitlab, github], default: "gitlab" }
-        project: { type: string, description: "GitLab project path (namespace/repo)" }
+        project: { type: string, description: "Project path (namespace/repo)" }
         base_branch: { type: string, description: "Target branch for MRs", default: "main" }
         max_open_mrs: { type: integer, description: "Skip the run if the bot already has this many open MRs (huginn max_open_mrs)", default: 3 }
         priority_label_prefix: { type: string, description: "Label prefix for priority sorting (priority::0 highest .. priority::5 lowest)", default: "priority::" }
@@ -162,11 +163,12 @@ skills:
     required_tools:
       - git
       - glab
+      - gh
     config_schema:
       type: object
       properties:
         forge: { type: string, description: "Which forge this assignment targets", enum: [gitlab, github], default: "gitlab" }
-        project: { type: string, description: "GitLab project path (namespace/repo)" }
+        project: { type: string, description: "Project path (namespace/repo)" }
         base_branch: { type: string, description: "Target branch for the MR", default: "main" }
         batch_label: { type: string, description: "Label marking issues to batch together", default: "batch" }
         max_batch_issues: { type: integer, description: "Cap issues per batch MR; remainder defers to the next run", default: 10 }
@@ -228,10 +230,11 @@ skills:
     required_tools:
       - git
       - glab
+      - gh
     config_schema:
       type: object
       properties:
-        project: { type: string, description: "GitLab project path (namespace/repo)" }
+        project: { type: string, description: "Project path (namespace/repo)" }
         base_branch: { type: string, description: "Base branch", default: "main" }
         max_ci_fix_attempts: { type: integer, description: "Stop fixing one MR after this many prior bot fix-attempt comments (huginn max_ci_fix_attempts)", default: 5 }
         regression_command: { type: string, description: "Command to regenerate fixtures/snapshots (used for regression failures)", default: "" }
@@ -311,10 +314,11 @@ skills:
     required_tools:
       - git
       - glab
+      - gh
     config_schema:
       type: object
       properties:
-        project: { type: string, description: "GitLab project path (namespace/repo)" }
+        project: { type: string, description: "Project path (namespace/repo)" }
         base_branch: { type: string, description: "Branch to rebase onto", default: "main" }
         forge: { type: string, description: "Which forge this assignment targets", enum: [gitlab, github], default: "gitlab" }
       required: [project, base_branch]
@@ -366,11 +370,12 @@ skills:
     required_tools:
       - git
       - glab
+      - gh
     config_schema:
       type: object
       properties:
         forge: { type: string, description: "Which forge this assignment targets", enum: [gitlab, github], default: "gitlab" }
-        project: { type: string, description: "GitLab project path (namespace/repo)" }
+        project: { type: string, description: "Project path (namespace/repo)" }
         base_branch: { type: string, description: "Base branch", default: "main" }
       required: [project, base_branch]
     prompt: |
@@ -521,11 +526,12 @@ skills:
     required_tools:
       - git
       - glab
+      - gh
     config_schema:
       type: object
       properties:
         forge: { type: string, description: "Which forge this assignment targets", enum: [gitlab, github], default: "gitlab" }
-        project: { type: string, description: "GitLab project path (namespace/repo)" }
+        project: { type: string, description: "Project path (namespace/repo)" }
       required: []
     prompt: |
       The author of {{.Forge.changeNoun}} {{.Forge.changeSigil}}{{.Event.mr_iid}} ({{.Event.mr_title}}) in
@@ -584,11 +590,12 @@ skills:
     required_tools:
       - git
       - glab
+      - gh
     config_schema:
       type: object
       properties:
         forge: { type: string, description: "Which forge this assignment targets", enum: [gitlab, github], default: "gitlab" }
-        project: { type: string, description: "GitLab project path (namespace/repo)" }
+        project: { type: string, description: "Project path (namespace/repo)" }
         category:
           type: string
           description: "Audit category (mirrors huginn's code_audit/agents/prompts/*.md set)"
